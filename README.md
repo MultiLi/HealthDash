@@ -54,6 +54,14 @@ python3 $S/backtest.py golden                    # 12 条金标用例
 
 采集与出报告的链路（`sync.py` / `collect.py` / `slot.py` / 自动化 prompt）不受影响，见 `.workbuddy/skills/body-health/SKILL.md`。
 
+## 云服务
+
+站点接了 WorkBuddy Cloud Service（Database），存最近 7 天的逐日事实与版本指纹，
+页面据此做一致性校验（胶囊会显示「云端 7 天一致 / 落后 / 不可用」）。
+配置唯一来源 `tools/cloud.json`（构建时注入 `index.json` 的 `cloud` 节点）；前端 `site/js/cloud.js`；
+SDK 自托管在 `site/vendor/`。**表是 public read、没有任何客户端写路径**，同步走管理通道。
+细节见 `tools/HOMEPAGE_NOTES.md` 的「云服务」一节。
+
 ## 口径入口（改判定只改这两个文件）
 
 - `references/rules.json` — 阈值、个人档案、`units` 门禁、`confidence` 噪声门槛（mdc）

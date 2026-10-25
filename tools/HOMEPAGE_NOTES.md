@@ -24,6 +24,45 @@
 - **已知缺口（均未改代码）**：① 日历配色只由综合指数驱动，恢复报警日（09-07 准备度 41 LOW）日历上仍是绿色 92 徽标；② 主页准备度取单一主字段，**不认 `readiness_series`**——09-17 展示 HIGH(78)（来自 00:19 前夜重置），报告口径是日间 MODERATE(70)。
 - **进行中的当天**：units 的 `j` 会是 `na`（coverage < 0.95），卡片显示「覆盖 x% · 不给结论」但**数字照给**——步数这类白天累计值比「—」有信息量，前提是明确标了不可判。注意 index 行的 `steps` 对 morning 日为 null（不含白天 activity），而 units 的 `v` 有值（raw 全天累计），两者不同源，**主值以后端 `v` 为准**。
 
+
+### 云服务（WorkBuddy Cloud Service · 2026-10-25 开通）
+
+**一句话：云端存「最近 7 天的逐日事实 + 版本指纹」，页面读它来做一致性校验——不是主页的数据来源。**
+
+| 项 | 值 |
+|---|---|
+| applicationId | `wbapp_3G1QX7kZjmy7RNbU9gBdT5`（与发布同一个 id，域名不变才不影响 Origin 校验） |
+| resourceId | `wbcs_jxiAJka8Buhis5RcgndO9u` |
+| 表 | `health_meta`（1 行，版本指纹/基线/goals）· `health_days`（逐日轻量索引行）· `health_shards`（月度分片，建表但暂未写入） |
+| RLS | 三张表均 `ENABLE RLS` + **只有 SELECT 策略**给 `anon, authenticated`；**没有任何客户端写路径** |
+| 配置唯一来源 | `tools/cloud.json` → 构建时注入 `index.json` 的 `cloud` 节点 → 前端从数据里读 |
+
+**为什么 SDK 自托管**：站是纯静态、无构建步骤（技能文档的 Form B）。`@dev` 的 IIFE 从
+jsdelivr 取不到（本机 curl 返回 000），所以把 `npm pack @tencent-ai/workbuddy-cloud-sdk@dev`
+解出来的 `lib/index.global.js`（0.1.4-dev，72KB，自包含）放在 `site/vendor/`。
+**只换了 `<script src>` 的位置，初始化与模块 API 一字未改**。升级只需替换该文件。
+
+**前端怎么用**（`site/js/cloud.js`）：
+- `pull(ix)` 读 `health_meta(id=1)` + `health_days` 最近 60 行；
+- `compare(ix, snap)` **按字段逐项比，不能整串比**——PostgreSQL 的 jsonb 会重排对象键，
+  整串比会 100% 假阳性（smoke 里有一条专门测这个）；
+- 状态：`in-sync` / `mismatch`（本地为准并标脏）/ `ahead`（云端有新日）/ `off` / `unavailable`；
+- **首屏不等它**：`checkCloud()` 在 `init` 最后异步发起，拿到才补一句胶囊文案，
+  失败标「云端不可用」但**不标脏**（标脏留给「用了旧数据」）。
+
+**为什么不把 units 放进云**：units 是判定派生（165KB / 196 单元 / 1553 格，每天全量重算）。
+云端存**事实**（逐日指标），判定留在构建产物里——两者用 `generated_at` 锁同源。
+
+**同步方式**：`health_days` 只保留最近 `sync_window_days`（7）天。更新走管理通道
+（MCP `workbuddy_cloudservice_db_exec_sql`，`mode=write`，用
+`INSERT ... SELECT ... FROM jsonb_array_elements($1::jsonb) ... ON CONFLICT DO UPDATE`，
+一次调用写一批）。**这是唯一写路径**：没有 token、没有匿名写接口，客户端即使拿到
+publishableKey 也只能读。云端落后时胶囊会显示「云端 N 天不一致」，那时让 agent 跑一次同步。
+
+⚠️ **可见性**：三张表是 public read，`publishableKey` 也随 `index.json` 下发。这与现状等价
+（`index.json` 本来就是公开静态文件，含全部健康数据），**没有新增暴露面**；
+但反过来也意味着——**它不提供任何隐私保护**，别把它当「加密存储」。
+
 ### 体成分（InBody）· 事件型数据源（2026-10-18 建）
 
 **它不在 `days[]` 里。** `site/index.json` 顶层多了一个 `inbody` 块，由
@@ -44,6 +83,6 @@
   `index.html` 里加 `<link>`，否则样式静默失效。
 
 ### 前端改动的验证手段（09-16 立，血账）
-- `tools/smoke_site.mjs`：**改完 js/ 必跑**（零依赖，100 项断言，含取数链路 + 空日/冻死回归）。须按 index.html 里带指纹的地址 import 模块，否则拿到第二个模块实例直接崩。DOM 桩抓不到事件层问题。
+- `tools/smoke_site.mjs`：**改完 js/ 必跑**（零依赖，113 项断言，含取数链路 + 空日/冻死回归）。须按 index.html 里带指纹的地址 import 模块，否则拿到第二个模块实例直接崩。DOM 桩抓不到事件层问题。
 - `tools/probe_interactions.py`：**真浏览器真点**，抓「点完冻死」这类交互层问题（8 用例，约 30 秒）。⚠️ **给无头 Chrome 传 `--user-data-dir=<新建目录>` 会让它永不返回**，症状是「所有用例 HUNG」——**连基线都 HUNG 就是工具坏了**。默认复用默认 profile + `--incognito`。
 - **截图验证**：`"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --disable-gpu --no-sandbox --hide-scrollbars --window-size=1440,4200 --screenshot=out.png --virtual-time-budget=9000 <url>`。**起本地服务必须在同一条 bash 里「起→截图→kill」，或者用 `run_in_background=true` 起的常驻 server**（2026-10-25 实测可用；此前记的「run_in_background 起的 server 连不上」是因为用了 `(cmd &)` 子 shell，进程随命令退出就没了）。看非默认尺度就把 index.html 复制成 `site/_probe_*.html` 换显式 boot，截完即删。**呈现层问题只能靠截图发现。**

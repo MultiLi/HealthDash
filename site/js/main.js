@@ -3,12 +3,13 @@
  * 观测状态只有两个自由度：**anchor（锚定日期）+ scale（尺度）**。
  * 没有「概览页」「某日页」之分——那两者是同一个视图在月尺度与日尺度下的样子。
  * 首屏只拉索引；单日细分在展开时才拉当月分片（取数链路见 data.js）。 */
-import { store } from "./store.js?v=ceda129d";
-import { esc, $ } from "./utils.js?v=ceda129d";
-import { renderPage, setupDetailToggle } from "./metricgrid.js?v=ceda129d";
-import { shiftMonth, monthKey } from "./dateutil.js?v=ceda129d";
-import { loadIndex } from "./data.js?v=ceda129d";
-import { renderInBody, setInBody } from "./inbody.js?v=ceda129d";
+import { store } from "./store.js?v=b4d49e42";
+import { esc, $ } from "./utils.js?v=b4d49e42";
+import { renderPage, setupDetailToggle } from "./metricgrid.js?v=b4d49e42";
+import { shiftMonth, monthKey } from "./dateutil.js?v=b4d49e42";
+import { loadIndex } from "./data.js?v=b4d49e42";
+import { renderInBody, setInBody } from "./inbody.js?v=b4d49e42";
+import { pull, compare, statusText, cfgOf } from "./cloud.js?v=b4d49e42";
 
 function setScale(scale) {
   store.scale = scale;
@@ -55,9 +56,30 @@ function renderSync() {
   var s = store.ix.span;
   /* 走的是随包静态副本时显式标注——不能用旧数据冒充「已同步」，也不让兜底静默发生 */
   var via = store.dataFrom === "bundled" ? " · 静态副本" : "";
-  pill.classList.toggle("stale", store.dataFrom === "bundled");
+  /* 云端是**可选**能力：读不到就标「不可用」，不能写成已同步，也不能因此标脏
+     （标脏是留给「用了旧数据」的，不是留给「有个可选能力挂了」）。 */
+  var cs = store.cloud;
+  via += statusText(cs);
+  var stale = store.dataFrom === "bundled" || (cs && cs.status === "mismatch");
+  pill.classList.toggle("stale", !!stale);
+  pill.title = cs && cs.diffs && cs.diffs.length
+    ? "云端与本地不一致：" + cs.diffs.map(function (d) { return d.date + " " + d.fields.join("/"); }).join("；")
+    : "";
   $("sync-text").textContent = "Garmin 已同步 · " + s.n + " 个数据日" +
     (store.ix.synced_at ? " · 更新于 " + store.ix.synced_at : "") + via;
+}
+
+/* 云端一致性校验：**首屏不等它**。拿到就补一句状态，读不到就标不可用。
+   这条链路挂了不影响任何一次渲染——它是副本校验，不是数据来源。 */
+function checkCloud() {
+  if (!cfgOf(store.ix)) { store.cloud = { status: "off" }; renderSync(); return; }
+  pull(store.ix).then(function (snap) {
+    store.cloud = compare(store.ix, snap);
+    renderSync();
+  }).catch(function (e) {
+    store.cloud = { status: "unavailable", error: (e && (e.message || e.code)) || String(e) };
+    renderSync();
+  });
 }
 
 function fail(err) {
@@ -90,6 +112,7 @@ function init(ixd) {
   renderInBody();
   renderPage();
   renderSync();
+  checkCloud();
 }
 
 loadIndex()
