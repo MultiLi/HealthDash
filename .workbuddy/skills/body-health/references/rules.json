@@ -23,7 +23,9 @@
    64
   ],
   "late_bedtime": "01:30",
-  "debt_lookback_days": 4
+  "debt_lookback_days": 4,
+  "bed_late_tolerance_min": 45,
+  "bed_severe_offset_min": 120
  },
  "hrv": {
   "big_drop_pct": 15,
@@ -497,7 +499,8 @@
    "none"
   ],
   "slope_min_points": 6,
-  "slope_min_span_days": 14
+  "slope_min_span_days": 14,
+  "daily_ok_rate": 0.6
  },
  "inbody": {
   "_comment": "InBody 体成分闸门（check_inbody.py）的唯一阈值来源。扫描是事件型数据：没有新扫描不等于故障，只是没测。stale_days_warn 之后仍可当基线、不可当『当前状态』；stale_days_bad 之后报告必须写陈旧。weight_mdc_diff_condition=异时段（晨起 vs 晚间）体重变化的门槛，覆盖 confidence 里的 0.6kg 同条件值。hard_anomaly=单次越过就先怀疑测错/换机，不当作真实变化。",

@@ -87,6 +87,21 @@ def _day_obs(day, rules):
             if bm is not None:
                 out.append(_obs("sleep_bed_min", bm, t, method="garmin_sleep",
                                 kind="point", coverage=1.0, **common))
+    # —— 设备给的动态参考量（不是我们的判定，是判定的输入）——
+    if sl.get("need_min") is not None:
+        out.append(_obs("sleep_need_h", round(sl["need_min"] / 60.0, 3), t,
+                        method="garmin_sleep_need", kind="point", coverage=1.0, **common))
+    if sl.get("need_baseline_min") is not None:
+        out.append(_obs("sleep_need_baseline_h", round(sl["need_baseline_min"] / 60.0, 3),
+                        t, method="garmin_sleep_need", kind="point", coverage=1.0, **common))
+    bw = sl.get("bed_window") or {}
+    if bw.get("start") is not None:
+        out.append(_obs("bed_window_start_min", bw["start"], t, method="garmin_sleep_need",
+                        kind="point", coverage=1.0, **common))
+    if bw.get("end") is not None:
+        out.append(_obs("bed_window_end_min", bw["end"], t, method="garmin_sleep_need",
+                        kind="point", coverage=1.0, **common))
+
     shr = (sl.get("sleep_hr") or {}).get("avg")
     if shr is not None:
         out.append(_obs("sleep_hr_avg", shr, t, method="garmin_sleep",
@@ -136,6 +151,9 @@ def _day_obs(day, rules):
                         coverage=frac, **common))
 
     sp = day.get("spo2") or {}
+    if sp.get("avg7") is not None:
+        out.append(_obs("spo2_avg7", round(sp["avg7"], 2), t, method="garmin_spo2",
+                        kind="point", coverage=1.0, **common))
     if sp.get("sleep_avg") is not None:
         out.append(_obs("spo2_sleep_avg", sp["sleep_avg"], t, method="garmin_spo2",
                         kind="interval", t_end=sl.get("end_local"), coverage=1.0, **common))
@@ -144,6 +162,11 @@ def _day_obs(day, rules):
     if rd.get("score") is not None:
         out.append(_obs("readiness_score", rd["score"], t, method="garmin_readiness",
                         kind="point", coverage=1.0, **common))
+
+    tr = day.get("training") or {}
+    if tr.get("acwr") is not None:
+        out.append(_obs("acwr", tr["acwr"], t, method="garmin_training",
+                        kind="point", coverage=frac, **common))
 
     vv = day.get("vo2max") or {}
     if vv.get("value") is not None:
@@ -164,6 +187,48 @@ def _day_obs(day, rules):
         out.append(_obs("exercise_window_n", len(w), t, method="garmin_hr_hourly",
                         kind="derived", coverage=frac, **common))
     return [o for o in out if o.get("value") is not None]
+
+
+READY_RANK = {"POOR": 0, "LOW": 1, "MODERATE": 2, "HIGH": 3, "PRIME": 4}
+BREATH_RANK = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
+QUAL_RANK = {"POOR": 0, "FAIR": 1, "GOOD": 2, "EXCELLENT": 3}
+
+
+def _day_grades(day):
+    """设备自己下的**分类判定**，进 grades 表，与我们的断言并列而非互相覆盖。
+
+    为什么单独存：这些是字符串分档（MODERATE / UNBALANCED / FAIR），编码成数字会丢语义；
+    而且「设备怎么判」和「我们怎么判」必须能同时呈现——主页准备度用设备五档、
+    报告用我们的阈值，两者背离时正是有价值的信息（09-07 综合指数 92 / 准备度 41 LOW）。
+    """
+    d = day["date"]
+    t = d + "T00:00:00"
+    base = dict(source="garmin", t=t)
+    out = []
+    rd = day.get("readiness") or {}
+    if rd.get("level"):
+        out.append({**base, "metric": "readiness_level", "method": "garmin_readiness",
+                    "grade": rd["level"], "rank": READY_RANK.get(rd["level"]),
+                    "note": "score=%s" % rd.get("score")})
+    hv = day.get("hrv") or {}
+    if hv.get("status"):
+        out.append({**base, "metric": "hrv_status", "method": "garmin_hrv",
+                    "grade": hv["status"], "rank": None,
+                    "note": "设备按 7 日均判定，不等于昨夜状态"})
+    sl = day.get("sleep") or {}
+    if sl.get("breathing"):
+        out.append({**base, "metric": "breathing_disruption", "method": "garmin_sleep",
+                    "grade": sl["breathing"], "rank": BREATH_RANK.get(sl["breathing"]),
+                    "note": None})
+    if sl.get("score_feedback"):
+        out.append({**base, "metric": "sleep_score_feedback", "method": "garmin_sleep",
+                    "grade": sl["score_feedback"], "rank": None, "note": None})
+    for sub in (sl.get("sub_scores") or []):
+        if sub.get("key") and sub.get("qualifier"):
+            out.append({**base, "metric": "sleep_sub_%s" % sub["key"],
+                        "method": "garmin_sleep", "grade": sub["qualifier"],
+                        "rank": QUAL_RANK.get(sub["qualifier"]), "note": None})
+    return out
 
 
 def _subjective_obs():
@@ -269,16 +334,23 @@ def build(since=None, quiet=False):
         obs.extend(_day_obs(day, rules))
     obs.extend(_subjective_obs())
     obs.extend(_inbody_obs())
+    grades = []
+    for day in days:
+        grades.extend(_day_grades(day))
 
     con = db.connect()
     con.execute("DELETE FROM obs")
     db.upsert_obs(con, obs)
+    con.execute("DELETE FROM grades")
+    db.upsert_grades(con, grades)
     con.executemany(
         "INSERT OR REPLACE INTO obs_day_gate(date,level,cutoff_min,steps,note) "
         "VALUES (:date,:level,:cutoff_min,:steps,:note)", _gates(raw))
     con.commit()
     if not quiet:
-        print("obs: %d 条（%d 个指标）" % (len(obs), len({o["metric"] for o in obs})))
+        print("obs: %d 条（%d 个指标）· grades: %d 条（%d 种设备分档）"
+              % (len(obs), len({o["metric"] for o in obs}), len(grades),
+                 len({g["metric"] for g in grades})))
 
     n_units = units_mod.rebuild(con, rules, quiet=True)
     if not quiet:

@@ -1,6 +1,6 @@
 {
- "version": 3,
- "_comment": "指标注册表 v3（2026-10-25）。**这是指标定义的唯一权威来源**：语义（label/unit/kind/role）、可比条件、聚合方式（agg）、达标方向（dir）、以及「达标线是哪条规则」（thresholds 声明式表达式）。阈值数值仍在 rules.json，本表只声明映射与换算；解析器是 scripts/metricdefs.py，缺路径会直接报错（以前静默返回 None，指标会悄悄失去达标判定）。thresholds 四键：goal=单元/展示达标线（units.judge 用）；judge=判读线（报告判黄用，未声明退回 goal）；severe=红线段；delta=差值型判据（如静息心率抬升）。表达式只允许 数字 / 点号路径 / + - * / 与括号。",
+ "version": 4,
+ "_comment": "指标注册表 v4（2026-10-25）。**这是指标定义的唯一权威来源**：语义（label/unit/kind/role）、可比条件、聚合方式（agg）、达标方向（dir）、以及「达标线是哪条规则」（thresholds 声明式表达式）。阈值数值仍在 rules.json，本表只声明映射与换算；解析器是 scripts/metricdefs.py，缺路径会直接报错（以前静默返回 None，指标会悄悄失去达标判定）。thresholds 四键：goal=单元/展示达标线（units.judge 用）；judge=判读线（报告判黄用，未声明退回 goal）；severe=红线段；delta=差值型判据（如静息心率抬升）。表达式只允许 数字 / 点号路径 / + - * / 与括号。 v4 新增：thresholds 可用 `ref:<指标名>` 引用**信源给的动态参考量**（如设备算出的睡眠需求、推荐入睡窗），并支持 max()/min() 组合；`<field>_fallback` 声明动态值缺失时的静态退路；`judge_mode: daily` 表示「达标」必须逐日判再求达标率（阈值本身逐日变时，用单元均值除以单元均值会失真）。",
  "kinds": {
   "point": "点观测：某个时刻的一个读数（体测、称重、血压）。t 是时刻。",
   "interval": "区间观测：某个时间段上的聚合量（一天的步数、一夜的 HRV）。t=t_start, t_end=区间终点，coverage=实际覆盖比例。",
@@ -163,15 +163,17 @@
     "method",
     "device"
    ],
-   "note": "区间＝一夜。日间摆动 ±0.9h。达标线 = rules.sleep.min_healthy_duration_min / 60。",
+   "note": "达标线取**严**：静态底线 7h 与设备当晚算出的需求取较大者。设备说需要 7.83h 的那天就该按 7.83h 判，而不是永远 7h；设备说 6.5h 时不放松到 6.5h。因为阈值逐日变，单元达标用 judge_mode=daily（逐日判再求达标率），不用「日均时长 ÷ 日均需求」。",
    "precision": 1,
    "check": true,
    "frontend_key": "sleep_h",
    "thresholds": {
     "goal": "sleep.min_healthy_duration_min / 60",
-    "judge": "sleep.min_healthy_duration_min / 60",
+    "judge": "max(sleep.min_healthy_duration_min / 60, ref:sleep_need_h)",
+    "judge_fallback": "sleep.min_healthy_duration_min / 60",
     "severe": "cross.short_sleep_min / 60"
-   }
+   },
+   "judge_mode": "daily"
   },
   "sleep_deep_pct": {
    "label": "深睡占比",
@@ -442,9 +444,11 @@
     "method",
     "device"
    ],
-   "note": "**参考量，不进单元聚合**。数值 = 本地时刻换算成当日分钟数（02:27 → 147），便于与 rules.sleep.late_bedtime（01:30 → 90）直接比较，避免字符串比较的坑。 判读线由 thresholds.judge_time 声明（HH:MM 字符串），解析成分钟数后与值比较。",
+   "note": "**参考量，不进单元聚合**。数值 = 本地时刻换算成当日分钟数（02:27 → 147），便于与 rules.sleep.late_bedtime（01:30 → 90）直接比较，避免字符串比较的坑。 判读线=设备推荐窗止 + 容差（默认 45 分），设备窗缺失时退回静态 01:30；红线=窗止+120 分。**只比偏移量、不拿窗口本身当标准**：设备窗是按当前作息算的，用它判达标会把坏习惯正常化。",
    "thresholds": {
-    "judge_time": "sleep.late_bedtime"
+    "judge": "ref:bed_window_end_min + sleep.bed_late_tolerance_min",
+    "judge_time": "sleep.late_bedtime",
+    "severe": "ref:bed_window_end_min + sleep.bed_severe_offset_min"
    }
   },
   "exercise_window_n": {
@@ -529,6 +533,67 @@
     "method"
    ],
    "note": "主观量：不与设备睡眠分互换，只做「客观-主观偏离」的对照。"
+  },
+  "sleep_need_h": {
+   "label": "设备睡眠需求",
+   "unit": "h",
+   "kind": "interval",
+   "cadence": "daily",
+   "role": "proxy",
+   "error_ref": "sleep_h",
+   "agg": "median",
+   "dir": null,
+   "note": "Garmin 按 HRV / 午睡 / 睡眠债 / 训练反馈**逐日**算出的下一夜需求（raw nextSleepNeed.actual）。比静态 7h 更贴合当天状态；实测 36 天里 390–470min 波动，其中 3 天高于 7h。作为 ref 供 sleep_h 的判读线使用。"
+  },
+  "sleep_need_baseline_h": {
+   "label": "睡眠需求基线",
+   "unit": "h",
+   "kind": "point",
+   "cadence": "daily",
+   "role": "proxy",
+   "error_ref": "sleep_h",
+   "dir": null,
+   "note": "设备的基线需求（raw sleepNeed.baseline），通常恒为 7h。用来判断「需求被抬升」这件事本身。"
+  },
+  "bed_window_start_min": {
+   "label": "推荐入睡窗起",
+   "unit": "min-of-day",
+   "kind": "point",
+   "cadence": "daily",
+   "role": "proxy",
+   "error_ref": "sleep_h",
+   "dir": null,
+   "note": "设备按当前作息与需求算出的推荐入睡窗口起点（raw nextSleepNeed.recommendedBedtimeStartMins）。**这是相对量，不是达标线**——它会随作息漂移，拿它当标准等于把现状正常化。"
+  },
+  "bed_window_end_min": {
+   "label": "推荐入睡窗止",
+   "unit": "min-of-day",
+   "kind": "point",
+   "cadence": "daily",
+   "role": "proxy",
+   "error_ref": "sleep_h",
+   "dir": null,
+   "note": "同上，窗口终点。**判读只用它的偏移量**（实际入睡 − 窗止），不拿窗口本身判达标。"
+  },
+  "spo2_avg7": {
+   "label": "血氧 7 日均",
+   "unit": "%",
+   "kind": "point",
+   "cadence": "daily",
+   "role": "proxy",
+   "error_ref": "spo2_sleep_avg",
+   "dir": null,
+   "note": "设备给的 7 日血氧均值。判「今晚是否偏离自己的常态」比静态 92% 更有信息量。"
+  },
+  "acwr": {
+   "label": "ACWR 负荷比",
+   "unit": "ratio",
+   "kind": "point",
+   "cadence": "daily",
+   "role": "proxy",
+   "error_ref": "steps_daily",
+   "dir": null,
+   "note": "急慢性负荷比（设备算出）。进观测层后才能做「负荷 vs 恢复」的跨窗比较。"
   }
  }
 }

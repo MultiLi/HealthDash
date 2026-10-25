@@ -148,10 +148,11 @@ def _read_obs(con, metrics):
          "ORDER BY t")
     for r in con.execute(q):
         m, d = r["metric"], r["d"]
-        if m in metrics:
-            day_vals.setdefault(d, {})[m] = r["value"]
-            cov[(m, d)] = r["coverage"]
-        elif m in ("hrv_band_low", "hrv_band_high"):
+        # 全部指标都进 day_vals：聚合指标用来算单元，参考量（sleep_need_h 等）
+        # 用来当**阈值输入**——阈值逐日变时，单元判定必须逐日做。
+        day_vals.setdefault(d, {})[m] = r["value"]
+        cov[(m, d)] = r["coverage"]
+        if m in ("hrv_band_low", "hrv_band_high"):
             bands.setdefault(d, {})[m] = r["value"]
     return day_vals, bands, cov
 
@@ -221,6 +222,12 @@ def rebuild(con, rules=None, metrics=None, quiet=True):
 
     day_vals, bands, cov = _read_obs(con, metrics)
     day_cov_min = u.get("day_coverage_min", 0.95)
+    daily_ok_rate = u.get("daily_ok_rate", 0.6)
+    # 每个指标引用了哪些参考量（阈值里的 ref:xxx）
+    ref_names = {m: sorted({r for expr in (md.get("thresholds") or {}).values()
+                            if isinstance(expr, str)
+                            for r in metricdefs.refs_in(expr)})
+                 for m, md in metrics.items()}
     if not day_vals:
         if not quiet:
             print("obs 表为空：先跑 index.py build")
@@ -266,12 +273,45 @@ def rebuild(con, rules=None, metrics=None, quiet=True):
                     if b.get("hrv_band_low") is not None and b.get("hrv_band_high") is not None:
                         band = (b["hrv_band_low"], b["hrv_band_high"])
                         break
-            judge = _judge(m, value, mdef, rules, band) \
-                if (coverage is not None and coverage >= cov_min.get(sc, 0)) else (
-                    "na" if mdef.get("dir") else None)
+            judge, judge_rate = None, None
+            if mdef.get("dir"):
+                if coverage is None or coverage < cov_min.get(sc, 0):
+                    judge = "na"
+                elif mdef.get("judge_mode") == "daily":
+                    # 阈值逐日变（如「设备当晚算的需求」）→ 逐日判再求达标率。
+                    # 用「日均时长 ÷ 日均需求」会失真：两个均值相除不等于逐日达标率。
+                    ok_n = tot = 0
+                    for d in sp["dates"]:
+                        vd = day_vals.get(d, {})
+                        val_d = vd.get(m)
+                        if val_d is None:
+                            continue
+                        c_d = cov.get((m, d))
+                        if c_d is not None and c_d < day_cov_min and sc != "day":
+                            continue
+                        refs = {k: vd.get(k) for k in ref_names.get(m, [])}
+                        try:
+                            th = metricdefs.judge_of(m, rules, refs)
+                        except Exception:
+                            th = metricdefs.judge_of(m, rules)
+                        if th is None:
+                            continue
+                        tot += 1
+                        ok_n += 1 if (val_d >= th if mdef["dir"] == "above"
+                                      else val_d <= th) else 0
+                    if tot:
+                        judge_rate = round(ok_n / tot, 3)
+                        judge = "ok" if judge_rate >= daily_ok_rate else "no"
+                        judge_note = "%d/%d 天达标（≥%.0f%% 记 ok）" % (
+                            ok_n, tot, daily_ok_rate * 100)
+                    else:
+                        judge = "na"
+                else:
+                    judge = _judge(m, value, mdef, rules, band)
             row = {"scale": sc, "key": key, "metric": m, "value": value,
                    "agg": mdef.get("agg"), "n": n, "coverage": coverage,
-                   "judge": judge, "start": sp["start"], "end": sp["end"],
+                   "judge": judge, "judge_rate": judge_rate,
+                   "start": sp["start"], "end": sp["end"],
                    "expected": sp["expected"]}
             cells[(sc, key, m)] = row
             rows.append(row)
@@ -379,9 +419,12 @@ def cmd_get(a):
           % ("指标", "值", "n", "覆盖", "达标", "变化", "说明"))
     for r in rows:
         m = r["metric"]
+        rate = ""
+        if "judge_rate" in r.keys() and r["judge_rate"] is not None:
+            rate = "(%d%%)" % round(r["judge_rate"] * 100)
         print("%-14s %10s %5d %6.0f%% %-4s %-14s %s"
               % (m, _fmt(r["value"], reg.get(m), m), r["n"],
-                 (r["coverage"] or 0) * 100, r["judge"] or "-",
+                 (r["coverage"] or 0) * 100, (r["judge"] or "-") + rate,
                  r["delta_verdict"] or "-",
                  ("" if r["delta_v"] is None else "Δ%+.1f " % r["delta_v"])
                  + (r["delta_note"] or "")))

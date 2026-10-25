@@ -105,13 +105,18 @@ def build_day(date, v, rules, ctx):
     # ---- sleep ----
     sh = v.get("sleep_h")
     if sh is not None:
-        floor_h = _th("sleep_h", "judge", rules)          # 7.0（rules.sleep.min_healthy_duration_min / 60）
+        refs = {"sleep_need_h": v.get("sleep_need_h")}
+        floor_h = _th("sleep_h", "judge", rules, refs)    # max(静态 7h, 设备当晚需求)
         severe_h = _th("sleep_h", "severe", rules)        # 6.0（rules.cross.short_sleep_min / 60）
         short = floor_h is not None and sh < floor_h
         out.append(A("sleep.duration.short", date, "sleep", "sleep_h",
-                     "sleep.min_healthy_duration_min", short,
+                     "sleep.min_healthy_duration_min|ref:sleep_need_h", short,
                      BAD if (severe_h is not None and sh < severe_h) else WARN,
-                     {"hours": round(sh, 2), "floor_h": floor_h, "severe_h": severe_h},
+                     {"hours": round(sh, 2), "floor_h": floor_h,
+                      "device_need_h": v.get("sleep_need_h"),
+                      "ruler": ("device_need" if v.get("sleep_need_h") is not None
+                                else "static_fallback"),
+                      "severe_h": severe_h},
                      conf("sleep_h"), "补觉优先于训练"))
         out.append(A("sleep.duration.very_short", date, "sleep", "sleep_h",
                      "cross.short_sleep_min",
@@ -132,12 +137,32 @@ def build_day(date, v, rules, ctx):
                      "sleep.deep_pct_optimal", not (lo <= deep <= hi), INFO,
                      {"deep_pct": deep, "optimal": [lo, hi]}, None))
     bed = v.get("sleep_bed_min")
-    late_min = metricdefs.threshold_time("sleep_bed_min", rules)
+    bw_end = v.get("bed_window_end_min")
+    late_min = metricdefs.judge_time_of("sleep_bed_min", rules,
+                                        {"bed_window_end_min": bw_end})
+    severe_bed = None
+    try:
+        severe_bed = metricdefs.severe_of("sleep_bed_min", rules,
+                                          {"bed_window_end_min": bw_end})
+    except Exception:
+        severe_bed = None
     if bed is not None:
         out.append(A("sleep.bedtime.late", date, "sleep", "sleep_bed_min",
-                     "sleep.late_bedtime", bed >= late_min, WARN,
-                     {"bed_min": bed, "threshold_min": late_min}, None,
-                     "入睡提前比任何补剂都有效"))
+                     "ref:bed_window_end_min + sleep.bed_late_tolerance_min",
+                     late_min is not None and bed >= late_min, WARN,
+                     {"bed_min": bed, "threshold_min": late_min,
+                      "device_window_end": bw_end,
+                      "ruler": ("device_window" if bw_end is not None
+                                else "static_fallback"),
+                      "offset_from_window_min": (bed - bw_end) if bw_end else None},
+                     None, "入睡提前比任何补剂都有效"))
+        if severe_bed is not None and bed >= severe_bed:
+            out.append(A("sleep.bedtime.very_late", date, "sleep", "sleep_bed_min",
+                         "ref:bed_window_end_min + sleep.bed_severe_offset_min",
+                         True, BAD,
+                         {"bed_min": bed, "threshold_min": severe_bed,
+                          "offset_from_window_min": bed - bw_end if bw_end else None},
+                         None, "超过 2 小时就不是『晚一点』，是作息整体后移"))
     out.append(A("sleep.debt.streak_ge_2", date, "sleep", "sleep_h",
                  "cross.sleep_debt_nights", ctx.get("short_streak", 0) >= 2, WARN,
                  {"streak": ctx.get("short_streak", 0),
@@ -260,6 +285,45 @@ def build_day(date, v, rules, ctx):
                      "readiness.low_score", rd < rd_line, WARN,
                      {"readiness": rd, "line": rd_line}, None))
 
+    # ---- data：动态参考量缺失 = 尺子换了，必须显式说 ----
+    for ref_name, m in (("sleep_need_h", "sleep_need_h"),
+                        ("bed_window_end_min", "bed_window_end_min")):
+        if v.get(ref_name) is None:
+            out.append(A("data.reference.missing", date, "data", m,
+                         "metricdefs.thresholds.*_fallback", True, INFO,
+                         {"ref": ref_name,
+                          "affects": ("sleep_h" if ref_name == "sleep_need_h"
+                                      else "sleep_bed_min"),
+                          "fallback": ("静态 7h" if ref_name == "sleep_need_h"
+                                      else "静态 01:30")}, "high",
+                         "该日信源没给这个参考量，判定已退回静态口径——报告须写明用的哪把尺子"))
+
+    # ---- device：把信源自己的判断与参考量摆上桌（INFO 透传，不映射成我们的红黄绿）----
+    need = v.get("sleep_need_h")
+    need_base = v.get("sleep_need_baseline_h")
+    if need is not None and need_base is not None:
+        out.append(A("device.sleep_need.elevated", date, "device", "sleep_need_h",
+                     "ref:sleep_need_baseline_h", need > need_base + 0.25, INFO,
+                     {"need_h": need, "baseline_h": need_base,
+                      "delta_h": round(need - need_base, 2)}, None,
+                     "设备把需求抬高了，通常来自睡眠债/训练负荷/HRV"))
+    if bw_end is not None and bed is not None:
+        out.append(A("device.bedtime.offset_from_window", date, "device", "sleep_bed_min",
+                     "ref:bed_window_end_min", bed > bw_end, INFO,
+                     {"bed_min": bed, "window": [v.get("bed_window_start_min"), bw_end],
+                      "offset_min": bed - bw_end}, None,
+                     "设备推荐窗是按当前作息算的，只比偏移量、不拿窗当标准"))
+    rd = v.get("readiness_score")
+    if rd is not None:
+        out.append(A("device.readiness.grade", date, "device", "readiness_score",
+                     "grades.readiness_level", True, INFO,
+                     {"score": rd}, None,
+                     "设备五档原样透传；与综合指数并排看背离，不互相改写"))
+    if v.get("acwr") is not None:
+        out.append(A("device.acwr.level", date, "device", "acwr", "acwr.under",
+                     v["acwr"] < rules["acwr"]["under"], INFO,
+                     {"acwr": v["acwr"], "under": rules["acwr"]["under"]}, None))
+
     # ---- cross（只吃 L1 的布尔，不自己算数）----
     trg = {x["id"]: bool(x["verdict"]) for x in out}
     hrv_hit = trg.get("autonomic.hrv.below_band") or \
@@ -304,9 +368,13 @@ def build_day(date, v, rules, ctx):
     return out
 
 
-def _th(metric, field, rules):
-    """阈值一律经 metricdefs 取——本文件不持有任何 metric→规则 的硬编码映射。"""
-    return metricdefs.threshold(metric, field, rules)
+def _th(metric, field, rules, refs=None):
+    """阈值一律经 metricdefs 取——本文件不持有任何 metric→规则 的硬编码映射。
+
+    refs 传了就用**信源给的动态值**（设备当晚算的睡眠需求、推荐入睡窗…），
+    取不到时 metricdefs 会自动退回注册表里声明的 `<field>_fallback`。
+    """
+    return metricdefs.threshold(metric, field, rules, refs)
 
 
 def _hhmm_to_min(s):

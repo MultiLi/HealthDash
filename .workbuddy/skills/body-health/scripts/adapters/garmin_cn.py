@@ -216,6 +216,15 @@ class GarminCN:
                 "score": (sleep.get("sleepScores") or {}).get("overall", {}).get("value"),
                 "need_min": ((sleep.get("nextSleepNeed") or {}).get("actual")),
                 "need_baseline_min": ((sleep.get("sleepNeed") or {}).get("baseline")),
+                # 设备自己算的**推荐入睡窗**（分钟制）。它是随作息漂移的相对量，
+                # 判读只用「实际入睡 − 窗止」的偏移，不拿窗口本身当达标线。
+                "bed_window": {"start": (sleep.get("nextSleepNeed") or {}).get(
+                                   "recommendedBedtimeStartMins"),
+                               "end": (sleep.get("nextSleepNeed") or {}).get(
+                                   "recommendedBedtimeEndMins")},
+                # 设备对昨晚的总评（SLEEP_SCORE 的 feedback，如 POSITIVE_DEEP /
+                # NEGATIVE_LATE），与 sub_scores 的八项分档一起进 grades 表。
+                "score_feedback": sleep.get("sleepScoreFeedback"),
                 "awake_count": sleep.get("awakeCount"),
                 "restless": sleep_parent.get("restlessMomentsCount"),
                 "resp": {"avg": sleep.get("averageRespirationValue"),

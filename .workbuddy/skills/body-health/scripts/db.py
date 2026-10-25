@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS units (
   n          INTEGER,                    -- 有实测值的天数
   coverage   REAL,                       -- n / expected（expected 已按「进行中」截到当天）
   judge      TEXT,                       -- ok / no / na
+  judge_rate REAL,                       -- 逐日判定的达标率（judge_mode=daily 时唯一有意义）
   delta_v    REAL,                       -- 与上一单元（滚动窗＝非重叠位移）
   delta_mdc  REAL,                       -- 该指标的门槛；NULL=未标定
   delta_verdict TEXT,                    -- changed / within-noise / insufficient / uncalibrated
@@ -86,6 +87,21 @@ CREATE TABLE IF NOT EXISTS assertions (
 CREATE INDEX IF NOT EXISTS assert_date ON assertions(date);
 CREATE INDEX IF NOT EXISTS assert_id ON assertions(id);
 
+-- 设备/信源自己的**分类判定**（不是数值）：准备度五档、HRV status、睡眠子项评级…
+-- 与 obs 分开的原因：它们是字符串分档，塞进 REAL 列只能编码成魔数，且语义上
+-- 「设备怎么判」与「我们怎么判」必须能并列展示、互不覆盖。
+CREATE TABLE IF NOT EXISTS grades (
+  metric     TEXT NOT NULL,              -- readiness_level / hrv_status / sleep_sub_remPercentage …
+  t          TEXT NOT NULL,
+  source     TEXT NOT NULL,
+  method     TEXT NOT NULL,
+  grade      TEXT NOT NULL,              -- 原始分档串（MODERATE / UNBALANCED / FAIR）
+  rank       INTEGER,                    -- 有天然序的给序号（准备度 0..4），否则 NULL
+  note       TEXT,
+  PRIMARY KEY (metric, t, source, method)
+);
+CREATE INDEX IF NOT EXISTS grades_metric_t ON grades(metric, t);
+
 CREATE TABLE IF NOT EXISTS obs_day_gate (
   date       TEXT PRIMARY KEY,
   level      TEXT,                       -- complete / partial / no_data / missing_raw
@@ -105,6 +121,7 @@ def connect(path=None):
     con = sqlite3.connect(p)
     con.row_factory = sqlite3.Row
     con.executescript(SCHEMA)
+    ensure_columns(con)
     return con
 
 
@@ -152,7 +169,7 @@ def get_meta(con):
 # ------------------------------------------------------------------ 写入
 OBS_COLS = ("metric", "t", "t_end", "value", "unit", "kind", "source", "method",
             "device", "coverage", "conditions", "derived_from", "raw_ref")
-UNIT_COLS = ("scale", "key", "metric", "value", "agg", "n", "coverage", "judge",
+UNIT_COLS = ("scale", "key", "metric", "value", "agg", "n", "coverage", "judge", "judge_rate",
              "delta_v", "delta_mdc", "delta_verdict", "delta_vs", "delta_note",
              "start", "end", "expected")
 ASSERT_COLS = ("id", "scale", "key", "date", "dimension", "subject", "verdict",
@@ -171,6 +188,23 @@ def upsert_units(con, rows):
         "INSERT OR REPLACE INTO units (%s) VALUES (%s)"
         % (",".join(UNIT_COLS), ",".join("?" * len(UNIT_COLS))),
         [tuple(r.get(c) for c in UNIT_COLS) for r in rows])
+
+
+def upsert_grades(con, rows):
+    con.executemany(
+        "INSERT OR REPLACE INTO grades(metric,t,source,method,grade,rank,note) "
+        "VALUES (:metric,:t,:source,:method,:grade,:rank,:note)", rows)
+
+
+def ensure_columns(con):
+    """给已存在的库补列（库是派生层，但没必要每次全删重建）。"""
+    want = {"units": {"judge_rate": "REAL"}}
+    for table, cols in want.items():
+        have = {r["name"] for r in con.execute("PRAGMA table_info(%s)" % table)}
+        for col, decl in cols.items():
+            if col not in have:
+                con.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, col, decl))
+    con.commit()
 
 
 def upsert_assertions(con, rows):

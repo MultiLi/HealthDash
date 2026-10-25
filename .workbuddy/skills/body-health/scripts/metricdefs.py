@@ -46,9 +46,9 @@ units 里是 `steps_goal`(10000)，在 assertions 里是 `steps_good`(8000)；�
     validate(rules)                  # [(metric, field, problem), ...] 空 = 全通
 """
 import ast
-import copy
 import json
 import os
+import re
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 METRICS_PATH = os.path.join(_HERE, "..", "references", "metrics.json")
@@ -77,6 +77,11 @@ def meta(metric):
 # ------------------------------------------------------------------ 表达式
 _ALLOWED = {ast.Add: lambda a, b: a + b, ast.Sub: lambda a, b: a - b,
             ast.Mult: lambda a, b: a * b, ast.Div: lambda a, b: a / b}
+_FUNCS = {"max": max, "min": min}
+
+# `ref:sleep_need_h` 不是合法 Python 标识符，先换成 __ref_sleep_need_h__ 再解析。
+# 这是「阈值可以来自信源给的动态参考量」的唯一语法入口。
+_REF = re.compile(r"ref:([A-Za-z_][A-Za-z0-9_]*)")
 
 
 def _dotted(node):
@@ -99,50 +104,104 @@ def path(rules, dotted):
     return node
 
 
-def _eval(node, rules):
+def _eval(node, rules, refs=None):
     d = _dotted(node)
     if d is not None:
+        if d.startswith("__ref_") and d.endswith("__"):
+            name = d[6:-2]
+            if not refs or refs.get(name) is None:
+                raise KeyError("参考量缺失：ref:%s（该日/该单元没有这个信源值）" % name)
+            return refs[name]
         return path(rules, d)
     if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
         return node.value
+    if isinstance(node, ast.Call):
+        fn = _dotted(node.func)
+        if fn not in _FUNCS or node.keywords:
+            raise ValueError("只允许 max/min 两个函数：%s" % fn)
+        return _FUNCS[fn](*[_eval(a, rules, refs) for a in node.args])
     if isinstance(node, ast.BinOp) and type(node.op) in _ALLOWED:
-        return _ALLOWED[type(node.op)](_eval(node.left, rules), _eval(node.right, rules))
+        return _ALLOWED[type(node.op)](_eval(node.left, rules, refs),
+                                       _eval(node.right, rules, refs))
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        return -_eval(node.operand, rules)
+        return -_eval(node.operand, rules, refs)
     raise ValueError("不支持的表达式节点：%s" % type(node).__name__)
 
 
-def evaluate(expr, rules):
-    """求值一个声明式表达式（字符串）或直接返回数值。"""
+def refs_in(expr):
+    """表达式里引用了哪些 ref（静态扫描，供校验与文档用）。"""
+    return _REF.findall(str(expr or ""))
+
+
+def evaluate(expr, rules, refs=None):
+    """求值一个声明式表达式（字符串）或直接返回数值。
+
+    refs = {"sleep_need_h": 7.5, ...}：信源给的动态参考量。缺失会抛 KeyError，
+    由调用方决定是退回 fallback 还是报错——**不允许静默用 0 或默认值**。
+    """
     if expr is None:
         return None
     if isinstance(expr, (int, float)):
         return expr
+    text = _REF.sub(lambda m: "__ref_%s__" % m.group(1), str(expr))
     try:
-        tree = ast.parse(str(expr), mode="eval")
+        tree = ast.parse(text, mode="eval")
     except SyntaxError as e:
         raise ValueError("表达式语法错误：%r（%s）" % (expr, e))
-    return _eval(tree.body, rules)
+    return _eval(tree.body, rules, refs)
 
 
 # ------------------------------------------------------------------ 取值
-def threshold(metric, field, rules):
-    """metric 的某条阈值（goal / judge / severe / delta）。未声明返回 None。"""
+def threshold(metric, field, rules, refs=None):
+    """metric 的某条阈值（goal / judge / severe / delta）。未声明返回 None。
+
+    `refs` 给了就优先用信源的动态值；表达式里 ref 取不到时，退回同名的
+    `<field>_fallback`（若声明）——**退路必须写在注册表里**，不在代码里。
+    """
     t = meta(metric).get("thresholds") or {}
-    return evaluate(t.get(field), rules)
+    expr = t.get(field)
+    fb = t.get(field + "_fallback")
+    if expr is None:
+        return evaluate(fb, rules, None) if fb else None
+    try:
+        return evaluate(expr, rules, refs)
+    except Exception:
+        if fb:
+            return evaluate(fb, rules, None)
+        raise
 
 
-def goal_of(metric, rules):
-    return threshold(metric, "goal", rules)
+def goal_of(metric, rules, refs=None):
+    return threshold(metric, "goal", rules, refs)
 
 
-def judge_of(metric, rules):
+def judge_of(metric, rules, refs=None):
     """判读线；未单独声明时退回 goal（简单指标两者同值）。"""
-    return threshold(metric, "judge", rules) or goal_of(metric, rules)
+    v = threshold(metric, "judge", rules, refs)
+    return v if v is not None else goal_of(metric, rules, refs)
 
 
-def delta_threshold(metric, rules):
-    return threshold(metric, "delta", rules)
+def severe_of(metric, rules, refs=None):
+    return threshold(metric, "severe", rules, refs)
+
+
+def delta_threshold(metric, rules, refs=None):
+    return threshold(metric, "delta", rules, refs)
+
+
+def judge_time_of(metric, rules, refs=None):
+    """时刻型判读线 → 分钟数。
+
+    优先用可计算的 judge（可含 ref，如「设备推荐窗止 + 45 分」）；
+    ref 缺失或未声明时退回 judge_time 的 HH:MM（静态 01:30）。
+    """
+    try:
+        v = threshold(metric, "judge", rules, refs)
+        if v is not None:
+            return float(v)
+    except Exception:
+        pass
+    return threshold_time(metric, rules)
 
 
 def threshold_time(metric, rules, field="judge_time"):
@@ -202,14 +261,31 @@ def validate(rules):
             if expr is None:
                 continue
             try:
+                rs = refs_in(expr)
+                for rname in rs:
+                    if rname not in registry():
+                        bad.append((m, field, "引用了未登记的参考量 ref:%s" % rname))
                 if field == "judge_time":
-                    threshold_time(m, rules)          # 时刻型：只要解析得动就算通
+                    threshold_time(m, rules)      # 时刻型：只要解析得动就算通
+                elif rs:
+                    # 含动态参考量：此刻无 refs 必然算不出来，只验语法
+                    evaluate(expr, rules, {k: 1.0 for k in rs})
                 else:
                     v = evaluate(expr, rules)
                     if not isinstance(v, (int, float)):
                         bad.append((m, field, "结果不是数值：%r" % (v,)))
             except Exception as e:
                 bad.append((m, field, str(e)))
+        for fb_key in ("goal_fallback", "judge_fallback", "severe_fallback"):
+            fb = (d.get("thresholds") or {}).get(fb_key)
+            if fb is None:
+                continue
+            try:
+                v = evaluate(fb, rules)
+                if not isinstance(v, (int, float)):
+                    bad.append((m, fb_key, "退路不是数值：%r" % (v,)))
+            except Exception as e:
+                bad.append((m, fb_key, "退路解析失败：%s" % e))
         if d.get("dir") in ("above", "below") and not (
                 (d.get("thresholds") or {}).get("goal")
                 or (d.get("thresholds") or {}).get("judge")):
