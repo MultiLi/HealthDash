@@ -1,0 +1,12 @@
+{
+  "slug": "garmin-connect-cn-data",
+  "name": "garmin connect cn",
+  "version": "1.0.0",
+  "installedAt": 1788526224474,
+  "source": "skillhub",
+  "namespace": "clawhub_xent9312",
+  "canonicalName": "@clawhub_xent9312/garmin-connect-cn-data",
+  "iconSource": "https://cloudcache.tencent-cloud.com/qcloud/ui/static/other_external_resource/5a1e9830-80e4-4cbb-8d00-cee893ca9555.png",
+  "iconLocalPath": "/Users/tian.li/.workbuddy/skills/garmin-connect-cn-data__skillhub/_icon.png",
+  "iconDownloadedFrom": "https://cloudcache.tencent-cloud.com/qcloud/ui/static/other_external_resource/5a1e9830-80e4-4cbb-8d00-cee893ca9555.png"
+}

@@ -1,0 +1,58 @@
+/* 卡内细分（日尺度展开）与当日判读区样式。
+   细分内容由 detail.js 产出，挂进对应指标卡的 .mx-detail 里——
+   睡眠分期属于睡眠卡、HRV 曲线属于 HRV 卡，不再有独立的「某日」页。 */
+
+/* ---------- 细分通用 ---------- */
+.detail-title { font-size: 12.5px; font-weight: 600; color: var(--text-3); letter-spacing: .02em; margin-top: 4px; }
+.detail-chart { width: 100%; height: auto; display: block; }
+.axis-lab { font-size: 10px; fill: var(--text-3); font-family: var(--font); }
+.axis-val { font-size: 10px; fill: var(--text-3); font-family: var(--font); font-variant-numeric: tabular-nums; }
+.mini-note { font-size: 12px; color: var(--text-3); line-height: 1.6; }
+
+/* 事实清单 */
+.fact-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 14px; }
+.fact { display: flex; flex-direction: column; gap: 1px; }
+.fact-k { font-size: 11.5px; color: var(--text-3); }
+.fact-v { font-size: 13.5px; color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
+
+/* 堆叠条 + 图例 */
+.stack-bar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: var(--bg-alt); }
+.stack-bar span { display: block; height: 100%; }
+.stack-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.stack-legend span { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.stack-legend i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; flex: none; }
+
+/* 子项评分 chips */
+.chip-row { display: flex; flex-wrap: wrap; gap: 7px; }
+.chip { font-size: 11.5px; padding: 4px 10px; border-radius: 100px; background: var(--bg-alt); border: 1px solid var(--border); color: var(--text-2); }
+
+/* 范围条 */
+.range-bar { position: relative; height: 12px; border-radius: 6px; background: var(--bg-alt); border: 1px solid var(--border); }
+.range-fill { position: absolute; top: 1px; bottom: 1px; border-radius: 5px; }
+.range-lab { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-3); }
+
+/* 会话列表 */
+.session-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.session-list li { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 13px; padding: 8px 12px; background: var(--bg-alt); border-radius: 8px; }
+.sess-name { font-weight: 500; }
+.sess-meta { color: var(--text-2); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+
+/* ---------- 当日判读 ---------- */
+.brief-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; }
+@media (max-width: 900px) { .brief-grid { grid-template-columns: 1fr; } }
+.brief-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 24px 26px; box-shadow: var(--shadow-card); }
+.brief-cross-wrap { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 14px; border: 1px solid var(--green-tint); outline: 1px solid rgba(16,185,129,.18); border-left: 3px solid var(--green); border-radius: var(--radius); background: linear-gradient(180deg, #F0FDF8 0%, #fff 55%); box-shadow: var(--shadow-card); padding: 22px 26px; }
+.brief-cross-head { font-size: 13px; font-weight: 600; color: var(--green-deep); letter-spacing: .02em; }
+.brief-cross-item { display: flex; gap: 10px; font-size: 14px; line-height: 1.6; color: #374151; }
+.brief-cross-item .level-dot { margin-top: 7px; }
+.brief-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.brief-card-head h3 { font-size: 16px; font-weight: 600; }
+.level-dot { width: 9px; height: 9px; border-radius: 5px; flex: none; background: var(--text-3); }
+.level-dot.GOOD { background: var(--green); }
+.level-dot.WARN { background: var(--amber); }
+.level-dot.BAD { background: var(--red); }
+.level-dot.INFO, .level-dot.NEUTRAL { background: var(--text-3); }
+.brief-card ul { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.brief-card li { display: flex; gap: 10px; font-size: 14px; line-height: 1.55; color: #374151; }
+.brief-card li .level-dot { margin-top: 6px; width: 7px; height: 7px; }
+.gaps { margin-top: 24px; font-size: 13px; color: var(--text-3); line-height: 1.7; }

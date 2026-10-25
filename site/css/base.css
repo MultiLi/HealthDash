@@ -1,0 +1,80 @@
+/* 健康主页 · 基础层：设计令牌 / 重置 / 布局骨架 / 头尾 / 视图页 / 通用控件 / 错误态 */
+:root {
+  --bg: #FFFFFF;
+  --bg-alt: #F9F9FB;
+  --text: #0F1419;
+  --text-2: #6B7280;
+  --text-3: #9CA3AF;
+  --border: #E7E7EA;
+  --green: #10B981;
+  --green-deep: #047857;
+  --green-tint: #E9F9F2;
+  --amber: #F59E0B;
+  --amber-deep: #B45309;
+  --amber-tint: #FEF4E5;
+  --red: #EF4444;
+  --shadow-card: 0 1px 2px rgba(15, 20, 25, .04), 0 4px 12px rgba(15, 20, 25, .06);
+  --radius: 12px;
+  --font: "Inter", "Noto Sans SC", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { font-family: var(--font); color: var(--text); background: var(--bg); -webkit-font-smoothing: antialiased; }
+.container { max-width: 1280px; margin: 0 auto; padding: 0 80px; }
+@media (max-width: 900px) { .container { padding: 0 24px; } }
+button { font-family: var(--font); }
+
+/* ---------- Header ---------- */
+.site-header { position: sticky; top: 0; z-index: 20; background: rgba(255,255,255,.92); backdrop-filter: blur(8px); }
+.header-inner { display: flex; align-items: center; justify-content: space-between; padding-top: 18px; padding-bottom: 18px; }
+.logo { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text); }
+.logo-mark { width: 32px; height: 32px; border-radius: 9px; background: var(--green); display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.logo-text { font-size: 18px; font-weight: 600; }
+.header-right { display: flex; align-items: center; gap: 14px; }
+.sync-pill { display: inline-flex; align-items: center; gap: 7px; padding: 7px 14px; border-radius: 100px; background: var(--bg-alt); font-size: 13px; color: var(--text-2); white-space: nowrap; }
+.sync-pill .dot { width: 7px; height: 7px; border-radius: 4px; background: var(--green); }
+.sync-pill.pending .dot { background: var(--amber); }
+/* 取数走了随包静态副本（热更新端点没接上）——状态点转琥珀，不让旧数据冒充「已同步」 */
+.sync-pill.stale .dot { background: var(--amber); }
+.sync-pill.stale { color: var(--amber); }
+.avatar { width: 36px; height: 36px; border-radius: 18px; background: var(--text); color: #fff; font-size: 15px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
+@media (max-width: 900px) { .sync-pill { display: none; } }
+
+/* ---------- 视图 Tab ---------- */
+.tabs { display: flex; gap: 8px; }
+.tab-link { font-size: 14.5px; color: var(--text-2); text-decoration: none; padding: 8px 18px; border-radius: 100px; font-weight: 500; transition: background .15s, color .15s; }
+.tab-link:hover { color: var(--text); }
+.tab-link.active { color: var(--green-deep); background: var(--green-tint); font-weight: 600; }
+
+/* ---------- Sections ---------- */
+.section { padding: 72px 0 88px; }
+.section.alt { background: var(--bg-alt); }
+.sec-nav { padding: 32px 0 64px; }
+.section-head { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 32px; gap: 24px; flex-wrap: wrap; }
+.section-head h2 { font-size: 28px; font-weight: 600; letter-spacing: -.01em; }
+.sec-no { display: inline-block; font-size: 13px; font-weight: 600; color: var(--green-deep); background: var(--green-tint); border-radius: 6px; padding: 2px 8px; margin-right: 10px; vertical-align: 4px; font-variant-numeric: tabular-nums; }
+.section-sub { font-size: 15px; color: var(--text-2); margin-top: 10px; max-width: 760px; line-height: 1.65; }
+.section-empty { font-size: 14px; color: var(--text-3); background: var(--bg-alt); border: 1px dashed var(--border); border-radius: var(--radius); padding: 22px 26px; line-height: 1.7; }
+
+/* ---------- 通用控件：分段切换 ---------- */
+.seg { display: inline-flex; gap: 4px; padding: 4px; background: var(--bg-alt); border: 1px solid var(--border); border-radius: 100px; }
+.seg button { border: 0; background: transparent; color: var(--text-2); font-size: 13px; font-weight: 500; padding: 7px 15px; border-radius: 100px; cursor: pointer; transition: background .15s, color .15s; white-space: nowrap; }
+.seg button:hover { color: var(--text); }
+.seg button.active { background: #fff; color: var(--green-deep); font-weight: 600; box-shadow: 0 1px 3px rgba(15,20,25,.08); }
+
+.btn-primary { display: inline-flex; align-items: center; gap: 6px; margin-top: 18px; padding: 10px 20px; border-radius: 100px; background: var(--green); color: #fff; font-size: 14px; font-weight: 500; text-decoration: none; border: 0; cursor: pointer; }
+.btn-primary:hover { background: var(--green-deep); }
+
+/* ---------- Footer ---------- */
+.site-footer { background: var(--text); color: #9CA3AF; padding: 56px 0; }
+.footer-top { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 20px; }
+.site-footer .logo-text { color: #fff; font-size: 16px; }
+.footer-links { display: flex; gap: 28px; }
+.footer-links a { color: #9CA3AF; text-decoration: none; font-size: 14px; cursor: pointer; }
+.footer-links a:hover { color: #fff; }
+.footer-copy { margin-top: 28px; font-size: 13px; line-height: 1.7; }
+
+/* ---------- 加载/错误态 ---------- */
+.loading, .load-error { padding: 120px 24px; text-align: center; color: var(--text-2); font-size: 15px; }
+.load-error code { background: var(--bg-alt); padding: 2px 8px; border-radius: 6px; font-size: 13px; }

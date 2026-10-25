@@ -1,0 +1,513 @@
+{
+ "_comment": "判读规则与用户档案，与代码解耦。改这里即可调整判读口径，无需改 daily_brief.py。字段改动向后兼容：脚本对缺失键有默认值。",
+ "profile": {
+  "age": 33,
+  "sex": "male",
+  "max_hr": 182,
+  "rhr_7d_avg": 53,
+  "activity_pattern": "walking-dominant",
+  "home_tz_offset_hours": 8
+ },
+ "sleep": {
+  "min_healthy_duration_min": 420,
+  "deep_pct_optimal": [
+   16,
+   33
+  ],
+  "rem_pct_optimal": [
+   21,
+   31
+  ],
+  "light_pct_optimal": [
+   30,
+   64
+  ],
+  "late_bedtime": "01:30",
+  "debt_lookback_days": 4
+ },
+ "hrv": {
+  "big_drop_pct": 15,
+  "big_rise_pct": 20,
+  "fallback_band": [
+   50,
+   70
+  ],
+  "_comment_fallback": "无 Garmin 基线时的 HRV 正常带缺省值（主页综合指数等消费方共用）",
+  "score": {
+   "at_or_above_high": 95,
+   "at_low": 85,
+   "below_slope_per_halfwidth": 40,
+   "below_floor": 35
+  },
+  "_comment_score": "主页综合指数的 HRV 分项。只看当晚实测值 v 与个人基线带 [low,high] 的相对位置，绝不采信设备 status：Garmin 的 BALANCED 由 7 日滚动均值决定，单夜暴跌时照旧显示 BALANCED（2026-09-11 实测 43 跌破下限 51 的 15.7%，设备仍报 BALANCED，当日周均 67 在带内）。v≥high 记 at_or_above_high（高于基线＝恢复充分，不扣分）；low≤v<high 在 at_low..at_or_above_high 间线性；v<low 从 at_low 起每低于 1 个半带宽（(high-low)/2）扣 below_slope_per_halfwidth 分，下限 below_floor。"
+ },
+ "rhr": {
+  "elevated_delta_bpm": 3,
+  "score": {
+   "at_or_below_avg7": 100,
+   "per_bpm_above": 10,
+   "floor": 55
+  }
+ },
+ "sleep_hr": {
+  "score": {
+   "at_or_below": 100,
+   "allowance_bpm": 4,
+   "per_bpm_above": 8,
+   "floor": 50
+  },
+  "_comment": "晨间快照的睡眠心率分项：基准取 profile.rhr_7d_avg + allowance_bpm（睡眠心率正常略高于静息心率），超出部分每 bpm 扣 per_bpm_above。"
+ },
+ "exercise": {
+  "window_avg_hr_min": 100,
+  "window_max_hr_min": 150,
+  "min_window_minutes": 30,
+  "zone_gap_min": 2,
+  "zones": [
+   {
+    "name": "Z1 恢复",
+    "pct_of_max": [
+     0,
+     60
+    ]
+   },
+   {
+    "name": "Z2 耐力",
+    "pct_of_max": [
+     60,
+     70
+    ]
+   },
+   {
+    "name": "Z3 有氧",
+    "pct_of_max": [
+     70,
+     80
+    ]
+   },
+   {
+    "name": "Z4 阈值",
+    "pct_of_max": [
+     80,
+     90
+    ]
+   },
+   {
+    "name": "Z5 极限",
+    "pct_of_max": [
+     90,
+     101
+    ]
+   }
+  ]
+ },
+ "activity": {
+  "steps_good": 8000,
+  "steps_low": 5000,
+  "steps_goal": 10000,
+  "sedentary_warn_hours": 8,
+  "sedentary_score": {
+   "per_hour_beyond_warn": 5,
+   "floor": 40
+  },
+  "intensity_daily_goal": 22,
+  "_comment_intensity": "周目标 150 分钟中高强度 ÷ 7 ≈ 22（WHO 成人标准）",
+  "_comment_steps": "steps_good=判读达标线（引擎判读用）；steps_goal=展示目标（主页圆环/KPI 用）。语义不同，勿混用。"
+ },
+ "stress": {
+  "cross_check_hr_avg": 95,
+  "sustained_high_hours": 3
+ },
+ "cross": {
+  "_comment": "交叉协同判读阈值：不看单指标，只看指标间的关系模式。",
+  "sleep_debt_nights": 2,
+  "short_sleep_min": 360,
+  "stress_heavy_min": 120,
+  "bb_net_negative_days": 2,
+  "alcohol_rem_flag": 1
+ },
+ "z2": {
+  "pct_of_max": [
+   60,
+   70
+  ],
+  "weekly_target_min": 180,
+  "effective_session_min": 45,
+  "_comment": "Z2=有氧底子区（60-70% HRmax，对 maxHR 182 = 109-127 bpm）。周目标 180min 取业余起步剂量 2-3h/周下限；单次满 45min 才达线粒体有效刺激剂量。证据锚点：exercise_science.md §1-2。逐时心率分辨率下分钟数供趋势判读，非精确处方。"
+ },
+ "bb": {
+  "critical_low": 15
+ },
+ "acwr": {
+  "under": 0.8,
+  "optimal_low": 0.8,
+  "optimal_high": 1.3,
+  "over": 1.5
+ },
+ "readiness": {
+  "recovery_overlap_warn_min": 480
+ },
+ "spo2": {
+  "sleep_avg_warn": 92,
+  "lowest_warn": 88,
+  "baseline_lookback_days": 7,
+  "score": {
+   "at_or_above_warn": 100,
+   "per_point_below": 10,
+   "floor": 50
+  },
+  "_comment": "阈值与判读口径改这里；sleep_avg_warn 是睡眠期均值的下限（持续低于此且最低 <lowest_warn 伴呼吸紊乱升高才升红旗，单点不诊断）。"
+ },
+ "vo2max_male_bands": [
+  {
+   "name": "差",
+   "min": 0,
+   "max": 36
+  },
+  {
+   "name": "一般",
+   "min": 36,
+   "max": 42
+  },
+  {
+   "name": "良好",
+   "min": 42,
+   "max": 46
+  },
+  {
+   "name": "优秀",
+   "min": 46,
+   "max": 50
+  },
+  {
+   "name": "精英",
+   "min": 50,
+   "max": 100
+  }
+ ],
+ "homepage": {
+  "stress_avg_good": 40,
+  "trend_windows": [
+   7,
+   30,
+   90
+  ],
+  "_comment": "主页展示层口径。stress_avg_good=压力均值「越低越放松」的判好线；trend_windows=滚动观测窗口天数选项。放在这里与其它阈值同源，前端不硬编码。"
+ },
+ "gate": {
+  "complete_cutoff_min": 1430,
+  "publish_deadline_hour_next_day": 11,
+  "repull_days": 3,
+  "hourly_grid_tolerance_pct": 15,
+  "empty_day_awake_min": 1400,
+  "_comment": "数据完整性闸门（data_gate.py）的唯一阈值来源。complete_cutoff_min=1440 分钟制的「算完整」下沿（1430=23:50，留 10 分钟给收尾活动）；publish_deadline_hour_next_day=D+1 该小时之后仍不完整则允许出截断终版；repull_days=自动回补截断日的回看天数；hourly_grid_tolerance_pct=逐时网格合计与 totalSteps 的容许偏差；empty_day_awake_min=四档合计达到此值判定为「整日计入清醒」的久坐分母伪影。"
+ },
+ "hero": {
+  "good_min": 80,
+  "fair_min": 60,
+  "_comment": "主页综合指数的分档线（展示层口径，原硬编码在 build.py）。分项阈值不在这里——各取本维度（sleep/activity/hrv/rhr/spo2/sleep_hr）。铁律：分项必须由实测值经阈值推导，禁止「有值就给固定分」的常数短路，否则该维度不进指数、均值虚高（2026-09-11 的 HRV 事故）。"
+ },
+ "confidence": {
+  "_comment": "观测项置信度登记（2026-10-19 建）。这里只放**门槛数字**，来源与裁决记录在 notes/confidence_model.md。noise_sd=本机实测的日间波动标准差（n=24~27 天，单人单设备，不可外推）；mdc_single=单次读数偏离个人基线的判读门槛≈1.5×noise_sd；mdc_change=两次读数之间『可分辨变化』的门槛≈2.0×noise_sd。**这不是临床 MDC95，是从本机数据估的经验噪声带**，样本小、只能用于本机判读。规则：|Δ|<mdc_change 时禁止使用『上升/下降/改善/恶化』这类动词，只能说『在误差内』。",
+  "rule": {
+   "change_requires": "abs(delta) > mdc_change",
+   "single_deviation_requires": "abs(value - baseline) > mdc_single",
+   "trend_min_days": 7,
+   "trend_requires": "方向在 trend_min_days 内一致且幅度 > mdc_change",
+   "forbid_verbs_below_mdc": [
+    "上升",
+    "下降",
+    "改善",
+    "恶化",
+    "增加",
+    "减少",
+    "最高",
+    "最低"
+   ]
+  },
+  "metrics": {
+   "hrv_ms": {
+    "unit": "ms",
+    "noise_sd": 10.0,
+    "mdc_single": 15,
+    "mdc_change": 20,
+    "n_days": 24,
+    "sources": [
+     "garmin-hrv(lastNightAvg)"
+    ],
+    "independent_sources": 1,
+    "tier": {
+     "level": "med",
+     "change": "med",
+     "trend": "high"
+    },
+    "note": "单晚 ±10ms 是噪声。10-14 的 47 对基线 62.8 是 1.6 SD——真实但不极端，不该写成『崩塌』。趋势用 7 日均值。",
+    "cross": [
+     "rhr_bpm：同向才算恢复受挫；仅一条腿动先找负荷来源"
+    ]
+   },
+   "rhr_bpm": {
+    "unit": "bpm",
+    "noise_sd": 2.4,
+    "mdc_single": 4,
+    "mdc_change": 5,
+    "n_days": 24,
+    "sources": [
+     "garmin-dailyhr(restingHeartRate)"
+    ],
+    "independent_sources": 1,
+    "tier": {
+     "level": "high",
+     "change": "med",
+     "trend": "high"
+    },
+    "note": "**±2 bpm 是噪声**。报告里『−2 bpm』『四天最低』这类表述在门槛内，不构成变化。要 ≥4 bpm 才谈。",
+    "cross": [
+     "hrv_ms",
+     "sleep_hr"
+    ]
+   },
+   "sleep_h": {
+    "unit": "h",
+    "noise_sd": 0.7,
+    "mdc_single": 1.1,
+    "mdc_change": 1.4,
+    "n_days": 25,
+    "sources": [
+     "garmin-sleep(dailySleepDTO)"
+    ],
+    "independent_sources": 1,
+    "tier": {
+     "level": "high",
+     "change": "med",
+     "trend": "high"
+    },
+    "note": "日间摆动 ±0.9h。『比昨天多睡 30 分钟』是噪声；与 420min 目标的差是**达标判断**（不是变化判断），两者别混。",
+    "cross": [
+     "daily_log.sleep_quality：主观-客观偏离本身就是信号"
+    ]
+   },
+   "steps_daily": {
+    "unit": "步",
+    "noise_sd": 4007,
+    "mdc_single": 6000,
+    "mdc_change": 8000,
+    "n_days": 27,
+    "sources": [
+     "garmin-usersummary(totalSteps)"
+    ],
+    "independent_sources": 1,
+    "tier": {
+     "level": "high",
+     "change": "low",
+     "trend": "high"
+    },
+    "note": "**单日步数比较无意义**（SD 4000、相邻日差 4680）。『四天最高』这类表述应停用；看 7 日均值（7d noise≈1500）。",
+    "cross": [
+     "intensity_min：两条独立线，步数达标≠强度达标"
+    ]
+   },
+   "weight_kg": {
+    "unit": "kg",
+    "noise_sd": 0.3,
+    "mdc_single": 0.5,
+    "mdc_change": 0.6,
+    "n_days": 1,
+    "sources": [
+     "家用秤(daily_log.weight_kg)",
+     "InBody H40 内建秤"
+    ],
+    "independent_sources": 2,
+    "tier": {
+     "level": "high",
+     "change": "med",
+     "trend": "low"
+    },
+    "note": "0.3kg 是**同条件晨起空腹**的噪声。非同条件（晚间/餐后/不同秤）噪声 1.5–2.0kg，此时 mdc_change 按 2.0 用。目前只有 1 个有效晨起值，trend 不可用。",
+    "cross": [
+     "InBody 体重：两秤互证只能做漂移检测（时段不同）；FFM×体重差分推脂肪轨迹"
+    ]
+   },
+   "body_fat_pct": {
+    "unit": "%",
+    "noise_sd": 1.5,
+    "mdc_single": 2.5,
+    "mdc_change": 3.0,
+    "n_days": 1,
+    "sources": [
+     "InBody BIA"
+    ],
+    "independent_sources": 1,
+    "tier": {
+     "level": "med",
+     "change": "low",
+     "trend": "low"
+    },
+    "note": "单源、±3–5% 绝对误差、跨机型不可比。**两周内的涨跌一律不可判**。要第二个独立源只能靠皮尺（Navy 公式）。",
+    "cross": [
+     "腰围/颈围→Navy PBF（待补数）",
+     "躯干节段脂肪 ↔ 腰围"
+    ]
+   },
+   "skeletal_muscle_kg": {
+    "unit": "kg",
+    "noise_sd": 0.7,
+    "mdc_single": 1.2,
+    "mdc_change": 1.5,
+    "n_days": 1,
+    "sources": [
+     "InBody BIA(MFA.SMM)"
+    ],
+    "independent_sources": 1,
+    "tier": {
+     "level": "med",
+     "change": "low",
+     "trend": "low"
+    },
+    "note": "同机重复性差、受水合影响。『肌肉没掉』在 ±1.5kg 内只能说『没有证据表明流失』。",
+    "cross": [
+     "ffm_kg",
+     "体重序列：体重降而 FFM 稳 → 减的是脂肪"
+    ]
+   },
+   "ffm_kg": {
+    "unit": "kg",
+    "noise_sd": 0.7,
+    "mdc_single": 1.2,
+    "mdc_change": 1.5,
+    "n_days": 1,
+    "sources": [
+     "InBody BCA(FFM)"
+    ],
+    "independent_sources": 1,
+    "tier": {
+     "level": "med",
+     "change": "low",
+     "trend": "low"
+    },
+    "note": "所有减脂目标路径的分母。它一漂，目标体重全跟着错。所以『目标 85.9kg』的可信度上限 = FFM 的可信度。",
+    "cross": [
+     "weight_kg：Δ体重 − ΔFFM ≈ Δ脂肪（误差累积，只给方向不给数值）"
+    ]
+   },
+   "visceral_fat_level": {
+    "unit": "级",
+    "noise_sd": 1.0,
+    "mdc_single": 2,
+    "mdc_change": 2,
+    "n_days": 1,
+    "sources": [
+     "InBody WC.VFL"
+    ],
+    "independent_sources": 1,
+    "tier": {
+     "level": "med",
+     "change": "low",
+     "trend": "low"
+    },
+    "note": "整数刻度，±1 级。9→7 才谈改善；9→8 是噪声。",
+    "cross": [
+     "whr",
+     "腰围（待补）"
+    ]
+   },
+   "waist_cm": {
+    "unit": "cm",
+    "noise_sd": 1.0,
+    "mdc_single": 2.0,
+    "mdc_change": 2.5,
+    "n_days": 0,
+    "sources": [
+     "皮尺（未采集）"
+    ],
+    "independent_sources": 1,
+    "tier": {
+     "level": "none",
+     "change": "none",
+     "trend": "none"
+    },
+    "note": "未采集。皮尺 ±0.5cm、操作者波动 ±1cm，故变化门槛 2.5cm——**这就是『瘦 1cm 很难验证』的算术原因**。",
+    "cross": [
+     "body_fat_pct(Navy)",
+     "躯干节段脂肪"
+    ]
+   },
+   "vo2max": {
+    "unit": "ml/kg/min",
+    "noise_sd": 1.5,
+    "mdc_single": 2.0,
+    "mdc_change": 2.5,
+    "n_days": 1,
+    "sources": [
+     "garmin-vo2max(估算)"
+    ],
+    "independent_sources": 1,
+    "tier": {
+     "level": "low",
+     "change": "low",
+     "trend": "low"
+    },
+    "note": "设备估算、低活动基线下系统性高估，且 10 天未更新。**不能作为底子变化的依据**。可行的间接验证：同配速/同心率下的 HR 漂移（hr_series 已具备）。",
+    "cross": [
+     "hr_series：同配速心率下降 → 有氧改善（需足够 Z2 样本）"
+    ]
+   },
+   "spo2_sleep_avg": {
+    "unit": "%",
+    "noise_sd": 1.5,
+    "mdc_single": 3,
+    "mdc_change": 3,
+    "n_days": 20,
+    "sources": [
+     "garmin-spo2(avgSleepSpO2)"
+    ],
+    "independent_sources": 1,
+    "tier": {
+     "level": "med",
+     "change": "med",
+     "trend": "high"
+    },
+    "note": "单点最低值不做告警；睡眠均值 ±1.5%。阈值 92 是筛查线，不是变化门槛。",
+    "cross": [
+     "呼吸紊乱等级"
+    ]
+   }
+  }
+ },
+ "units": {
+  "_comment": "L2 单元聚合层（units.py）的唯一阈值来源。coverage_min = 该尺度下『值得给结论』的最低覆盖比，低于此只报数字不判达标（3 天算出的周均是噪声，不是结论）。roll_windows = 滚动窗天数；滚动窗相邻两步重叠 6/7，**环比禁用**，变化一律用非重叠位移差 v_t − v_(t−k)。delta_min_n = 少于两个实测值不给变化结论。tier_suppress_change = confidence.tier.change 命中这些档的指标不给环比 verdict，只给多月斜率（依据：steps 的 mdc 8000 会把 6400 vs 10294 判成『在误差内』，环比门槛对累计量类指标本就无效）。",
+  "coverage_min": {
+   "day": 1.0,
+   "week": 0.57,
+   "month": 0.5,
+   "roll7": 0.7,
+   "roll28": 0.7,
+   "roll90": 0.7
+  },
+  "roll_windows": [
+   7,
+   28,
+   90
+  ],
+  "delta_min_n": 2,
+  "day_coverage_min": 0.95,
+  "tier_suppress_change": [
+   "low",
+   "none"
+  ],
+  "slope_min_points": 6,
+  "slope_min_span_days": 14
+ },
+ "inbody": {
+  "_comment": "InBody 体成分闸门（check_inbody.py）的唯一阈值来源。扫描是事件型数据：没有新扫描不等于故障，只是没测。stale_days_warn 之后仍可当基线、不可当『当前状态』；stale_days_bad 之后报告必须写陈旧。weight_mdc_diff_condition=异时段（晨起 vs 晚间）体重变化的门槛，覆盖 confidence 里的 0.6kg 同条件值。hard_anomaly=单次越过就先怀疑测错/换机，不当作真实变化。",
+  "stale_days_warn": 14,
+  "stale_days_bad": 45,
+  "weight_mdc_diff_condition": 2.0,
+  "hard_anomaly": {
+   "weight_kg": 5.0,
+   "percent_body_fat": 6.0,
+   "skeletal_muscle_mass_kg": 4.0,
+   "visceral_fat_level": 3
+  }
+ }
+}

@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>健康主页 · 身体数据</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/base.css?v=abbacf2d">
+<link rel="stylesheet" href="css/calendar.css?v=abbacf2d">
+<link rel="stylesheet" href="css/page.css?v=abbacf2d">
+<link rel="stylesheet" href="css/detail.css?v=abbacf2d">
+<link rel="stylesheet" href="css/inbody.css?v=abbacf2d">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%2310B981'/><path d='M16 26C16 26 5 19.5 5 12.2C5 8.2 8.1 5.5 11.4 5.5C13.3 5.5 15 6.4 16 8C17 6.4 18.7 5.5 20.6 5.5C23.9 5.5 27 8.2 27 12.2C27 19.5 16 26 16 26Z' fill='white'/></svg>">
+</head>
+<body>
+<div id="app">
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="logo" href="#top">
+        <span class="logo-mark">
+          <svg width="18" height="18" viewBox="0 0 32 32" fill="none"><path d="M16 26C16 26 5 19.5 5 12.2C5 8.2 8.1 5.5 11.4 5.5C13.3 5.5 15 6.4 16 8C17 6.4 18.7 5.5 20.6 5.5C23.9 5.5 27 8.2 27 12.2C27 19.5 16 26 16 26Z" fill="white"/><path d="M8.5 15.5H12L13.5 12L16.5 19L18.5 15.5H23.5" stroke="#10B981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+        <span class="logo-text">健康主页</span>
+      </a>
+      <div class="header-right">
+        <span class="sync-pill" id="sync-pill"><span class="dot"></span><span id="sync-text">数据加载中…</span></span>
+        <span class="avatar">S</span>
+      </div>
+    </div>
+  </header>
+
+  <main id="top">
+    <!-- ============ 时间轴：唯一的观测控件，尺度决定它选中什么 ============ -->
+    <section class="section sec-axis">
+      <div class="container">
+        <div class="axis-bar">
+          <div class="month-nav">
+            <button class="mnav-btn" type="button" data-month-shift="-1" aria-label="上一个月">‹</button>
+            <span class="month-label" id="axis-month-label">—</span>
+            <button class="mnav-btn" type="button" data-month-shift="1" aria-label="下一个月">›</button>
+            <button class="mnav-today" type="button" data-month-today>回到锚点所在月</button>
+          </div>
+          <div class="seg" id="axis-scale">
+            <button type="button" data-scale="day">日</button>
+            <button type="button" data-scale="week">周</button>
+            <button type="button" data-scale="month" class="active">月</button>
+          </div>
+        </div>
+        <div id="axis-cal"></div>
+        <p class="axis-note" id="axis-note"></p>
+      </div>
+    </section>
+
+    <!-- ============ 当前单元总览（粒度＝全局尺度；两项分数并排，不合成一个） ============ -->
+    <section class="section alt sec-unit">
+      <div class="container">
+        <div class="unit-bar">
+          <div class="unit-scope" id="unit-scope"></div>
+          <div class="unit-scores" id="unit-score"></div>
+        </div>
+        <p class="unit-note">两项都是 0–100，但口径不同、<b>不合成一个数</b>：<b>综合指数</b>＝该单元的行为达标度（睡眠 / 步数 / HRV / 静息心率 / 久坐等权合成）；<b>Garmin 准备度</b>＝设备对恢复与负荷准备度的判断。两者背离时，背离本身就是信号。</p>
+        <p class="unit-trail" id="unit-ready-trail" hidden></p>
+        <div class="unit-checks" id="unit-checks"></div>
+      </div>
+    </section>
+
+    <!-- ============ 指标网格：每张卡都是同一个量，粒度跟着尺度走 ============ -->
+    <section class="section sec-grid">
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <h2>指标</h2>
+            <p class="section-sub">每一项都是同一个量，只是粒度随尺度变：日看波动，周看节奏，月看走向。序列的每个点就是当前尺度下的一个单元，绿=该单元达标、琥珀=未达标、灰=无判定线，空心点=该单元尚未结束。</p>
+          </div>
+        </div>
+        <div class="metric-grid" id="metric-grid"></div>
+      </div>
+    </section>
+
+    <!-- ============ 当日判读（日尺度专属：它一天一份，没有单一指标可归）。
+         只放结论——判读是人写的，实测值归总览与指标网格 ============ -->
+    <section class="section alt" id="brief-zone" hidden>
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <h2>当日判读</h2>
+            <p class="section-sub" id="brief-sub"></p>
+          </div>
+        </div>
+        <div class="brief-grid" id="brief-grid"></div>
+        <p class="gaps" id="gaps"></p>
+      </div>
+    </section>
+
+    <!-- ============ 体成分（事件型）============
+         不属于日/周/月尺度：一次体测一个截面，没有逐日序列。
+         放在最后是有意的——它回答的是慢变量问题，不与当日判读抢位置。 -->
+    <section class="section sec-body" id="inbody-zone" hidden>
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <h2>体成分<span class="ib-src">InBody</span></h2>
+            <p class="section-sub" id="ib-sub">事件型数据：一次体测一个截面，不参与日/周/月尺度。</p>
+          </div>
+          <div class="ib-stamp" id="ib-stamp"></div>
+        </div>
+        <div id="ib-grid"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div class="footer-top">
+        <span class="logo">
+          <span class="logo-mark">
+            <svg width="16" height="16" viewBox="0 0 32 32" fill="none"><path d="M16 26C16 26 5 19.5 5 12.2C5 8.2 8.1 5.5 11.4 5.5C13.3 5.5 15 6.4 16 8C17 6.4 18.7 5.5 20.6 5.5C23.9 5.5 27 8.2 27 12.2C27 19.5 16 26 16 26Z" fill="white"/><path d="M8.5 15.5H12L13.5 12L16.5 19L18.5 15.5H23.5" stroke="#10B981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+          <span class="logo-text">健康主页</span>
+        </span>
+      </div>
+      <p class="footer-copy">数据来自 Garmin Connect 中国区，每晚 23:30 自动更新。仅供个人参考，不构成医疗建议。</p>
+    </div>
+  </footer>
+</div>
+<script type="module" src="js/main.js?v=abbacf2d"></script>
+</body>
+</html>

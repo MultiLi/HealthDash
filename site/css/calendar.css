@@ -1,0 +1,50 @@
+/* 日历：全局时间轴控件。同一个日历，尺度决定它选中什么——
+   日尺度选中一格、周尺度选中一行、月尺度则是整月在范围内。
+   这是「多尺度是形式而非入口」的落点。 */
+
+#axis-cal { margin-top: 20px; }
+.cal-grid { background: #fff; border: 1px solid var(--border); border-radius: 16px; padding: 16px; box-shadow: var(--shadow-card); }
+.cal-head { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; padding-bottom: 10px; }
+.cal-head span { text-align: center; font-size: 12px; font-weight: 600; color: var(--text-3); }
+.cal-week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; margin-bottom: 8px; }
+.cal-week:last-child { margin-bottom: 0; }
+
+.cal-cell { position: relative; min-height: 74px; padding: 9px 10px 8px 14px; border: 1px solid var(--border); border-radius: 11px; background: #fff; cursor: pointer; text-align: left; display: flex; flex-direction: column; justify-content: space-between; gap: 8px; transition: border-color .15s, box-shadow .15s, background .15s; overflow: hidden; }
+.cal-cell::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--bc, var(--border)); }
+.cal-cell:hover { border-color: var(--bc, var(--green)); box-shadow: 0 3px 12px rgba(15, 20, 25, .08); }
+.cal-cell.out { opacity: .4; }
+.cal-cell.nodata { background: #FCFCFD; }
+.cal-cell.nodata .cal-day { color: var(--text-3); font-weight: 500; }
+.cal-cell.today { box-shadow: 0 0 0 2px var(--green-tint); }
+
+/* 当前尺度选中的范围：周尺度下是整行，日尺度下是那一格 */
+.cal-cell.in-scope { background: #F4FBF8; }
+.cal-cell.in-scope.nodata { background: #F7F9F8; }
+.cal-cell.anchored { border-color: var(--green); box-shadow: 0 0 0 2px rgba(16, 185, 129, .30); background: var(--green-tint); }
+
+.cal-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.cal-day { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1; }
+.cal-score { font-size: 11.5px; font-weight: 700; color: #fff; background: var(--bc, var(--text-3)); border-radius: 6px; padding: 2px 6px; font-variant-numeric: tabular-nums; line-height: 1.3; }
+
+.cal-dots { display: flex; gap: 4px; }
+.cal-dots i { width: 6px; height: 6px; border-radius: 50%; display: block; }
+.cal-dots i.ok { background: var(--green); }
+.cal-dots i.no { background: var(--amber); }
+.cal-dots i.na { background: transparent; box-shadow: inset 0 0 0 1.2px #D6D6DC; }
+
+/* ---------- 长周期热力条 ---------- */
+.heat-wrap { margin-top: 22px; padding-top: 18px; border-top: 1px dashed var(--border); }
+.heat-title { font-size: 12.5px; color: var(--text-3); margin-bottom: 10px; }
+.heat-strip { display: flex; gap: 3px; overflow-x: auto; padding-bottom: 6px; }
+.heat-col { display: flex; flex-direction: column; gap: 3px; }
+.heat-cell { width: 11px; height: 11px; border-radius: 3px; background: var(--bc, var(--border)); display: block; }
+.heat-cell.empty { background: #F1F1F4; }
+.heat-cell.in-scope { outline: 1px solid rgba(16,185,129,.55); }
+.heat-cell.sel { outline: 2px solid var(--green); outline-offset: 1px; }
+.heat-axis { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--text-3); margin-top: 4px; }
+
+@media (max-width: 700px) {
+  .cal-cell { min-height: 58px; padding: 7px 7px 6px 11px; }
+  .cal-score { font-size: 10.5px; padding: 1px 4px; }
+  .cal-dots i { width: 5px; height: 5px; }
+}

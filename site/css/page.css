@@ -1,0 +1,83 @@
+/* 主页样式：时间轴 / 当前单元总览 / 指标网格。
+   尺度是全局形式，所以这里没有「概览区」「某日区」之分——
+   只有「时间轴 + 一组同构指标卡」，粒度由全局尺度灌注。 */
+
+/* ---------- 时间轴 ---------- */
+.sec-axis { padding: 34px 0 56px; }
+.axis-bar { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+.month-nav { display: flex; align-items: center; gap: 10px; }
+.mnav-btn { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--border); background: #fff; color: var(--text-2); font-size: 16px; line-height: 1; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.mnav-btn:hover { border-color: var(--green); color: var(--green-deep); }
+.month-label { font-size: 22px; font-weight: 600; letter-spacing: -.01em; min-width: 158px; }
+.mnav-today { margin-left: 4px; border: 1px solid var(--border); background: #fff; color: var(--text-2); font-size: 12.5px; padding: 6px 12px; border-radius: 100px; cursor: pointer; }
+.mnav-today:hover { border-color: var(--green); color: var(--green-deep); }
+.axis-note { margin-top: 14px; font-size: 13px; color: var(--text-3); line-height: 1.7; }
+
+/* ---------- 当前单元总览 ---------- */
+.sec-unit { padding: 40px 0 44px; }
+.unit-bar { display: flex; align-items: flex-end; justify-content: space-between; gap: 32px; flex-wrap: wrap; }
+.unit-scope b { display: block; font-size: 26px; font-weight: 600; letter-spacing: -.01em; }
+.unit-scope span { display: block; font-size: 13px; color: var(--text-3); margin-top: 6px; }
+
+/* 并排的两项分数。分隔线是刻意的：它们口径不同，读作「一对」而不是「一个数」。 */
+.unit-scores { display: flex; align-items: flex-start; gap: 40px; flex-wrap: wrap; }
+.uscore { display: flex; flex-direction: column; gap: 8px; }
+.uscore + .uscore { border-left: 1px solid var(--border); padding-left: 40px; }
+.uscore b { font-size: 40px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.uscore-sub { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.uscore-lab { font-size: 13px; color: var(--text-2); }
+.uscore-lab em { font-style: normal; color: var(--text-3); }
+@media (max-width: 900px) {
+  .unit-scores { gap: 24px; }
+  .uscore + .uscore { border-left: 0; padding-left: 0; }
+}
+
+/* 口径说明 + 准备度日内重算轨迹（轨迹仅日尺度有） */
+.unit-note { margin-top: 24px; font-size: 12.5px; color: var(--text-3); line-height: 1.75; max-width: 860px; }
+.unit-note b { color: var(--text-2); font-weight: 600; }
+.unit-trail { margin-top: 10px; font-size: 12.5px; color: var(--text-3); line-height: 1.7; }
+.unit-trail[hidden] { display: none; }
+.unit-trail b { color: var(--text); font-variant-numeric: tabular-nums; }
+.unit-trail-note { color: var(--text-3); }
+
+.unit-checks { margin-top: 26px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px 24px; }
+@media (max-width: 900px) { .unit-checks { grid-template-columns: repeat(2, 1fr); } }
+.uc { display: flex; flex-direction: column; gap: 7px; }
+.uc-k { font-size: 12.5px; color: var(--text-2); }
+.uc-v { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.uc-v i { font-style: normal; font-size: 12px; font-weight: 500; color: var(--text-3); margin-left: 3px; }
+.uc-bar { height: 6px; border-radius: 3px; background: rgba(15,20,25,.06); overflow: hidden; display: block; }
+.uc-bar i { display: block; height: 100%; background: var(--green); border-radius: 3px; transition: width .5s ease; }
+
+/* ---------- 环比小标 ---------- */
+.dl { font-size: 12px; font-weight: 600; padding: 2px 7px; border-radius: 6px; white-space: nowrap; }
+.dl.good { background: var(--green-tint); color: var(--green-deep); }
+.dl.bad { background: var(--amber-tint); color: var(--amber-deep); }
+.dl.flat { background: var(--bg-alt); color: var(--text-3); border: 1px solid var(--border); }
+
+/* ---------- 指标网格 ---------- */
+.sec-grid { padding: 64px 0 88px; }
+.metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; align-items: start; }
+@media (max-width: 1080px) { .metric-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 680px) { .metric-grid { grid-template-columns: 1fr; } }
+
+.mx-card { background: #fff; border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-card); padding: 22px 22px 16px; display: flex; flex-direction: column; gap: 12px; }
+.mx-card.is-warn { border-color: #F6E0BC; }
+.mx-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.mx-title h3 { font-size: 14px; font-weight: 600; color: var(--text-2); }
+.mx-goal { font-size: 12px; color: var(--text-3); margin-top: 4px; line-height: 1.5; }
+.mx-value { flex: none; }
+.mx-value b { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.mx-meta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-3); flex-wrap: wrap; }
+.mx-chart { margin: 2px -4px 0; }
+.spark { width: 100%; height: auto; display: block; }
+.mx-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px dashed var(--border); padding-top: 12px; flex-wrap: wrap; }
+.mx-stat { font-size: 12.5px; color: var(--text-2); }
+.mx-stat b { font-variant-numeric: tabular-nums; }
+.mx-more { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-alt); color: var(--text-2); font-size: 12px; font-weight: 500; cursor: pointer; transition: color .15s, border-color .15s, background .15s; }
+.mx-more:hover { color: var(--green-deep); border-color: var(--green); background: var(--green-tint); }
+.mx-more svg { transition: transform .2s ease; }
+.mx-more.open { color: var(--green-deep); border-color: var(--green); background: var(--green-tint); }
+.mx-more.open svg { transform: rotate(180deg); }
+.mx-detail { border-top: 1px dashed var(--border); padding-top: 16px; display: flex; flex-direction: column; gap: 12px; }
+.mx-detail[hidden] { display: none; }
