@@ -1,7 +1,10 @@
-# 健康主页（site/ + tools/）· 运维与前端参考
+# 前端与主页参考
 
-> 本文件是工作空间记忆 `.workbuddy/memory/MEMORY.md` 中「健康主页」与「前端改动验证」两节的完整版。
+> 前端细节的唯一权威来源。**流程级说明在 `docs/operations.md`，架构分层在 `docs/architecture.md`** —— 本文只写「怎么画、已知缺口、怎么验证」。
+>
 > **凡涉及主页数据推送、重新发布、前端 js/css 改动、综合指数口径、验证工具，先读本文件。**
+>
+> 原路径 `tools/HOMEPAGE_NOTES.md`，2026-10-25 移入 `docs/`（工具目录不放文档）。
 
 **数据与代码分离（09-16 起，核心）**：`site/server.py`（纯标准库单端口服务）提供同源可写端点，数据落服务端 `.data/`，「换数据」= 一个 POST，**不需要重新上线**。
 - 端点：`GET /api/data/index`、`GET /api/data/daily/YYYY-MM`（**不带 .json 后缀**，绕开按扩展名的边缘缓存；一律 `no-store`）· `GET /api/health` · `POST /api/push`（`X-Push-Token`）· `POST /api/rollback`。取数链路 `site/js/data.js`：**端点优先、失败回落随包静态副本**，走兜底时胶囊转琥珀标「静态副本」，不静默用旧数据。

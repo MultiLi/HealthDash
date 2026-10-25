@@ -1,76 +1,88 @@
 # HealthDash
 
-个人健康数据中台：Garmin / InBody 采集 → 规范化观测 → 多尺度聚合 → 断言判定 → 日报告与主页。
+个人健康数据中台：Garmin / InBody 采集 → 规范化观测 → 多尺度聚合 → 断言判定 → 日报告与健康主页。
 
-**架构与设计取舍见 [`notes/architecture_v4.md`](notes/architecture_v4.md)。**
-改代码前先读它——尤其是「代码 vs LLM 的边界」和「数据不进库」两条。
+**一句话架构**：判定（数字、门槛、红黄绿）由代码算，叙述由 LLM 写。两者之间是 `assertions` 表。
 
-## 分层
+---
 
-| 层 | 位置 | 职责 |
+## 先读哪一份
+
+| 你是 | 读这个 | 大约花 |
 |---|---|---|
-| L0 raw | `data/raw/*.json`（**不入库**） | 采集快照，不可变，溯源用 |
-| L1 观测 | `scripts/index.py` → `obs` 表 | 唯一 ETL 点：源字段只在这里翻译 |
-| L2 单元 | `scripts/units.py` | 日/周/月/滚动窗 × 指标；delta 与 mdc 判定的唯一入口 |
-| L3 断言 | `scripts/assertions.py` | 命题 + 布尔 + 证据；总评 rollup；可跨日统计 |
-| L4 编排 | `scripts/fact_pack.py`、`daily_brief.py`、自动化 prompt | 只算不判 / 判读 |
-| 定义 | `references/metrics.json` + `scripts/metricdefs.py` | **指标定义的唯一来源与唯一解析器**：语义、聚合方式、达标方向、达标线映射。阈值数值仍在 rules.json |
-| L5 呈现 | `site/`、`tools/homepage/` | 主页与报告 |
+| **Agent**（任意框架，第一次接入） | [`AGENT.md`](AGENT.md) | 5 分钟。契约、能力清单、六条硬边界 |
+| **人**，想改代码 | [`docs/architecture.md`](docs/architecture.md) → [`docs/README.md`](docs/README.md) | 15 分钟。分层与文档规范 |
+| **人**，想跑一次补数 / 发一次版 | [`docs/operations.md`](docs/operations.md) | 10 分钟。流程、命令、故障排查 |
+| 想判读报告怎么写 | `.workbuddy/skills/body-health/SKILL.md` | 判读 prompt |
+| 想知道踩过哪些坑 | [`docs/incidents.md`](docs/incidents.md) | 23 条实证事故 |
 
-真相只有两个：`data/raw/`（采集）与 `references/rules.json`（口径）。
-中间三层全是派生层，`data/state/health.db` 可随时删掉重建。
+---
 
-## 常用命令
+## 五分钟跑起来
 
 ```bash
-S=.workbuddy/skills/body-health/scripts
+cd ~/Documents/Health
 
-# 物化三层（首次 / 改了 rules.json 或 metrics.json 之后必跑）
-python3 $S/index.py build          # raw → obs → units → assertions
-python3 $S/index.py verify         # 11 项一致性自检，exit 0 = 通过
+# 系统代理常失效，跑联网脚本前统一加这个前缀（否则 Python 报 Connection refused）
+export no_proxy='*' NO_PROXY='*'
 
-# 指标定义（唯一权威来源）：改完 rules.json 或 metrics.json 必跑
-python3 $S/metricdefs.py validate   # 逐条解析声明，断链/区间写反都会报出来
-python3 $S/metricdefs.py list       # 全部指标的 dir / agg / goal / judge / severe / band
+# 1. 采集 + 回补截断日 + 重建物化层 + 推主页（一条命令四件事）
+python3 .workbuddy/skills/body-health/scripts/collect.py --days 3
 
-# 查
-python3 $S/units.py get --scale week --key 2026-W43
-python3 $S/units.py series --metric hrv_ms --scale week --n 12
-python3 $S/assertions.py list --date 2026-10-24 --level WARN
-python3 $S/assertions.py summary --days 90      # 维度 × 断言的触发频次
-python3 $S/assertions.py rollup --date 2026-10-24   # 总评（代码定）
+# 2. 自检
+python3 .workbuddy/skills/body-health/scripts/index.py verify     # 11 项，exit 0 = 通过
+python3 .workbuddy/skills/body-health/scripts/backtest.py golden  # 12 条历史锚点
 
-# 出报告：骨架 / 自检 / 回测
-python3 $S/compose.py --date 2026-10-24           # 从断言直渲骨架（不调 LLM，数字全对）
-python3 $S/compose.py --date D --as-final --force # LLM 挂了时的兜底（顶替正式报告）
-python3 $S/verify_judgment.py --date 2026-10-24   # 判读自检：总评一致 / findings / 数字溯源
-python3 $S/backtest.py snapshot                  # 改口径前存基线
-python3 $S/backtest.py diff                      # 改口径后：哪几天改判了
-python3 $S/backtest.py golden                    # 12 条金标用例
+# 3. 核验线上数据
+python3 tools/push_data.py --check                                # exit 0 = 逐文件一致
 ```
 
-**采集即物化**：`collect.py` 拉完数会自动跑一次 `index.py build`（第 ④ 步），
-所以 23:30 出报告时断言已经是新的。手动分析历史日时记得先跑 `index.py build`。
+**出报告**是另一条链路（`slot.py resolve` → 闸门 → `fact_pack` → 判读 → `verify_judgment` → `mark`），见 `docs/operations.md`。不要手动跑——它由定时班次驱动。
 
-采集与出报告的链路（`sync.py` / `collect.py` / `slot.py` / 自动化 prompt）不受影响，见 `.workbuddy/skills/body-health/SKILL.md`。
+---
 
-## 云服务
+## 目录
 
-站点接了 WorkBuddy Cloud Service（Database），存最近 7 天的逐日事实与版本指纹，
-页面据此做一致性校验（胶囊会显示「云端 7 天一致 / 落后 / 不可用」）。
-配置唯一来源 `tools/cloud.json`（构建时注入 `index.json` 的 `cloud` 节点）；前端 `site/js/cloud.js`；
-SDK 自托管在 `site/vendor/`。**表是 public read、没有任何客户端写路径**，同步走管理通道。
-细节见 `tools/HOMEPAGE_NOTES.md` 的「云服务」一节。
+```
+AGENT.md                 Agent 接入契约（唯一入口）
+README.md                本文件：人的门厅
+docs/                    项目文档：架构 / 运维 / 前端 / 事故 / 决策
+notes/                   历史推导、领域知识基线、欠账清单
+skills/                  ★ 目标位置（当前在 .workbuddy/skills/，见 docs/decisions.md D4）
+  body-health/           判读能力 + 引擎 + 口径
+  garmin-connect-cn/     采集通道
+healthd/                 ★ 目标位置（可选独立包，见 docs/decisions.md D3）
+tools/                   构建、推送、冒烟、交互探针
+site/                    前端（原生 ES module，无构建）+ 同源可写服务
+references/              口径数值（rules / metrics / lexicon）—— 代码读它，不是文档
+tests/                   golden.json 金标用例
+data/                    采集原始 + 物化数据库（都不入库）
+reports/                 报告产物（不入库）
+```
 
-## 口径入口（改判定只改这两个文件）
+---
 
-- `references/rules.json` — 阈值、个人档案、`units` 门禁、`confidence` 噪声门槛（mdc）
-- `references/metrics.json` — 指标注册表：语义、可比条件、聚合方式（`agg`）、达标方向（`dir`）
+## 三条最容易踩的边界
 
-改完必须重跑 `index.py build` 并看 `verify`；口径变更后应跑新旧断言 diff 再决定是否保留。
+1. **`data/raw/` 与 `reports/` 不入库**，`site/index.json` 也不入库。判据：删掉它能不能重建。
+2. **只有改前端代码才需要重新发布**，「换数据」只需一次 POST。发布必须带 `language=python`，漏了就静默退回纯静态。
+3. **改 `rules.json` 前先 `backtest.py snapshot`**，改完 `diff`，把改判清单附在提交里。
 
-## 数据边界
+---
 
-不入库：`data/raw/`、`data/inbody/`、`reports/`、`daily_log.jsonl`、`site/index.json`、`site/daily/`、`data/state/*.db`、`site/.push_token`。
+## 当前状态（2026-10-25）
 
-原因与「要改成数据也入库怎么办」写在 `.gitignore` 头部。**任何情况下 `site/.push_token` 与个人健康原始数据都不能进公共仓。**
+**能跑通的**：采集 → 物化三层 → 断言 → 判读 → 主页 → 云端一致性校验，全链路。`index.py verify` 11 项、`backtest golden` 12/12、`smoke_site` 113 项。
+
+**已知的债**（详见 [`docs/decisions.md`](docs/decisions.md) 待定部分与 [`notes/backlog.md`](notes/backlog.md)）：
+
+| 债 | 状态 |
+|---|---|
+| 13 处脚本用 `dirname(__file__)` 反推根目录，代码位置即运行时契约 | 待 H1 集中化 |
+| skills 住在 `.workbuddy/` 私有目录 | 待 H3 搬到 `skills/` |
+| 5 个定时班次的 prompt 不在仓库 | 待 H2 落盘 |
+| SKILL.md 644 行混装 prompt / 架构 / 事故 / 手册 | 待 H4 拆分 |
+| 步数两把尺子（10000 展示 / 8000 判读） | 等拍 |
+| rollup 与历史 8 份报告总评不一致 | 等拍 |
+
+迁移顺序见 [`docs/architecture.md`](docs/architecture.md) §6。

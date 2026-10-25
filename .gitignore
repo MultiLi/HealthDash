@@ -1,48 +1,75 @@
-# ─────────────────────────────────────────────────────────────
-# 健康中台 · 代码仓
+# ═══════════════════════════════════════════════════════════════════════
+# HealthDash · 版本控制边界
 #
-# 本仓只放「怎么算」：代码、口径（rules.json / metrics.json）、架构与决策记录。
-# 不放「算出来什么」：原始采集、报告产物、物化数据库。
+# 判定一条路径该不该入库，只问一个问题：
+#   「删掉它，另一台机器能不能从零重建？」
+#     能   → 它只是缓存，ignore
+#     不能 → 它是真相或知识，入库
 #
-# 理由（notes/architecture_v4.md 公理 1）：
+# 四类不入库：
+#   ① 采集原始      data/raw/ data/inbody/         —— 可重拉，且含个人数据
+#   ② 派生与运行态   *.db reports/ site/index.json  —— 可由代码重建
+#   ③ 宿主状态      .workbuddy 下的应用注册表、每日日志、自动化记忆
+#   ④ 凭据与个人原文  .push_token daily_log.jsonl notes/events.jsonl
+#
+# 为什么「宿主状态」要单列：
+#   它不是项目状态，是某个 agent 平台的运行记录。换框架、换机器、多个
+#   agent 并行时它必然冲突，且没有重建价值——有长期价值的结论已经沉淀
+#   到 MEMORY.md 与 docs/。留日志在仓库里只制造 diff 噪音。
+#
+# 为什么 raw 不入库（docs/architecture.md 公理 1）：
 #   真相只有两个——data/raw/*（采集快照）与 references/rules.json（口径）。
-#   其余都是派生层，必须可丢弃、可重建。
-#   把 400MB/3 年的 raw 塞进 git，代价是每次 clone/push 都在搬运一堆二进制式 JSON，
-#   而它本来就该由采集链路与独立备份负责。
+#   其余全是派生层，必须可丢弃、可重建。340KB/天 × 3 年塞进 git，代价是
+#   每次 clone 都在搬运二进制式 JSON，而它本该由采集链路与独立备份负责。
 #
-# 要改成「数据也入库」，删掉对应几行即可，但先想清楚仓库体积与隐私边界。
+# 要改成「数据也入库」，删掉对应几行即可，但先想清楚体积与隐私边界。
 #
-# 注：本文件在 GitHub 生成的 Python 模板基础上做了裁剪——
-#   模板里 `/site` 一行（mkdocs / Zensical 产物目录）会把本项目的**前端源码目录**
-#   整个忽略掉，属模板误伤，已移除。
-# ─────────────────────────────────────────────────────────────
+# 注：本文件在 GitHub 生成的 Python 模板基础上裁剪——模板里 `/site` 一行
+#   （mkdocs 产物）会把本项目的**前端源码目录**整个忽略，属模板误伤，
+#   已移除。改本文件时别把它加回来。
+# ═══════════════════════════════════════════════════════════════════════
 
-# ── 采集原始数据（现在 12MB，约 340KB/天）
+
+# ── ① 采集原始（含个人健康数据，永不入库）──────────────────────────────
 data/raw/
 data/inbody/
 
-# ── 物化数据库（派生层，可 `index.py build` 重建）
+# ── ② 派生与运行态（删掉可重建，命令见 docs/operations.md）─────────────
 data/state/*.db
 data/state/*.db-wal
 data/state/*.db-shm
-
-# ── 运行态账本（定时任务续跑用，随机器走）
 data/state/slots.json
-
-# ── 报告产物（一天一份 md + judgment + facts，约 7MB）
 reports/
-
-# ── 个人主观数据：体重 / 血压 / 任意备注
-daily_log.jsonl
-
-# ── 站点构建产物与推送令牌（前端源码在 site/js、site/css、server.py，要入库）
 site/index.json
 site/daily/
 site/.data/
+
+# ── ③ 宿主状态（某个 agent 平台的运行记录，不进项目历史）────────────────
+# 每日工作日志：append-only，天天变，diff 噪音大于价值
+.workbuddy/memory/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].md
+# 自动化班次的执行记忆：宿主运行日志；结论应沉淀到 docs/ 或 MEMORY.md
+.workbuddy/memory/automations/
+# 应用注册表：纯宿主状态（appId 与地址的唯一来源是 tools/deploy.json）
+.workbuddy/applications.yaml
+# 技能市场的安装元数据：宿主靠它识别技能，但不属于项目源码。
+# 本地必须有、仓库不该有；skills/ 搬到根目录后这几行自然失效。
+.workbuddy/skills/**/_meta.json
+.workbuddy/skills/**/_skillhub_meta.json
+.workbuddy/skills/**/_icon.png
+# 发布句柄
+.wbapp_*.genie
+
+# ── ④ 凭据与个人原文（私有仓库也不入库）────────────────────────────────
 site/.push_token
+daily_log.jsonl
+notes/events.jsonl
+
+# ── 前端源码在 site/js、site/css、site/server.py：**要入库** ────────────
+
+# ── 本地调试产物 ────────────────────────────────────────────────────────
 site/_probe_*.html
 
-# ── 本地运行态（以下沿用 Python 模板中通用有效的部分）
+# ── Python ──────────────────────────────────────────────────────────────
 __pycache__/
 *.py[codz]
 *$py.class
@@ -63,6 +90,7 @@ env/
 .coverage
 .coverage.*
 htmlcov/
+
+# ── 系统与日志 ──────────────────────────────────────────────────────────
 .DS_Store
-.wbapp_*.genie
 *.log
