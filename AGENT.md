@@ -47,6 +47,7 @@
 | 主页构建 | `python3 tools/build_homepage_data.py` | `site/index.json` + `site/daily/` | 覆盖产物 |
 | 主页推送 | `python3 tools/push_data.py` | 线上 `.data/` | 改线上数据 |
 | 推送核验 | `python3 tools/push_data.py --check` | exit 0 = 线上本地逐文件一致 | 无 |
+| 加密备份 | `python3 tools/backup_health.py --list`（只列）/ `--out <目录>`（打包） | `health_backup_<时间戳>.tar.gz.enc` | 写外部目录；口令走交互或 `HEALTH_BACKUP_PASS` |
 | 回测 | `python3 $S/backtest.py diff` | 口径变更前后改判清单 | 无 |
 | 金标 | `python3 $S/backtest.py golden` | 12 条锚点是否复现 | 无 |
 | 前端冒烟 | `node tools/smoke_site.mjs` | 113 项断言 | 无 |

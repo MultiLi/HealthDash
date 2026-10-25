@@ -174,9 +174,39 @@ python3 $S/fact_pack.py --date D --days 4 --merge-judgment
 
 `reports/`、`daily_log.jsonl`、`notes/events.jsonl` —— **它们不在 git 里，且无法用代码重建。**
 
-git 管代码与口径，这三样管「实际发生了什么」。它们现在**没有任何备份机制**，只存在于这台机器上。这是当前系统最大的单点风险：硬盘坏一次，32 份判读、38 天的健康事件、全部主观记录一起消失，且无法恢复。
+git 管代码与口径，这三样管「实际发生了什么」。
 
-建议（待定，见 `docs/decisions.md` D6）：把这三样打成加密归档，定期推到独立位置（对象存储 / 私有仓的 release / 时间机器之外的离线副本）。不要用同一块盘、不要放在 `$W` 里面。
+**2026-10-25 已落地加密备份脚本**（`tools/backup_health.py`）：
+
+```bash
+# 交互式（提示输口令；口令不落盘、不进 ps）
+python3 tools/backup_health.py --out ~/Documents/HealthBackups
+
+# 外部盘（推荐，抗硬件故障）
+python3 tools/backup_health.py --out /Volumes/你的盘名/HealthBackups
+
+# 先看会打包什么、缺什么
+python3 tools/backup_health.py --list
+
+# 非交互（定时任务用）；口令从环境变量读
+HEALTH_BACKUP_PASS=... python3 tools/backup_health.py --no-confirm
+```
+
+产出 `health_backup_<时间戳>.tar.gz.enc`（openssl aes-256-cbc + PBKDF2 20 万次迭代），明文压缩包生成后立即删除。解密：
+
+```bash
+HEALTH_BACKUP_PASS=<口令> openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+  -pass env:HEALTH_BACKUP_PASS -in health_backup_xxx.tar.gz.enc -out restore.tar.gz
+```
+
+**已验证**：加密 → 解密 → 解压 → 抽查 09-03（C2 改后为红）与 10-24（带 `downgrade_reason`）内容一致；错口令被 openssl 拒（`bad decrypt`）。
+
+### 备份的两条纪律
+
+1. **默认输出与项目在同一块盘**（`~/Documents/HealthBackups/）。这防误删、防「改错了想回退」，**不防硬件故障**。要抗硬件故障，`--out` 必须指向外部盘或另一台机器。
+2. **云存储只能当副本之一，不能是唯一一份。** 云服务可用性绑定订阅状态——官方文档明确「`billingStatus` 为 `credits_exhausted` 时数据库读写全部失败」。把唯一备份放在一个会因欠费而锁定的地方，不叫备份。
+
+**尚未自动化**：口令目前靠环境变量或交互输入，没进钥匙圈，所以还不能挂定时任务。要自动备份，需先把口令存进 macOS Keychain 并让脚本从那里读——见 `docs/decisions.md` D6。
 
 ---
 
