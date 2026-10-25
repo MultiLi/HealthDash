@@ -1,8 +1,8 @@
 /* 通用 HTML 组件：指标卡 / 事实清单 / 子项评分 chips。
    卡片结构（含「收起细分」按钮）统一在这里改。
    概览页的 KPI 卡与均值 chip 在 overview.js 内联生成（它们随观测窗口变化）。 */
-import { ICONS } from "./constants.js?v=b4d49e42";
-import { esc } from "./utils.js?v=b4d49e42";
+import { ICONS } from "./constants.js?v=abc945a5";
+import { esc } from "./utils.js?v=abc945a5";
 
 /* 指标卡：m = {icon,label,sub,state,value,unit,note,detail} */
 export function card(m) {

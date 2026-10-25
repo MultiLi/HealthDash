@@ -8,17 +8,17 @@
  *   ② 当前单元总览（综合指数 + Garmin 准备度 并排 + 四项达标计数）
  *   ③ 指标网格（8 张同构卡：主值 + 环比 + 单元序列 + 达标统计；日尺度下可展开当日细分）
  */
-import { store } from "./store.js?v=b4d49e42";
-import { metrics, CHECKS, bandOf, BAND, READY, readyOf } from "./constants.js?v=b4d49e42";
-import { esc, $ } from "./utils.js?v=b4d49e42";
+import { store } from "./store.js?v=abc945a5";
+import { metrics, CHECKS, bandOf, BAND, READY, readyOf } from "./constants.js?v=abc945a5";
+import { esc, $ } from "./utils.js?v=abc945a5";
 import { metricValue, seriesPoints, judgeValue, unitRowsAll, rowsWith,
-         unitCell, cellJudge, okCount, VERDICT_TEXT } from "./aggregate.js?v=b4d49e42";
-import { unitOf, prevUnitOf, unitSeries, scaleDef } from "./scope.js?v=b4d49e42";
-import { renderMonth, renderHeatstrip } from "./calendar.js?v=b4d49e42";
-import { sparkline } from "./charts.js?v=b4d49e42";
-import { DETAILS, readinessTrail, briefHtml } from "./detail.js?v=b4d49e42";
-import { ensureShard, dayOf, hasShard } from "./data.js?v=b4d49e42";
-import { monthLabel, fmtMD, weekdayCN } from "./dateutil.js?v=b4d49e42";
+         unitCell, cellJudge, okCount, VERDICT_TEXT } from "./aggregate.js?v=abc945a5";
+import { unitOf, prevUnitOf, unitSeries, scaleDef } from "./scope.js?v=abc945a5";
+import { renderMonth, renderHeatstrip } from "./calendar.js?v=abc945a5";
+import { sparkline } from "./charts.js?v=abc945a5";
+import { DETAILS, readinessTrail, briefHtml } from "./detail.js?v=abc945a5";
+import { ensureShard, dayOf, hasShard } from "./data.js?v=abc945a5";
+import { monthLabel, fmtMD, weekdayCN } from "./dateutil.js?v=abc945a5";
 
 function ix() { return store.ix; }
 
@@ -180,7 +180,12 @@ function renderReadyTrail() {
 function checkOne(r, key) {
   var g = ix().goals;
   if (key === "sleep") return r.sleep_h != null && r.sleep_h >= g.sleep_h;
-  if (key === "steps") return r.steps != null && r.steps >= g.steps;
+  /* 步数按判读线（8000）判达标，goal（10000）只作目标 —— 与 aggregate.checkFns
+     和后端 units.j 同源。两处实现都是历史遗留，改动时必须同步。 */
+  if (key === "steps") {
+    var line = g.steps_good || g.steps;
+    return r.steps != null && r.steps >= line;
+  }
   if (key === "hrv") return r.hrv_ok === true;
   return r.sedentary_min != null && r.sedentary_min <= g.sedentary_min;
 }

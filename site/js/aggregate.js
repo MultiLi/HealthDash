@@ -21,11 +21,17 @@ export function sum(vals) {
   return a.length ? a.reduce(function (x, y) { return x + y; }, 0) : null;
 }
 
-/* 四项达标判定（与 CHECKS 的键一一对应） */
+/* 四项达标判定（与 CHECKS 的键一一对应）
+   ★ 步数用 judge（8000）而不是 goal（10000）——达标口径必须与报告、与后端
+   units.j 同源。历史 bug：前端按 10000 判绿、报告按 8000 不提问题，
+   同一份数据两套说法（2026-10-25 C1）。旧 index 没有 steps_good 时回落 goal。 */
 export function checkFns(ix) {
   return {
     sleep: function (r) { return r.sleep_h != null && r.sleep_h >= ix.goals.sleep_h; },
-    steps: function (r) { return r.steps != null && r.steps >= ix.goals.steps; },
+    steps: function (r) {
+      var line = (ix.goals && ix.goals.steps_good) || ix.goals.steps;
+      return r.steps != null && r.steps >= line;
+    },
     hrv: function (r) { return r.hrv_ok === true; },
     sedentary: function (r) { return r.sedentary_min != null && r.sedentary_min <= ix.goals.sedentary_min; }
   };

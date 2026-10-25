@@ -204,7 +204,11 @@ def _judge(metric, value, mdef, rules, band):
     if direction == "band":
         b = band or _band(metric, rules, None)
         return "na" if not b else ("ok" if b[0] <= value <= b[1] else "no")
-    g = _goal(metric, rules)
+    # 档位按**判读线**（judge），不是展示目标（goal）。2026-10-25 之前这里用 goal，
+    # 是全仓唯一一处「展示口径覆盖判读口径」的地方：步数 goal=10000、judge=8000，
+    # 于是 8982 步那天主页判「未达标」而报告根本不提——同一份数据两种说法。
+    # 两者只对步数不同（其余指标的 judge 未单独声明，judge_of 会自动退回 goal）。
+    g = metricdefs.judge_of(metric, rules)
     if g is None:
         return None
     return "ok" if ((value >= g) if direction == "above" else (value <= g)) else "no"

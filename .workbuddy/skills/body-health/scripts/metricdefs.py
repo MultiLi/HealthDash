@@ -334,10 +334,15 @@ def resolve_all(rules):
             "precision": d.get("precision"),
             "check": bool(d.get("check")),
             "frontend_key": d.get("frontend_key"),
-            "goal": None, "band": None,
+            "goal": None, "judge": None, "band": None,
         }
         try:
             item["goal"] = goal_of(m, rules) if d.get("dir") in ("above", "below") else None
+            # judge 与 goal 只对步数不同（10000 vs 8000）。以前只下发 goal，
+            # 前端就用 goal 判达标，于是 8982 步那天主页说「未达标」、报告不提
+            # （2026-10-25 C1）。两个值都下发，判定权归后端（units.j），
+            # 前端只负责把「目标」与「达标线」分开写。
+            item["judge"] = judge_of(m, rules) if d.get("dir") in ("above", "below") else None
             if d.get("dir") == "band" and d.get("band"):
                 # "@personal" 原样下发：个人基线带随数据变，前端从 baselines 取，
                 # 不能在这里写死成某个具体区间（那会把上周的带当成永久标准）。

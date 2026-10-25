@@ -22,6 +22,7 @@
 - **环比与达标由后端判定**（2026-10-25）：`index.json.units[scale][key][metric]` = `{v 值, j 达标ok/no/na, c 覆盖率, n 实测天数, r 达标率, d 差值, dv 五档判定, vs 对比单元}`。前端只把 `dv` 翻成人话（`aggregate.VERDICT_TEXT`）：
   - `changed` → 才给红绿箭头 + 差值；`within-noise` 写「在误差内」；`suppressed`（步数这类 tier.change=low 的指标）写「不做环比」；`insufficient` 写「样本不足」。
   - **前端禁止自己比大小**——mdc 门槛在 `rules.confidence`，判定在 L2。以前这里画「↑7%」而报告写「在误差内」，两边都不算错，因为口径只约束了写报告的人。
+  - **步数有两把尺子，必须并列呈现**（2026-10-25 C1）：`units[].j` 按判读线 **8000** 判达标，`goal` **10000** 只作目标；卡片文案写「目标 ≥ 10k · 达标线 ≥ 8k」。`metric_defs.steps_daily` 同时下发 `goal` 与 `judge`。⚠️ 达标判定在前端有**两处重复实现**——`aggregate.checkFns()` 与 `metricgrid.checkOne()`，改一处必须同步改另一处（两处都读 `ix.goals.steps_good`，旧 index 无此字段时回落 `ix.goals.steps`）。
   - `j=na`（覆盖不足）时卡片显示「覆盖 x% · 不给结论」，四项达标显示「–」而不是 0/0（0/0 会被读成「一天都没做到」）。
   - 滚动窗的环比**必须非重叠**（`prevUnitOf` 直接跳一个窗长）：相邻两窗只差一天时重叠 6/7，比它们等于比「自己和几乎自己」。
 - **已知缺口（均未改代码）**：① 日历配色只由综合指数驱动，恢复报警日（09-07 准备度 41 LOW）日历上仍是绿色 92 徽标；② 主页准备度取单一主字段，**不认 `readiness_series`**——09-17 展示 HIGH(78)（来自 00:19 前夜重置），报告口径是日间 MODERATE(70)。

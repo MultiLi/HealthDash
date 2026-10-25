@@ -22,10 +22,13 @@ export function bandOf(v, baselines) {
 
 export function bandColor(v, baselines) { return BAND[bandOf(v, baselines)]; }
 
-/* 四项达标维度：日历格内的四个点、KPI 卡、聚合表共用同一组键 */
+/* 四项达标维度：日历格内的四个点、KPI 卡、聚合表共用同一组键。
+   注意 goalText 目前**不被渲染**（两处调用只用 key/label），保留仅为声明语义；
+   真正的达标文案在下面 IMPL[].goalText() 里。步数写 8k 而不是 10k：
+   这里是「达标线」，不是「目标」（2026-10-25 C1）。 */
 export var CHECKS = [
   { key: "sleep", label: "睡眠", goalText: "≥ 7h" },
-  { key: "steps", label: "步数", goalText: "≥ 10k" },
+  { key: "steps", label: "步数", goalText: "≥ 8k" },
   { key: "hrv", label: "HRV", goalText: "≥ 基线下限" },
   { key: "sedentary", label: "久坐", goalText: "≤ 8h" }
 ];
@@ -81,7 +84,15 @@ var PRESENT = {
   steps: {
     detail: "activity",
     fmt: function (v) { return v == null ? "—" : Math.round(v).toLocaleString("en-US"); },
-    goalText: function (g) { return "日均目标 ≥ " + Math.round(g / 1000) + "k"; }
+    /* 双尺子（2026-10-25 C1）：达标按 judge=8000，goal=10000 只作目标。
+       两者并存是有意的——目标高于及格线才有激励意义；但必须写清楚，
+       否则「8982 步 · 未达标」会被读成数据出错。 */
+    goalText: function (g, ix) {
+      var goal = Math.round(g / 1000) + "k";
+      var j = ix && ix.goals && ix.goals.steps_good;
+      return j ? ("目标 ≥ " + goal + " · 达标线 ≥ " + Math.round(j / 1000) + "k")
+               : ("日均目标 ≥ " + goal);
+    }
   },
   sedentary_min: {
     detail: "sedentary",
