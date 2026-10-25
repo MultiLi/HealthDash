@@ -1,6 +1,6 @@
 {
- "version": 2,
- "_comment": "指标注册表（2026-10-19 建，2026-10-25 升 v2）。这是全体系的语义层：定义每个观测量是什么、以什么形态存在、什么样的情况下两次观测才可比、以及在「单元聚合」里怎么合并。新增数据源时**先在这里登记**，再写 provider；判读引擎不因新源而改。v2 新增 agg/dir 两键供 L2 单元层使用——agg 决定日/周/月尺度下怎么合并（mean/median/sum/last/min/max），dir 决定达标方向（above/below/band/null）。**阈值不在这里**，一律在 rules.json，由 units.py 现取。",
+ "version": 3,
+ "_comment": "指标注册表 v3（2026-10-25）。**这是指标定义的唯一权威来源**：语义（label/unit/kind/role）、可比条件、聚合方式（agg）、达标方向（dir）、以及「达标线是哪条规则」（thresholds 声明式表达式）。阈值数值仍在 rules.json，本表只声明映射与换算；解析器是 scripts/metricdefs.py，缺路径会直接报错（以前静默返回 None，指标会悄悄失去达标判定）。thresholds 四键：goal=单元/展示达标线（units.judge 用）；judge=判读线（报告判黄用，未声明退回 goal）；severe=红线段；delta=差值型判据（如静息心率抬升）。表达式只允许 数字 / 点号路径 / + - * / 与括号。",
  "kinds": {
   "point": "点观测：某个时刻的一个读数（体测、称重、血压）。t 是时刻。",
   "interval": "区间观测：某个时间段上的聚合量（一天的步数、一夜的 HRV）。t=t_start, t_end=区间终点，coverage=实际覆盖比例。",
@@ -13,189 +13,521 @@
  },
  "metrics": {
   "weight_kg": {
-   "label": "体重", "unit": "kg", "kind": "point", "cadence": "daily", "role": "anchor",
+   "label": "体重",
+   "unit": "kg",
+   "kind": "point",
+   "cadence": "daily",
+   "role": "anchor",
    "error_ref": "weight_kg",
-   "comparable_on": ["method", "device", "conditions.fasted", "conditions.same_scale"],
+   "comparable_on": [
+    "method",
+    "device",
+    "conditions.fasted",
+    "conditions.same_scale"
+   ],
    "note": "两个源：家用秤（晨起空腹）与 InBody H40 内建秤（晚间）。**方法不同即不可相减**，只能各自成序列或做漂移检测。刻意不进 units 聚合——一旦合并就会把两个口径平均成一个不存在的数。"
   },
   "body_fat_pct": {
-   "label": "体脂率", "unit": "%", "kind": "point", "cadence": "monthly", "role": "proxy",
+   "label": "体脂率",
+   "unit": "%",
+   "kind": "point",
+   "cadence": "monthly",
+   "role": "proxy",
    "error_ref": "body_fat_pct",
-   "comparable_on": ["method", "device", "conditions.fasted", "conditions.time_of_day"],
+   "comparable_on": [
+    "method",
+    "device",
+    "conditions.fasted",
+    "conditions.time_of_day"
+   ],
    "note": "BIA 是代理量，跨机型/跨方法（如 Navy 皮尺）**不可比、不可平均**。多方法并存时应给区间而不是择一。"
   },
   "ffm_kg": {
-   "label": "去脂体重", "unit": "kg", "kind": "derived", "cadence": "monthly", "role": "proxy",
+   "label": "去脂体重",
+   "unit": "kg",
+   "kind": "derived",
+   "cadence": "monthly",
+   "role": "proxy",
    "error_ref": "ffm_kg",
-   "comparable_on": ["method", "device", "conditions.fasted"],
+   "comparable_on": [
+    "method",
+    "device",
+    "conditions.fasted"
+   ],
    "note": "所有减脂目标路径的分母。它一漂，「目标 85.9kg」整个跟着错。"
   },
   "skeletal_muscle_kg": {
-   "label": "骨骼肌量", "unit": "kg", "kind": "point", "cadence": "monthly", "role": "proxy",
+   "label": "骨骼肌量",
+   "unit": "kg",
+   "kind": "point",
+   "cadence": "monthly",
+   "role": "proxy",
    "error_ref": "skeletal_muscle_kg",
-   "comparable_on": ["method", "device"],
+   "comparable_on": [
+    "method",
+    "device"
+   ],
    "note": "受水合影响大。±1.5kg 内只能说「没有证据表明流失」。"
   },
   "visceral_fat_level": {
-   "label": "内脏脂肪等级", "unit": "级", "kind": "point", "cadence": "monthly", "role": "proxy",
+   "label": "内脏脂肪等级",
+   "unit": "级",
+   "kind": "point",
+   "cadence": "monthly",
+   "role": "proxy",
    "error_ref": "visceral_fat_level",
-   "comparable_on": ["method", "device"],
+   "comparable_on": [
+    "method",
+    "device"
+   ],
    "note": "整数刻度、±1 级。"
   },
   "waist_cm": {
-   "label": "腰围", "unit": "cm", "kind": "point", "cadence": "monthly", "role": "anchor",
+   "label": "腰围",
+   "unit": "cm",
+   "kind": "point",
+   "cadence": "monthly",
+   "role": "anchor",
    "error_ref": "waist_cm",
-   "comparable_on": ["method", "conditions.fasted", "conditions.time_of_day"],
+   "comparable_on": [
+    "method",
+    "conditions.fasted",
+    "conditions.time_of_day"
+   ],
    "note": "**未采集**。登记在此是为了让框架「空着也能接」——数据一到就自动进入体系，不需要改任何代码。"
   },
   "calf_cm": {
-   "label": "小腿围", "unit": "cm", "kind": "point", "cadence": "monthly", "role": "anchor",
+   "label": "小腿围",
+   "unit": "cm",
+   "kind": "point",
+   "cadence": "monthly",
+   "role": "anchor",
    "error_ref": "waist_cm",
-   "comparable_on": ["method", "conditions.time_of_day"],
+   "comparable_on": [
+    "method",
+    "conditions.time_of_day"
+   ],
    "note": "**未采集**。同 waist_cm，占位登记。"
   },
   "hrv_ms": {
-   "label": "HRV", "unit": "ms", "kind": "interval", "cadence": "daily", "role": "proxy",
-   "error_ref": "hrv_ms", "agg": "median", "dir": "band",
-   "comparable_on": ["method", "device"],
-   "note": "夜间均值。单晚 ±10ms 是噪声（本机实测 SD 10.0）。聚合用**中位数**——偏态，单夜暴跌会把周均值带跑。"
+   "label": "HRV",
+   "unit": "ms",
+   "kind": "interval",
+   "cadence": "daily",
+   "role": "proxy",
+   "error_ref": "hrv_ms",
+   "agg": "median",
+   "dir": "band",
+   "comparable_on": [
+    "method",
+    "device"
+   ],
+   "note": "夜间均值。单晚 ±10ms 是噪声（本机实测 SD 10.0）。聚合用**中位数**——偏态，单夜暴跌会把周均值带跑。",
+   "precision": 0,
+   "check": true,
+   "frontend_key": "hrv",
+   "band": "@personal",
+   "band_fallback": "hrv.fallback_band"
   },
   "rhr_bpm": {
-   "label": "静息心率", "unit": "bpm", "kind": "point", "cadence": "daily", "role": "proxy",
-   "error_ref": "rhr_bpm", "agg": "mean", "dir": "below",
-   "comparable_on": ["method", "device"],
-   "note": "±2 bpm 是噪声（门槛 5）。"
+   "label": "静息心率",
+   "unit": "bpm",
+   "kind": "point",
+   "cadence": "daily",
+   "role": "proxy",
+   "error_ref": "rhr_bpm",
+   "agg": "mean",
+   "dir": "below",
+   "comparable_on": [
+    "method",
+    "device"
+   ],
+   "note": "±2 bpm 是噪声（门槛 5）。",
+   "precision": 0,
+   "frontend_key": "rhr",
+   "thresholds": {
+    "goal": "profile.rhr_7d_avg + rhr.elevated_delta_bpm",
+    "delta": "rhr.elevated_delta_bpm"
+   }
   },
   "sleep_h": {
-   "label": "睡眠时长", "unit": "h", "kind": "interval", "cadence": "daily", "role": "proxy",
-   "error_ref": "sleep_h", "agg": "mean", "dir": "above",
-   "comparable_on": ["method", "device"],
-   "note": "区间＝一夜。日间摆动 ±0.9h。达标线 = rules.sleep.min_healthy_duration_min / 60。"
+   "label": "睡眠时长",
+   "unit": "h",
+   "kind": "interval",
+   "cadence": "daily",
+   "role": "proxy",
+   "error_ref": "sleep_h",
+   "agg": "mean",
+   "dir": "above",
+   "comparable_on": [
+    "method",
+    "device"
+   ],
+   "note": "区间＝一夜。日间摆动 ±0.9h。达标线 = rules.sleep.min_healthy_duration_min / 60。",
+   "precision": 1,
+   "check": true,
+   "frontend_key": "sleep_h",
+   "thresholds": {
+    "goal": "sleep.min_healthy_duration_min / 60",
+    "judge": "sleep.min_healthy_duration_min / 60",
+    "severe": "cross.short_sleep_min / 60"
+   }
   },
   "sleep_deep_pct": {
-   "label": "深睡占比", "unit": "%", "kind": "derived", "cadence": "daily", "role": "proxy",
-   "error_ref": "sleep_h", "agg": "mean", "dir": "band",
-   "comparable_on": ["method", "device"],
-   "note": "占比类指标**没有登记 mdc**，只并列数字、不判趋势方向（2026-10-22 定）。"
+   "label": "深睡占比",
+   "unit": "%",
+   "kind": "derived",
+   "cadence": "daily",
+   "role": "proxy",
+   "error_ref": "sleep_h",
+   "agg": "mean",
+   "dir": "band",
+   "comparable_on": [
+    "method",
+    "device"
+   ],
+   "note": "占比类指标**没有登记 mdc**，只并列数字、不判趋势方向（2026-10-22 定）。",
+   "precision": 1,
+   "band": "sleep.deep_pct_optimal"
   },
   "sleep_rem_pct": {
-   "label": "REM 占比", "unit": "%", "kind": "derived", "cadence": "daily", "role": "proxy",
-   "error_ref": "sleep_h", "agg": "mean", "dir": "band",
-   "comparable_on": ["method", "device"],
-   "note": "同上，占比不判趋势。REM 由「起床时刻 + 睡眠连续性」决定，不由入睡钟点决定（10-22 vs 10-23 对照）。"
+   "label": "REM 占比",
+   "unit": "%",
+   "kind": "derived",
+   "cadence": "daily",
+   "role": "proxy",
+   "error_ref": "sleep_h",
+   "agg": "mean",
+   "dir": "band",
+   "comparable_on": [
+    "method",
+    "device"
+   ],
+   "note": "同上，占比不判趋势。REM 由「起床时刻 + 睡眠连续性」决定，不由入睡钟点决定（10-22 vs 10-23 对照）。",
+   "precision": 1,
+   "band": "sleep.rem_pct_optimal"
   },
   "sleep_hr_avg": {
-   "label": "睡眠心率均值", "unit": "bpm", "kind": "interval", "cadence": "daily", "role": "proxy",
-   "error_ref": "rhr_bpm", "agg": "mean", "dir": "below",
-   "comparable_on": ["method", "device"],
-   "note": "基准 = profile.rhr_7d_avg + sleep_hr.score.allowance_bpm；无登记 mdc，只作辅证。"
+   "label": "睡眠心率均值",
+   "unit": "bpm",
+   "kind": "interval",
+   "cadence": "daily",
+   "role": "proxy",
+   "error_ref": "rhr_bpm",
+   "agg": "mean",
+   "dir": "below",
+   "comparable_on": [
+    "method",
+    "device"
+   ],
+   "note": "基准 = profile.rhr_7d_avg + sleep_hr.score.allowance_bpm；无登记 mdc，只作辅证。",
+   "precision": 0,
+   "thresholds": {
+    "goal": "profile.rhr_7d_avg + sleep_hr.score.allowance_bpm"
+   }
   },
   "steps_daily": {
-   "label": "日步数", "unit": "步", "kind": "interval", "cadence": "daily", "role": "proxy",
-   "error_ref": "steps_daily", "agg": "mean", "dir": "above",
-   "comparable_on": ["method", "device"],
-   "note": "累计量，**单日比较无意义**（门槛 8000 步）。coverage <1 时数值偏低，必须声明。tier.change=low → 周环比不给 verdict，只给多月斜率。"
+   "label": "日步数",
+   "unit": "步",
+   "kind": "interval",
+   "cadence": "daily",
+   "role": "proxy",
+   "error_ref": "steps_daily",
+   "agg": "mean",
+   "dir": "above",
+   "comparable_on": [
+    "method",
+    "device"
+   ],
+   "note": "累计量，**单日比较无意义**（门槛 8000 步）。coverage <1 时数值偏低，必须声明。tier.change=low → 周环比不给 verdict，只给多月斜率。",
+   "precision": 0,
+   "check": true,
+   "frontend_key": "steps",
+   "thresholds": {
+    "goal": "activity.steps_goal",
+    "judge": "activity.steps_good",
+    "severe": "activity.steps_low"
+   }
   },
   "sedentary_min": {
-   "label": "久坐", "unit": "min", "kind": "interval", "cadence": "daily", "role": "proxy",
-   "error_ref": "steps_daily", "agg": "mean", "dir": "below",
-   "comparable_on": ["method", "device"],
-   "note": "累计量，且受「无睡眠记录日整日计入清醒」的分母伪影影响；coverage 与 awake 分母要一起看。**无 mdc 登记 → delta 判 uncalibrated**。"
+   "label": "久坐",
+   "unit": "min",
+   "kind": "interval",
+   "cadence": "daily",
+   "role": "proxy",
+   "error_ref": "steps_daily",
+   "agg": "mean",
+   "dir": "below",
+   "comparable_on": [
+    "method",
+    "device"
+   ],
+   "note": "累计量，且受「无睡眠记录日整日计入清醒」的分母伪影影响；coverage 与 awake 分母要一起看。**无 mdc 登记 → delta 判 uncalibrated**。",
+   "precision": 0,
+   "check": true,
+   "frontend_key": "sedentary_min",
+   "thresholds": {
+    "goal": "activity.sedentary_warn_hours * 60",
+    "judge": "activity.sedentary_warn_hours * 60"
+   }
   },
   "intensity_min": {
-   "label": "中高强度分钟", "unit": "min", "kind": "interval", "cadence": "daily", "role": "proxy",
-   "error_ref": "steps_daily", "agg": "mean", "dir": "above",
-   "comparable_on": ["method", "device"],
-   "note": "与步数是两条独立线，步数达标≠强度达标。达标线 = rules.activity.intensity_daily_goal。"
+   "label": "中高强度分钟",
+   "unit": "min",
+   "kind": "interval",
+   "cadence": "daily",
+   "role": "proxy",
+   "error_ref": "steps_daily",
+   "agg": "mean",
+   "dir": "above",
+   "comparable_on": [
+    "method",
+    "device"
+   ],
+   "note": "与步数是两条独立线，步数达标≠强度达标。达标线 = rules.activity.intensity_daily_goal。",
+   "precision": 0,
+   "frontend_key": "intensity_min",
+   "thresholds": {
+    "goal": "activity.intensity_daily_goal",
+    "judge": "activity.intensity_daily_goal"
+   }
   },
   "z2_min": {
-   "label": "Z2 分钟", "unit": "min", "kind": "derived", "cadence": "daily", "role": "proxy",
-   "error_ref": "steps_daily", "agg": "sum", "dir": null,
-   "comparable_on": ["method", "device"],
+   "label": "Z2 分钟",
+   "unit": "min",
+   "kind": "derived",
+   "cadence": "daily",
+   "role": "proxy",
+   "error_ref": "steps_daily",
+   "agg": "sum",
+   "dir": null,
+   "comparable_on": [
+    "method",
+    "device"
+   ],
    "note": "由 hr_series 逐样本在带内计算。**周口径是累计量**（目标 180min/周），故 agg=sum；不做单日达标判定——零 Z2 不惩罚只报进账。"
   },
   "active_kcal": {
-   "label": "活动消耗", "unit": "kcal", "kind": "interval", "cadence": "daily", "role": "proxy",
-   "error_ref": "steps_daily", "agg": "mean", "dir": null,
-   "comparable_on": ["method", "device"],
-   "note": "来自 usersummary 实测值，非活动列表。"
+   "label": "活动消耗",
+   "unit": "kcal",
+   "kind": "interval",
+   "cadence": "daily",
+   "role": "proxy",
+   "error_ref": "steps_daily",
+   "agg": "mean",
+   "dir": null,
+   "comparable_on": [
+    "method",
+    "device"
+   ],
+   "note": "来自 usersummary 实测值，非活动列表。",
+   "precision": 0,
+   "frontend_key": "active_kcal"
   },
   "distance_km": {
-   "label": "距离", "unit": "km", "kind": "interval", "cadence": "daily", "role": "proxy",
-   "error_ref": "steps_daily", "agg": "mean", "dir": null,
-   "comparable_on": ["method", "device"],
-   "note": "usersummary 实测，不用 activity 记录。"
+   "label": "距离",
+   "unit": "km",
+   "kind": "interval",
+   "cadence": "daily",
+   "role": "proxy",
+   "error_ref": "steps_daily",
+   "agg": "mean",
+   "dir": null,
+   "comparable_on": [
+    "method",
+    "device"
+   ],
+   "note": "usersummary 实测，不用 activity 记录。",
+   "precision": 1
   },
   "stress_avg": {
-   "label": "平均压力", "unit": "score", "kind": "interval", "cadence": "daily", "role": "proxy",
-   "error_ref": "steps_daily", "agg": "mean", "dir": "below",
-   "comparable_on": ["method", "device"],
-   "note": "无 mdc 登记。判好线 = rules.homepage.stress_avg_good。"
+   "label": "平均压力",
+   "unit": "score",
+   "kind": "interval",
+   "cadence": "daily",
+   "role": "proxy",
+   "error_ref": "steps_daily",
+   "agg": "mean",
+   "dir": "below",
+   "comparable_on": [
+    "method",
+    "device"
+   ],
+   "note": "无 mdc 登记。判好线 = rules.homepage.stress_avg_good。",
+   "precision": 0,
+   "frontend_key": "stress",
+   "thresholds": {
+    "goal": "homepage.stress_avg_good",
+    "judge": "homepage.stress_avg_good"
+   }
   },
   "bb_low": {
-   "label": "身体电量落点", "unit": "score", "kind": "point", "cadence": "daily", "role": "proxy",
-   "error_ref": "steps_daily", "agg": "mean", "dir": null,
-   "comparable_on": ["method", "device"],
+   "label": "身体电量落点",
+   "unit": "score",
+   "kind": "point",
+   "cadence": "daily",
+   "role": "proxy",
+   "error_ref": "steps_daily",
+   "agg": "mean",
+   "dir": null,
+   "comparable_on": [
+    "method",
+    "device"
+   ],
    "note": "当日最低点。单元代表值取各日落点的均值。"
   },
   "spo2_sleep_avg": {
-   "label": "睡眠期血氧均值", "unit": "%", "kind": "interval", "cadence": "daily", "role": "proxy",
-   "error_ref": "spo2_sleep_avg", "agg": "mean", "dir": "above",
-   "comparable_on": ["method", "device"],
-   "note": "睡眠期均值口径，归属「醒来的那天」。达标线 = rules.spo2.sleep_avg_warn。"
+   "label": "睡眠期血氧均值",
+   "unit": "%",
+   "kind": "interval",
+   "cadence": "daily",
+   "role": "proxy",
+   "error_ref": "spo2_sleep_avg",
+   "agg": "mean",
+   "dir": "above",
+   "comparable_on": [
+    "method",
+    "device"
+   ],
+   "note": "睡眠期均值口径，归属「醒来的那天」。达标线 = rules.spo2.sleep_avg_warn。",
+   "precision": 0,
+   "thresholds": {
+    "goal": "spo2.sleep_avg_warn",
+    "judge": "spo2.sleep_avg_warn"
+   }
   },
   "readiness_score": {
-   "label": "训练准备度", "unit": "score", "kind": "point", "cadence": "daily", "role": "proxy",
-   "error_ref": "steps_daily", "agg": "mean", "dir": null,
-   "comparable_on": ["method", "device"],
-   "note": "晨起 AFTER_WAKEUP_RESET 快照（日间重算进 readiness_series，不取）。设备五档由 canonical 单独下发，这里只存分。"
+   "label": "训练准备度",
+   "unit": "score",
+   "kind": "point",
+   "cadence": "daily",
+   "role": "proxy",
+   "error_ref": "steps_daily",
+   "agg": "mean",
+   "dir": null,
+   "comparable_on": [
+    "method",
+    "device"
+   ],
+   "note": "晨起 AFTER_WAKEUP_RESET 快照（日间重算进 readiness_series，不取）。设备五档由 canonical 单独下发，这里只存分。",
+   "precision": 0,
+   "thresholds": {
+    "judge": "readiness.low_score"
+   }
   },
   "vo2max": {
-   "label": "VO2 Max", "unit": "ml/kg/min", "kind": "point", "cadence": "weekly", "role": "proxy",
-   "error_ref": "vo2max", "agg": "last", "dir": null,
-   "comparable_on": ["method", "device"],
-   "note": "设备估算，低活动基线下系统性高估。只能同法比较。单元代表值取该单元内最后一次更新值（agg=last）。"
+   "label": "VO2 Max",
+   "unit": "ml/kg/min",
+   "kind": "point",
+   "cadence": "weekly",
+   "role": "proxy",
+   "error_ref": "vo2max",
+   "agg": "last",
+   "dir": null,
+   "comparable_on": [
+    "method",
+    "device"
+   ],
+   "note": "设备估算，低活动基线下系统性高估。只能同法比较。单元代表值取该单元内最后一次更新值（agg=last）。",
+   "precision": 1
   },
   "sleep_bed_min": {
-   "label": "入睡时刻", "unit": "min-of-day", "kind": "point", "cadence": "daily", "role": "proxy",
+   "label": "入睡时刻",
+   "unit": "min-of-day",
+   "kind": "point",
+   "cadence": "daily",
+   "role": "proxy",
    "error_ref": "sleep_h",
-   "comparable_on": ["method", "device"],
-   "note": "**参考量，不进单元聚合**。数值 = 本地时刻换算成当日分钟数（02:27 → 147），便于与 rules.sleep.late_bedtime（01:30 → 90）直接比较，避免字符串比较的坑。"
+   "comparable_on": [
+    "method",
+    "device"
+   ],
+   "note": "**参考量，不进单元聚合**。数值 = 本地时刻换算成当日分钟数（02:27 → 147），便于与 rules.sleep.late_bedtime（01:30 → 90）直接比较，避免字符串比较的坑。 判读线由 thresholds.judge_time 声明（HH:MM 字符串），解析成分钟数后与值比较。",
+   "thresholds": {
+    "judge_time": "sleep.late_bedtime"
+   }
   },
   "exercise_window_n": {
-   "label": "运动窗次数", "unit": "次", "kind": "derived", "cadence": "daily", "role": "proxy",
-   "error_ref": "steps_daily", "agg": "sum", "dir": null,
-   "comparable_on": ["method", "device"],
+   "label": "运动窗次数",
+   "unit": "次",
+   "kind": "derived",
+   "cadence": "daily",
+   "role": "proxy",
+   "error_ref": "steps_daily",
+   "agg": "sum",
+   "dir": null,
+   "comparable_on": [
+    "method",
+    "device"
+   ],
    "note": "由逐时心率反推（核心窗 均≥100 且 峰≥150，前后各并入 1 小时热身）。**没按开始键也算**。周尺度取累计次数，比『某天有没有运动』更能回答『一周练了几次』。"
   },
   "bb_net": {
-   "label": "身体电量净收支", "unit": "score", "kind": "derived", "cadence": "daily", "role": "proxy",
-   "error_ref": "steps_daily", "agg": "sum", "dir": null,
-   "comparable_on": ["method", "device"],
+   "label": "身体电量净收支",
+   "unit": "score",
+   "kind": "derived",
+   "cadence": "daily",
+   "role": "proxy",
+   "error_ref": "steps_daily",
+   "agg": "sum",
+   "dir": null,
+   "comparable_on": [
+    "method",
+    "device"
+   ],
    "note": "夜间充电 − 日间消耗。负值＝入不敷出。周尺度取累计（周净负才是真信号，单日负是常态）。"
   },
   "hrv_band_low": {
-   "label": "HRV 基线下沿", "unit": "ms", "kind": "point", "cadence": "daily", "role": "proxy",
+   "label": "HRV 基线下沿",
+   "unit": "ms",
+   "kind": "point",
+   "cadence": "daily",
+   "role": "proxy",
    "error_ref": "hrv_ms",
-   "comparable_on": ["method", "device"],
+   "comparable_on": [
+    "method",
+    "device"
+   ],
    "note": "**参考量，不进单元聚合**。设备按滚动窗口给出的个人基线下沿，判『低于下沿』时必须用它而不是 rules 缺省带。"
   },
   "hrv_band_high": {
-   "label": "HRV 基线上沿", "unit": "ms", "kind": "point", "cadence": "daily", "role": "proxy",
+   "label": "HRV 基线上沿",
+   "unit": "ms",
+   "kind": "point",
+   "cadence": "daily",
+   "role": "proxy",
    "error_ref": "hrv_ms",
-   "comparable_on": ["method", "device"],
+   "comparable_on": [
+    "method",
+    "device"
+   ],
    "note": "**参考量，不进单元聚合**。"
   },
   "rhr_avg7": {
-   "label": "静息心率 7 日均", "unit": "bpm", "kind": "point", "cadence": "daily", "role": "proxy",
+   "label": "静息心率 7 日均",
+   "unit": "bpm",
+   "kind": "point",
+   "cadence": "daily",
+   "role": "proxy",
    "error_ref": "rhr_bpm",
-   "comparable_on": ["method", "device"],
+   "comparable_on": [
+    "method",
+    "device"
+   ],
    "note": "**参考量，不进单元聚合**。判『静息心率抬升』的比较基准。"
   },
   "sleep_quality": {
-   "label": "睡眠自评", "unit": "1-5", "kind": "point", "cadence": "daily", "role": "self_report",
-   "error_ref": "sleep_h", "agg": "mean", "dir": null,
-   "comparable_on": ["method"],
+   "label": "睡眠自评",
+   "unit": "1-5",
+   "kind": "point",
+   "cadence": "daily",
+   "role": "self_report",
+   "error_ref": "sleep_h",
+   "agg": "mean",
+   "dir": null,
+   "comparable_on": [
+    "method"
+   ],
    "note": "主观量：不与设备睡眠分互换，只做「客观-主观偏离」的对照。"
   }
  }

@@ -30,6 +30,7 @@ sys.path.insert(0, _WORKSPACE)
 
 import db                                                  # noqa: E402
 import units as units_mod                                  # noqa: E402
+import metricdefs                                          # noqa: E402
 import assertions as assert_mod                                # noqa: E402
 from adapters import get_adapter                           # noqa: E402
 from daily_brief import compute_z2, detect_exercise        # noqa: E402
@@ -350,6 +351,30 @@ def cmd_verify(a):
     chk("断言引用不存在的单元（跨尺度断言除外）",
         "SELECT COUNT(*) c FROM assertions a WHERE a.scale!='day' AND NOT EXISTS "
         "(SELECT 1 FROM units u WHERE u.scale=a.scale AND u.key=a.key)")
+    chk("units 里出现未登记的指标",
+        "SELECT COUNT(*) c FROM (SELECT DISTINCT metric FROM units) u WHERE u.metric "
+        "NOT IN (%s)" % ",".join("'%s'" % m for m in metricdefs.registry()))
+
+    # 指标定义完整性：改 rules.json 键名、删键、改区间形态，都会在这里报出来。
+    # 这是「定义唯一来源」真正兑现的地方——以前这类错误会静默变成「该指标没有达标判定」。
+    rules = db.load_rules()
+    broken = metricdefs.validate(rules)
+    print("%s%-46s %d" % ("OK " if not broken else "✗ ", "指标定义表达式全部可解析", len(broken)))
+    for m, f, why in broken:
+        print("     ✗ %-22s %-10s %s" % (m, f, why))
+    if broken:
+        bad += 1
+    fk = {}
+    for m, d in metricdefs.registry().items():
+        k = d.get("frontend_key")
+        if k:
+            fk.setdefault(k, []).append(m)
+    dup = {k: v for k, v in fk.items() if len(v) > 1}
+    print("%s%-46s %d" % ("OK " if not dup else "✗ ", "前端 key 无重复", len(dup)))
+    if dup:
+        bad += 1
+        for k, v in dup.items():
+            print("     ✗ %s ← %s" % (k, ",".join(v)))
     print("\n%s（%d 项不通过）" % ("全部通过" if bad == 0 else "有异常", bad))
     return 0 if bad == 0 else 1
 

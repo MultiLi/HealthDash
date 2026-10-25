@@ -14,6 +14,7 @@
 | L2 单元 | `scripts/units.py` | 日/周/月/滚动窗 × 指标；delta 与 mdc 判定的唯一入口 |
 | L3 断言 | `scripts/assertions.py` | 命题 + 布尔 + 证据；总评 rollup；可跨日统计 |
 | L4 编排 | `scripts/fact_pack.py`、`daily_brief.py`、自动化 prompt | 只算不判 / 判读 |
+| 定义 | `references/metrics.json` + `scripts/metricdefs.py` | **指标定义的唯一来源与唯一解析器**：语义、聚合方式、达标方向、达标线映射。阈值数值仍在 rules.json |
 | L5 呈现 | `site/`、`tools/homepage/` | 主页与报告 |
 
 真相只有两个：`data/raw/`（采集）与 `references/rules.json`（口径）。
@@ -27,6 +28,10 @@ S=.workbuddy/skills/body-health/scripts
 # 物化三层（首次 / 改了 rules.json 或 metrics.json 之后必跑）
 python3 $S/index.py build          # raw → obs → units → assertions
 python3 $S/index.py verify         # 七项一致性自检，exit 0 = 通过
+
+# 指标定义（唯一权威来源）：改完 rules.json 或 metrics.json 必跑
+python3 $S/metricdefs.py validate   # 逐条解析声明，断链/区间写反都会报出来
+python3 $S/metricdefs.py list       # 全部指标的 dir / agg / goal / judge / severe / band
 
 # 查
 python3 $S/units.py get --scale week --key 2026-W43

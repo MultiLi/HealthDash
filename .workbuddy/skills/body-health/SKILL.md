@@ -137,6 +137,14 @@ canonical 工厂（adapters/）是唯一 raw 解析点，两个消费方禁止�
 - 时间换算唯一入口 adapters/gtime.py；同一指标多来源并存时仲裁在判读层（证据降权），
   不在管道层去重。审查口诀：搜 raw 键名出现在 adapters 之外 = 违规；
   搜阈值数字硬编码在 rules.json 之外 = 违规。
+- **指标定义唯一入口是 `references/metrics.json` + `scripts/metricdefs.py`**（2026-10-25 立）：
+  「某指标的达标线是哪条规则、怎么换算、区间在哪」不许在消费方重写；阈值**数值**仍在 rules.json，
+  注册表只声明**映射**。审查口诀：搜 `rules["activity"]["steps_good"]` 这类按指标名取阈值的写法
+  出现在 metricdefs 之外 = 违规（应改成 `metricdefs.threshold("steps_daily","judge",rules)`）。
+  解析失败**必须抛错**，禁止 `or 50` 这类静默退路——退路要写进注册表的 `band_fallback`。
+  **存量豁免（S5 前不动）**：`daily_brief.py`（legacy 引擎）与 `homepage/{summary,scoring,activity}.py`
+  仍在自查 rules 叶子。其中 `summary.py` 已是死代码（算完被 `build_index` 丢弃）、`scoring.py` 的阈值
+  是评分参数而非常规达标线。**新增/修改代码一律走 metricdefs**，不要照抄这几处。
 
 ## 执行锚点与续跑账本（2026-09-12 建，定时任务的日期纪律）
 
@@ -199,6 +207,7 @@ resolve  →  按需拉数/事实包/判读/合并（skills 原有流程）  →
 |---|---|---|
 | 鉴权、通道网关、端点、限流重试 | Garmin skill（garmin-connect-cn-data__skillhub） | 通道 A query 风格、garth token、**通道 B 实现（gca.garth_get）也只住网关** |
 | 原始字段语义、时间戳编码、源报告口径 | **适配器**（adapters/garmin_cn.py，源 quirks 在此被翻译掉） | dailySleepDTO、TimestampLocal 挂钟坑（gtime.py 是唯一出口）、totalSteps=null=没戴表、**血氧跨夜归属（D 日 avgSleepSpO2 优先，缺则 D-1 日 avgTomorrowSleepSpO2）**、HR 采样间隔（hr_sample_interval_min 随 canonical 输出） |
+| **指标定义**（语义 / 单位 / 聚合方式 / 达标方向 / 达标线是哪条规则 / 前端 key） | **`references/metrics.json` 唯一来源 + `scripts/metricdefs.py` 唯一解析器**（2026-10-25 收口） | 声明式表达式 `"goal": "activity.steps_goal"`；加指标只改这一处；断链在 `index.py verify` 报错 |
 | canonical schema、生理学/运动学判读、交叉规则、阈值、主观日志、渲染 | **通用引擎**（daily_brief.py + rules.json） | 六维判读、cross_analysis、睡眠债/久坐/负荷规则 |
 
 **引擎禁令**：不出现源字段名、源报告口径（"跨夜归明日"这类，一律在适配器归一化）、时间戳运算；不 import gtime。

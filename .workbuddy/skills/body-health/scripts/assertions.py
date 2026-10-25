@@ -39,6 +39,7 @@ import sys
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 import db  # noqa: E402
+import metricdefs  # noqa: E402
 
 BAD, WARN, GOOD, INFO = "BAD", "WARN", "GOOD", "NEUTRAL"
 SEVERITY = {BAD: 0, WARN: 1, GOOD: 2, INFO: 3}
@@ -81,7 +82,6 @@ def A(aid, date, dimension, subject, rule_ref, verdict, level=None,
 def build_day(date, v, rules, ctx):
     """一天的 L1 断言。v = 当日 {metric: value}；ctx = 跨日上下文（streak 等）。"""
     out = []
-    s, a = rules["sleep"], rules["activity"]
     hc = db.metric_conf(rules, "hrv_ms")
 
     def conf(metric):
@@ -105,33 +105,34 @@ def build_day(date, v, rules, ctx):
     # ---- sleep ----
     sh = v.get("sleep_h")
     if sh is not None:
-        mins = sh * 60
-        short = mins < s["min_healthy_duration_min"]
+        floor_h = _th("sleep_h", "judge", rules)          # 7.0（rules.sleep.min_healthy_duration_min / 60）
+        severe_h = _th("sleep_h", "severe", rules)        # 6.0（rules.cross.short_sleep_min / 60）
+        short = floor_h is not None and sh < floor_h
         out.append(A("sleep.duration.short", date, "sleep", "sleep_h",
                      "sleep.min_healthy_duration_min", short,
-                     WARN if mins >= s["min_healthy_duration_min"] - 60 else BAD,
-                     {"minutes": round(mins), "floor_min": s["min_healthy_duration_min"]},
+                     BAD if (severe_h is not None and sh < severe_h) else WARN,
+                     {"hours": round(sh, 2), "floor_h": floor_h, "severe_h": severe_h},
                      conf("sleep_h"), "补觉优先于训练"))
         out.append(A("sleep.duration.very_short", date, "sleep", "sleep_h",
-                     "cross.short_sleep_min", mins < rules["cross"]["short_sleep_min"],
-                     BAD, {"minutes": round(mins),
-                           "threshold": rules["cross"]["short_sleep_min"]},
+                     "cross.short_sleep_min",
+                     severe_h is not None and sh < severe_h, BAD,
+                     {"hours": round(sh, 2), "threshold_h": severe_h},
                      conf("sleep_h"), "欠觉日训练只到 Z2"))
     rem = v.get("sleep_rem_pct")
     if rem is not None:
-        lo, hi = s["rem_pct_optimal"]
+        lo, hi = metricdefs.band_of("sleep_rem_pct", rules)
         out.append(A("sleep.rem.low", date, "sleep", "sleep_rem_pct",
                      "sleep.rem_pct_optimal", rem < lo, WARN,
                      {"rem_pct": rem, "optimal": [lo, hi]}, None,
                      "REM 由起床时刻与睡眠连续性决定，先修作息再谈补剂"))
     deep = v.get("sleep_deep_pct")
     if deep is not None:
-        lo, hi = s["deep_pct_optimal"]
+        lo, hi = metricdefs.band_of("sleep_deep_pct", rules)
         out.append(A("sleep.deep.out_of_band", date, "sleep", "sleep_deep_pct",
                      "sleep.deep_pct_optimal", not (lo <= deep <= hi), INFO,
                      {"deep_pct": deep, "optimal": [lo, hi]}, None))
     bed = v.get("sleep_bed_min")
-    late_min = _hhmm_to_min(s["late_bedtime"])
+    late_min = metricdefs.threshold_time("sleep_bed_min", rules)
     if bed is not None:
         out.append(A("sleep.bedtime.late", date, "sleep", "sleep_bed_min",
                      "sleep.late_bedtime", bed >= late_min, WARN,
@@ -148,26 +149,33 @@ def build_day(date, v, rules, ctx):
     if st is not None:
         # 两条互斥：severe(<5000) 判红；low(5000–8000) 只判黄。
         # 不能两条都判红——那会让「严重不足」这一件事在总评里被数两次。
+        judge_lo = _th("steps_daily", "judge", rules)      # 8000（判读线）
+        severe_lo = _th("steps_daily", "severe", rules)    # 5000（红线）
         out.append(A("activity.steps.severe", date, "activity", "steps_daily",
-                     "activity.steps_low", st < a["steps_low"], BAD,
-                     {"steps": st, "threshold": a["steps_low"]}, conf("steps_daily")))
+                     "activity.steps_low",
+                     severe_lo is not None and st < severe_lo, BAD,
+                     {"steps": st, "threshold": severe_lo}, conf("steps_daily")))
         out.append(A("activity.steps.low", date, "activity", "steps_daily",
                      "activity.steps_good",
-                     a["steps_low"] <= st < a["steps_good"], WARN,
-                     {"steps": st, "good": a["steps_good"], "low": a["steps_low"]},
+                     (severe_lo is not None and judge_lo is not None
+                      and severe_lo <= st < judge_lo), WARN,
+                     {"steps": st, "good": judge_lo, "low": severe_lo},
                      conf("steps_daily")))
     sed = v.get("sedentary_min")
     if sed is not None:
+        sed_max = _th("sedentary_min", "judge", rules)
         out.append(A("activity.sedentary.over", date, "activity", "sedentary_min",
                      "activity.sedentary_warn_hours",
-                     sed >= a["sedentary_warn_hours"] * 60, WARN,
-                     {"sedentary_min": sed, "threshold_min": a["sedentary_warn_hours"] * 60},
+                     sed_max is not None and sed >= sed_max, WARN,
+                     {"sedentary_min": sed, "threshold_min": sed_max},
                      None, "每 60 分钟起身一次，比事后补运动有效"))
     im = v.get("intensity_min")
     if im is not None:
+        im_goal = _th("intensity_min", "judge", rules)
         out.append(A("activity.intensity.below_goal", date, "activity", "intensity_min",
-                     "activity.intensity_daily_goal", im < a["intensity_daily_goal"], WARN,
-                     {"intensity_min": im, "goal": a["intensity_daily_goal"]},
+                     "activity.intensity_daily_goal",
+                     im_goal is not None and im < im_goal, WARN,
+                     {"intensity_min": im, "goal": im_goal},
                      conf("steps_daily"), "日常走动换不来中高强度，要主动起一段"))
 
     # ---- autonomic ----
@@ -196,10 +204,10 @@ def build_day(date, v, rules, ctx):
     avg7 = v.get("rhr_avg7")
     if rhr is not None and avg7 is not None:
         d = rhr - avg7
+        d_max = metricdefs.delta_threshold("rhr_bpm", rules)
         out.append(A("autonomic.rhr.elevated", date, "autonomic", "rhr_bpm",
-                     "rhr.elevated_delta_bpm", d >= rules["rhr"]["elevated_delta_bpm"],
-                     WARN, {"value": rhr, "avg7": avg7, "delta": d,
-                            "threshold": rules["rhr"]["elevated_delta_bpm"]},
+                     "rhr.elevated_delta_bpm", d_max is not None and d >= d_max,
+                     WARN, {"value": rhr, "avg7": avg7, "delta": d, "threshold": d_max},
                      conf("rhr_bpm")))
 
     # ---- load ----
@@ -231,8 +239,8 @@ def build_day(date, v, rules, ctx):
                   "need": rules["cross"]["bb_net_negative_days"]}, None,
                  "收支倒挂的源头通常在入睡时间"))
     sa = v.get("stress_avg")
-    good = (rules.get("homepage") or {}).get("stress_avg_good", 40)
-    if sa is not None:
+    good = _th("stress_avg", "judge", rules)
+    if sa is not None and good is not None:
         out.append(A("stress_energy.avg.high", date, "stress_energy", "stress_avg",
                      "homepage.stress_avg_good", sa > good, WARN,
                      {"stress_avg": sa, "good_max": good}, None))
@@ -246,9 +254,11 @@ def build_day(date, v, rules, ctx):
                      "vo2max_male_bands", band in ("差", "一般"), INFO,
                      {"vo2max": vo2, "band": band}, conf("vo2max")))
     rd = v.get("readiness_score")
-    if rd is not None:
+    rd_line = _th("readiness_score", "judge", rules)
+    if rd is not None and rd_line is not None:
         out.append(A("capacity.readiness.low", date, "capacity", "readiness_score",
-                     "readiness", rd < 75, WARN, {"readiness": rd, "line": 75}, None))
+                     "readiness.low_score", rd < rd_line, WARN,
+                     {"readiness": rd, "line": rd_line}, None))
 
     # ---- cross（只吃 L1 的布尔，不自己算数）----
     trg = {x["id"]: bool(x["verdict"]) for x in out}
@@ -280,14 +290,23 @@ def build_day(date, v, rules, ctx):
                      "exercise_window_n,sleep_h", "cross.short_sleep_min", True, BAD,
                      {"windows": win, "sleep_h": sh}, conf("sleep_h"),
                      "睡眠剥夺下做高强度：皮质醇放大、损伤风险上升"))
-    if (st is not None and st >= a["steps_good"] and im is not None
-            and im < a["intensity_daily_goal"] and not trg.get("load.exercise.window_detected")
-            and sh is not None and sh * 60 >= s["min_healthy_duration_min"]):
+    steps_judge = _th("steps_daily", "judge", rules)
+    im_judge = _th("intensity_min", "judge", rules)
+    if (st is not None and steps_judge is not None and st >= steps_judge
+            and im is not None and im_judge is not None and im < im_judge
+            and not trg.get("load.exercise.window_detected")
+            and sh is not None and _th("sleep_h", "judge", rules)
+            and sh >= _th("sleep_h", "judge", rules)):
         out.append(A("cross.idle_recovery_unused", date, "cross",
                      "steps_daily,intensity_min,sleep_h", "activity.intensity_daily_goal",
                      True, INFO, {"steps": st, "intensity_min": im, "sleep_h": sh},
                      conf("sleep_h"), "恢复能力是给训练用的，攒着不花就是浪费"))
     return out
+
+
+def _th(metric, field, rules):
+    """阈值一律经 metricdefs 取——本文件不持有任何 metric→规则 的硬编码映射。"""
+    return metricdefs.threshold(metric, field, rules)
 
 
 def _hhmm_to_min(s):

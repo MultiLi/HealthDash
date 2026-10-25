@@ -19,7 +19,13 @@ scoring.hrv_state 是 HRV 达标的唯一口径，前端拿 hrv_ok 布尔值用�
 import datetime
 import os
 
+from homepage.paths import SCRIPTS
 from homepage.scoring import hrv_state
+
+import sys as _sys
+if SCRIPTS not in _sys.path:
+    _sys.path.insert(0, SCRIPTS)
+import metricdefs  # noqa: E402  ← 指标定义的唯一权威解析器（scripts/metricdefs.py）
 
 
 def _wd(date_str):
@@ -82,6 +88,18 @@ def hrv_band(days, rules):
     return {"low": lo, "high": hi}
 
 
+def _goals(rules):
+    """兼容旧的 ix.goals 结构 —— 值全部经唯一解析器取得。"""
+    md = metricdefs.resolve_all(rules)
+    return {
+        "sleep_h": md["sleep_h"]["goal"],
+        "steps": md["steps_daily"]["goal"],
+        "steps_good": metricdefs.judge_of("steps_daily", rules),
+        "sedentary_min": md["sedentary_min"]["goal"],
+        "intensity_min": md["intensity_min"]["goal"],
+    }
+
+
 def build_index(data, rules):
     """完整视图 -> 轻量索引（首屏唯一载荷）。"""
     days = data["days"]
@@ -93,13 +111,11 @@ def build_index(data, rules):
         "synced_at": data["synced_at"],
         "default_day": data["default_day"],
         "today": datetime.date.today().isoformat(),
-        "goals": {
-            "sleep_h": rules["sleep"]["min_healthy_duration_min"] / 60,
-            "steps": rules["activity"]["steps_goal"],
-            "steps_good": rules["activity"]["steps_good"],
-            "sedentary_min": rules["activity"]["sedentary_warn_hours"] * 60,
-            "intensity_min": rules["activity"]["intensity_daily_goal"],
-        },
+        # goals 是**兼容投影**：数值一律由 metricdefs 解析，本文件不再重写任何
+        # metric→规则 的映射（2026-10-25）。前端旧代码仍读 ix.goals，S2 后改读 metric_defs。
+        "goals": _goals(rules),
+        # 指标定义全量下发：前端 S2 起据此渲染卡片，删掉 constants.js 里的 METRICS 表副本。
+        "metric_defs": metricdefs.resolve_all(rules),
         "baselines": {
             "hrv": hrv_band(days, rules),
             "rhr": rules["profile"]["rhr_7d_avg"],

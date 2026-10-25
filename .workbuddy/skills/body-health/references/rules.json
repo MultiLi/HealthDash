@@ -145,7 +145,8 @@
   "over": 1.5
  },
  "readiness": {
-  "recovery_overlap_warn_min": 480
+  "recovery_overlap_warn_min": 480,
+  "low_score": 75
  },
  "spo2": {
   "sleep_avg_warn": 92,

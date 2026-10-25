@@ -42,6 +42,7 @@ import sys
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 import db  # noqa: E402
+import metricdefs  # noqa: E402
 
 SCALES = ("day", "week", "month", "roll7", "roll28", "roll90")
 
@@ -172,29 +173,20 @@ def _agg(vals, how):
 
 
 def _goal(metric, rules):
-    """达标线的取值处。**阈值全部来自 rules.json**，本函数只做组合运算。"""
-    a, s, p = rules["activity"], rules["sleep"], rules["profile"]
-    table = {
-        "sleep_h": s["min_healthy_duration_min"] / 60.0,
-        "steps_daily": a["steps_goal"],
-        "sedentary_min": a["sedentary_warn_hours"] * 60,
-        "intensity_min": a["intensity_daily_goal"],
-        "rhr_bpm": p["rhr_7d_avg"] + rules["rhr"]["elevated_delta_bpm"],
-        "sleep_hr_avg": p["rhr_7d_avg"] + rules["sleep_hr"]["score"]["allowance_bpm"],
-        "spo2_sleep_avg": rules["spo2"]["sleep_avg_warn"],
-        "stress_avg": (rules.get("homepage") or {}).get("stress_avg_good", 40),
-    }
-    return table.get(metric)
+    """达标线。**映射来自 references/metrics.json，数值来自 rules.json**——
+    本函数不再持有任何 metric→规则 的硬编码字典（那正是「定义没有唯一来源」的病灶）。
+    解析失败会抛错而不是返回 None：静默 None 会让指标悄悄失去达标判定。"""
+    try:
+        return metricdefs.goal_of(metric, rules)
+    except Exception as e:
+        raise RuntimeError("指标 %s 的达标线解析失败：%s" % (metric, e))
 
 
-def _band(metric, rules, band_hi_lo):
-    if metric == "hrv_ms":
-        return band_hi_lo or tuple(rules["hrv"]["fallback_band"])
-    if metric == "sleep_deep_pct":
-        return tuple(rules["sleep"]["deep_pct_optimal"])
-    if metric == "sleep_rem_pct":
-        return tuple(rules["sleep"]["rem_pct_optimal"])
-    return None
+def _band(metric, rules, personal=None):
+    try:
+        return metricdefs.band_of(metric, rules, personal)
+    except Exception as e:
+        raise RuntimeError("指标 %s 的区间解析失败：%s" % (metric, e))
 
 
 def _judge(metric, value, mdef, rules, band):
