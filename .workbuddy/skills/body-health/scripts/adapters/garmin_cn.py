@@ -20,7 +20,11 @@ from .gtime import TZ, gmt_ms_to_local_hhmm, iso_gmt_to_hhmm
 _HERE = os.path.dirname(os.path.abspath(__file__))            # adapters/
 _SKILLS = os.path.abspath(os.path.join(_HERE, "..", ".."))    # skills/
 # adapters 比 scripts 深一级，回工作区根要多一层 ..
-_WORKSPACE = os.path.abspath(os.path.join(_HERE, "..", "..", "..", "..", ".."))
+import sys as _sys
+_PARENT = os.path.dirname(_HERE)
+if _PARENT not in _sys.path:
+    _sys.path.insert(0, _PARENT)
+from settings import ROOT as _WORKSPACE  # noqa: E402  路径唯一解析点（settings.py）
 RAW_DIR = os.environ.get("HEALTH_RAW_DIR") or os.path.join(_WORKSPACE, "data", "raw")
 TZ = 28800  # 本地 UTC+8
 EPOCH = datetime.datetime(1970, 1, 1)

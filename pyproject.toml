@@ -1,0 +1,34 @@
+[project]
+name = "healthd"
+version = "0.1.0"
+description = "个人健康数据中台：Garmin/InBody 采集 → 观测 → 单元聚合 → 断言 → 日报告与健康主页"
+requires-python = ">=3.9"
+# 引擎（scripts/ 的观测、单元、断言、编排、判读、主页构建）**零第三方依赖**，
+# 全部标准库。这是有意的：判读链路要能在一台全新的 Python 上跑起来。
+dependencies = []
+
+# 采集层才需要联网库。它们只被 skills/*/scripts 下的采集脚本使用，
+# 引擎与呈现层不 import 它们——换数据源时改 extras 而不动引擎。
+[project.optional-dependencies]
+garmin = [
+    "curl_cffi>=0.7",   # 浏览器指纹请求（Garmin 端点反爬）
+    "garth>=0.5",       # Garmin 鉴权 token 读写
+    "requests>=2.28",   # CAS/MFA 登录流程
+]
+
+# 本文件是**依赖与工具配置的声明**，不是安装入口。
+# 项目当前以 `python3 <script>.py` 直接运行（见 docs/operations.md），
+# 不做 pip install -e；代码位置与路径解析见 scripts/settings.py。
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+# E402：本仓大量脚本在 sys.path 处理之后才 import 同目录模块，这是入口惯例
+ignore = ["E402"]
+
+[tool.pytest.ini_options]
+# 测试入口尚未统一（见 docs/architecture.md §6 的 H6）。
+# 这里先声明路径，避免 pytest 从仓库根乱扫 reports/ 与 data/。
+testpaths = ["tests"]

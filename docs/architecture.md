@@ -79,11 +79,31 @@ L5  surface        主页 / 日报告 / 周期查询 / 对话                   
 
 **83% 的后端代码住在 `.workbuddy/skills/`** —— 一个名字就宣告「我是某 Agent 平台插件」的目录。这不是设计选择，是历史结果，代价在下一节。
 
-### 4.2 三条硬约束（现状的技术债）
+### 4.2 路径解析（H1 已于 2026-10-25 解除）
 
-1. **路径即契约**：13 个脚本各写一遍 `dirname(__file__)/../../../..` 反推工作区根，没有集中的 `settings.py`。**搬一次目录，13 处同时断**。这是「代码改不动」的技术根因。
-2. **编排在宿主里**：5 个定时班次的 prompt 存在 WorkBuddy 自动化配置，不在仓库。仓库里只有执行记忆。
-3. **判读规则与工程文档混装**：`SKILL.md` 644 行里，判读 prompt 约 35%、架构约束 20%、事故复盘 30%、操作手册 15%。
+**曾经的病灶**：13 个脚本各写一遍 `dirname(__file__)/../../../..` 反推工作区根，外加 `tools/homepage/paths.py` 用一条硬编码字符串指回引擎目录。**代码放在哪就是运行时契约**——搬一次目录，13 处同时断，且报错位置离根因很远。这才是「代码改不动」的技术根因。
+
+**现在**：`scripts/settings.py` 是唯一解析点，按三级顺序找根：
+
+1. 环境变量 `HEALTH_ROOT`（换机器、测试、fixture 目录）
+2. 从自身位置向上找**锚点**（同时存在 `tools/` 与 `docs/` 的祖先目录，最多 8 层）
+3. 按旧布局兜底（`scripts/` 上四层）
+
+关键是第 2 级用锚点而不是固定层数，所以两种布局都能命中：
+
+| 布局 | 深度 | 结果 |
+|---|---|---|
+| `.workbuddy/skills/body-health/scripts/`（当前） | 上 4 层 | 解析到工作区根 |
+| `skills/body-health/scripts/`（H3 目标） | 上 3 层 | 同样解析到工作区根，**零代码改动** |
+
+`_SKILLS`（`_HERE/../..`）这类相对层级在搬迁后仍成立，无需改——两个 skill 会一起搬。
+
+**规则**：新代码一律 `from settings import ROOT / RAW_DIR / REPORTS_DIR ...`，不许再用 `__file__` 往上数。`tools/homepage/paths.py` 同样改为按候选顺序定位脚本目录（先 `skills/`，后 `.workbuddy/skills/`），不再写死路径。
+
+### 4.3 其余两条约束（仍未解除）
+
+1. **编排在宿主里**：5 个定时班次的 prompt 存在 WorkBuddy 自动化配置，不在仓库。仓库里只有执行记忆。
+2. **判读规则与工程文档混装**：`SKILL.md` 644 行里，判读 prompt 约 35%、架构约束 20%、事故复盘 30%、操作手册 15%。
 
 ### 4.3 目标形态
 
@@ -144,7 +164,7 @@ docs/        项目文档（人读）
 
 | 步 | 动作 | 风险 | 验证 |
 |---|---|---|---|
-| **H1** | 建 `settings.py`（`HEALTH_ROOT` 优先）+ `pyproject.toml`；13 处反推换成一个导入 | 低，零行为变化 | verify + golden + smoke 输出须逐字节一致 |
+| **H1** | ✅ **2026-10-25 完成**：`scripts/settings.py` 集中路径解析（`HEALTH_ROOT` 环境变量优先，其次向上找锚点）；14 处反推改为导入；`tools/homepage/paths.py` 改为按候选顺序定位；新增 `pyproject.toml`（依赖与工具配置的唯一声明，引擎零第三方依赖） | 低，零行为变化 | 22 个模块全部导入成功、根解析一致；`index.py verify` 11 项 / `backtest golden` 12/12 / `smoke_site` 113 项 / `probe_interactions` 8/8 全过；另做**搬迁布局模拟**（把 `settings.py` 放到 `skills/body-health/scripts/` 的三层结构下）确认解析不变 |
 | **H2** | 5 个班次 prompt 落进 `skills/*/automations/`，宿主配置只留「读该文件」 | 低 | 手动触发一次 10:00 班比对行为 |
 | **H3** | `skills/` 搬到根目录；`references/` 随行；清掉平台元数据 | 中，需独占窗口 | 同上三套 + probe |
 | **H4** | 拆 SKILL.md：prompt / 架构 / 事故 / 手册 四份 | 中，会改判读行为 | 连出 3 天与旧版逐条比 findings |

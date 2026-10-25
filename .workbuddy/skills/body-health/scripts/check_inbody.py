@@ -39,7 +39,7 @@ import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
-_WS = os.path.abspath(os.path.join(_HERE, "..", "..", "..", ".."))
+from settings import ROOT as _WS  # noqa: E402  路径唯一解析点（settings.py）
 DATA_DIR = os.environ.get("HEALTH_INBODY_DIR") or os.path.join(_WS, "data", "inbody")
 RULES = os.path.join(_HERE, "..", "references", "rules.json")
 STATUS = os.path.join(DATA_DIR, "status.json")

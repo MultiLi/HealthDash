@@ -19,7 +19,7 @@ import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
-_WS = os.path.abspath(os.path.join(_HERE, "..", "..", "..", ".."))
+from settings import ROOT as _WS  # noqa: E402  路径唯一解析点（settings.py）
 sys.path.insert(0, _WS)  # 供 import tools 无关，仅为路径完整性
 REPORTS = (os.environ.get("HEALTH_REPORTS_DIR")
            or os.path.join(_WS, "reports"))

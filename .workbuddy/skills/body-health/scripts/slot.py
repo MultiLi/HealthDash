@@ -43,7 +43,7 @@ import sys
 import tempfile
 
 _HERE = os.path.dirname(os.path.abspath(__file__))              # body-health/scripts
-_WORKSPACE = os.path.abspath(os.path.join(_HERE, "..", "..", "..", ".."))
+from settings import ROOT as _WORKSPACE  # noqa: E402  路径唯一解析点（settings.py）
 REPORTS = os.environ.get("HEALTH_REPORTS_DIR") or os.path.join(_WORKSPACE, "reports")
 STATE_DIR = (os.environ.get("HEALTH_STATE_DIR")
              or os.path.join(_WORKSPACE, "data", "state"))

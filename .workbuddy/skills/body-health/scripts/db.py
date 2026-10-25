@@ -23,7 +23,7 @@ import os
 import sqlite3
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_WORKSPACE = os.path.abspath(os.path.join(_HERE, "..", "..", "..", ".."))
+from settings import ROOT as _WORKSPACE  # noqa: E402  路径唯一解析点（settings.py）
 DB_PATH = os.environ.get("HEALTH_DB") or os.path.join(
     _WORKSPACE, "data", "state", "health.db")
 RULES_PATH = os.path.join(_HERE, "..", "references", "rules.json")

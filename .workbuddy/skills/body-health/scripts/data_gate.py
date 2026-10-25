@@ -48,7 +48,7 @@ import sys
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 
-_WORKSPACE = os.path.abspath(os.path.join(_HERE, "..", "..", "..", ".."))
+from settings import ROOT as _WORKSPACE  # noqa: E402  路径唯一解析点（settings.py）
 RAW_DIR = os.environ.get("HEALTH_RAW_DIR") or os.path.join(_WORKSPACE, "data", "raw")
 RULES = os.path.join(_HERE, "..", "references", "rules.json")
 

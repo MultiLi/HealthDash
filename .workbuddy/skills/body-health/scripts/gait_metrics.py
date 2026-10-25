@@ -21,8 +21,11 @@ import json
 import os
 import sys
 
-RAW_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "data", "raw")
-RAW_DIR = os.path.normpath(RAW_DIR)
+import sys as _sys
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in _sys.path:
+    _sys.path.insert(0, _HERE)
+from settings import RAW_DIR  # noqa: E402  路径唯一解析点（settings.py）
 
 WALK_TYPES = {"walking", "running", "hiking", "treadmill_running", "indoor_walking", "track_running"}
 

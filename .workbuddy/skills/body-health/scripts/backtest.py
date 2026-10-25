@@ -32,7 +32,7 @@ import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
-_WORKSPACE = os.path.abspath(os.path.join(_HERE, "..", "..", "..", ".."))
+from settings import ROOT as _WORKSPACE  # noqa: E402  路径唯一解析点（settings.py）
 
 import db                                                    # noqa: E402
 

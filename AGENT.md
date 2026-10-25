@@ -20,9 +20,10 @@
 |---|---|
 | 工作区根 | `/Users/tian.li/Documents/Health`（下文记作 `$W`） |
 | 核心代码 | `$W/.workbuddy/skills/body-health/scripts`（记作 `$S`）· 目标位置为 `$W/skills/body-health/`，搬迁见 `docs/decisions.md` |
+| **路径解析** | `$S/settings.py` 是**唯一入口**：`HEALTH_ROOT` 环境变量 > 向上找锚点（含 `tools/`+`docs/` 的祖先）> 旧布局兜底。**不许再用 `__file__` 往上数层** |
 | 采集通道 | `$W/.workbuddy/skills/garmin-connect-cn-data__skillhub/scripts` |
 | 运行时服务 | `$W/site/server.py`（标准库，单端口） |
-| Python | `python3`（3.13+） |
+| Python | `python3`（3.9+）；引擎零第三方依赖，见 `pyproject.toml` |
 | **代理坑** | 系统代理指向 `127.0.0.1:1087/1080` 但进程常不在。**Python urllib 会 `Connection refused`，curl 正常**。跑任何联网脚本前加 `no_proxy='*' NO_PROXY='*'` |
 
 ---
@@ -38,6 +39,7 @@
 | 采集（不推） | `python3 $S/collect.py --days 3 --no-push` | 同上，不推 | 写 raw |
 | 物化 | `python3 $S/index.py build` | `health.db`（obs/units/assertions） | 可重建 |
 | 自检 | `python3 $S/index.py verify` | 11 项一致性检查 | 无 |
+| 路径自检 | `python3 $S/settings.py` | 打印 root / references / raw / reports 的解析结果 | 无 |
 | 事实包 | `python3 $S/fact_pack.py --date D --days 4` | `reports/facts_D.json` | 覆盖该文件 |
 | 报告骨架 | `python3 $S/compose.py --date D` | `reports/body_brief_D.skeleton.md` | **只写 skeleton** |
 | 判读自检 | `python3 $S/verify_judgment.py --date D` | 五项校验结果 | 无 |
@@ -146,8 +148,8 @@ python3 tools/probe_interactions.py      # 8 用例
 
 | 事实 | 影响 | 状态 |
 |---|---|---|
-| 核心代码住在 `.workbuddy/skills/body-health/scripts/` | 13 个脚本各用 `dirname(__file__)/../../../..` 反推根目录，**代码位置即运行时契约** | 待迁移到 `$W/skills/` |
-| 5 个定时班次的 prompt 在 WorkBuddy 自动化配置里，不在仓库 | 换调度器需人肉重写 | 待落盘到 `skills/*/automations/` |
-| 判读规则与架构约束、事故复盘混在同一份 SKILL.md | 判读 agent 要吞 644 行 | 待拆分为 prompt / docs / incidents |
+| 核心代码住在 `.workbuddy/skills/body-health/scripts/` | **路径耦合已于 2026-10-25 解除**（统一走 `settings.py`，搬迁不断代码）；但代码物理上仍在宿主私有目录 | 待 H3 搬到 `$W/skills/` |
+| 5 个定时班次的 prompt 在 WorkBuddy 自动化配置里，不在仓库 | 换调度器需人肉重写 | 待 H2 落盘到 `skills/*/automations/` |
+| 判读规则与架构约束、事故复盘混在同一份 SKILL.md | 判读 agent 要吞 644 行 | 待 H4 拆分为 prompt / docs / incidents |
 
 迁移方案与顺序见 `docs/architecture.md` 第 6 节、`docs/decisions.md` 的「待定」。

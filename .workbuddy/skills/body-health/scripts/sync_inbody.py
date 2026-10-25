@@ -56,7 +56,7 @@ _ENVELOPE = {
 _HERE = os.path.dirname(os.path.abspath(__file__))            # scripts/
 _SKILL_DIR = os.path.abspath(os.path.join(_HERE, ".."))       # body-health/
 # scripts → body-health → skills → .workbuddy → 工作区根
-_WORKSPACE = os.path.abspath(os.path.join(_HERE, "..", "..", "..", ".."))
+from settings import ROOT as _WORKSPACE  # noqa: E402  路径唯一解析点（settings.py）
 DATA_DIR = os.environ.get("HEALTH_INBODY_DIR") or os.path.join(
     _WORKSPACE, "data", "inbody")
 CONF_DIR = os.path.expanduser("~/.config/inbody-cn")

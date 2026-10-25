@@ -36,7 +36,7 @@ import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))          # body-health/scripts
 _SKILLS = os.path.abspath(os.path.join(_HERE, "..", ".."))  # .workbuddy/skills
-_WORKSPACE = os.path.abspath(os.path.join(_HERE, "..", "..", "..", ".."))
+from settings import ROOT as _WORKSPACE  # noqa: E402  路径唯一解析点（settings.py）
 GARMIN_CN_SCRIPTS = os.path.join(
     _SKILLS, "garmin-connect-cn-data__skillhub", "scripts")
 RAW_DIR = os.environ.get("HEALTH_RAW_DIR") or os.path.join(_WORKSPACE, "data", "raw")
