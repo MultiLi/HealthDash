@@ -14,7 +14,7 @@
 import {
   addDays, weekDates, weekStart, isoWeekKey, weekRangeLabel,
   monthKey, monthLabel, shiftMonth, fmtMD, weekdayCN
-} from "./dateutil.js?v=abbacf2d";
+} from "./dateutil.js?v=a4398e13";
 
 export var SCALES = [
   { key: "day", label: "日", unit: "天", seriesN: 30, seriesLabel: "近 30 天" },
