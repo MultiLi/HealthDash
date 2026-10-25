@@ -114,8 +114,8 @@ def build_day(date, v, rules, ctx):
                      BAD if (severe_h is not None and sh < severe_h) else WARN,
                      {"hours": round(sh, 2), "floor_h": floor_h,
                       "device_need_h": v.get("sleep_need_h"),
-                      "ruler": ("device_need" if v.get("sleep_need_h") is not None
-                                else "static_fallback"),
+                      "ruler": metricdefs.ruler_of("sleep_h",
+                                                   {"sleep_need_h": v.get("sleep_need_h")}),
                       "severe_h": severe_h},
                      conf("sleep_h"), "补觉优先于训练"))
         out.append(A("sleep.duration.very_short", date, "sleep", "sleep_h",
@@ -152,8 +152,8 @@ def build_day(date, v, rules, ctx):
                      late_min is not None and bed >= late_min, WARN,
                      {"bed_min": bed, "threshold_min": late_min,
                       "device_window_end": bw_end,
-                      "ruler": ("device_window" if bw_end is not None
-                                else "static_fallback"),
+                      "ruler": metricdefs.ruler_of("sleep_bed_min",
+                                                   {"bed_window_end_min": bw_end}),
                       "offset_from_window_min": (bed - bw_end) if bw_end else None},
                      None, "入睡提前比任何补剂都有效"))
         if severe_bed is not None and bed >= severe_bed:
@@ -161,6 +161,8 @@ def build_day(date, v, rules, ctx):
                          "ref:bed_window_end_min + sleep.bed_severe_offset_min",
                          True, BAD,
                          {"bed_min": bed, "threshold_min": severe_bed,
+                          "ruler": metricdefs.ruler_of("sleep_bed_min",
+                                                       {"bed_window_end_min": bw_end}),
                           "offset_from_window_min": bed - bw_end if bw_end else None},
                          None, "超过 2 小时就不是『晚一点』，是作息整体后移"))
     out.append(A("sleep.debt.streak_ge_2", date, "sleep", "sleep_h",
@@ -305,13 +307,13 @@ def build_day(date, v, rules, ctx):
         out.append(A("device.sleep_need.elevated", date, "device", "sleep_need_h",
                      "ref:sleep_need_baseline_h", need > need_base + 0.25, INFO,
                      {"need_h": need, "baseline_h": need_base,
-                      "delta_h": round(need - need_base, 2)}, None,
+                      "delta_h": round(need - need_base, 2), "ruler": "device"}, None,
                      "设备把需求抬高了，通常来自睡眠债/训练负荷/HRV"))
     if bw_end is not None and bed is not None:
         out.append(A("device.bedtime.offset_from_window", date, "device", "sleep_bed_min",
                      "ref:bed_window_end_min", bed > bw_end, INFO,
                      {"bed_min": bed, "window": [v.get("bed_window_start_min"), bw_end],
-                      "offset_min": bed - bw_end}, None,
+                      "offset_min": bed - bw_end, "ruler": "device"}, None,
                      "设备推荐窗是按当前作息算的，只比偏移量、不拿窗当标准"))
     rd = v.get("readiness_score")
     if rd is not None:

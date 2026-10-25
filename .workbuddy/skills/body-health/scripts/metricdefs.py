@@ -189,6 +189,25 @@ def delta_threshold(metric, rules, refs=None):
     return threshold(metric, "delta", rules, refs)
 
 
+def ruler_of(metric, refs=None, field="judge"):
+    """这次判定用的是哪把尺子：device（信源值）/ static_fallback（退回静态）。
+
+    依据是注册表声明——不是调用方自己猜。策略见 metrics.json 的 reference_policy：
+    on_missing=fallback_static 且 must_report_ruler=true，所以任何用动态阈值的断言
+    都必须把 ruler 写进 evidence，否则 index.py verify 会拦。
+    """
+    t = meta(metric).get("thresholds") or {}
+    names = refs_in(t.get(field))
+    if not names:
+        return None
+    got = [n for n in names if refs and refs.get(n) is not None]
+    if len(got) == len(names):
+        return "device"
+    if not got:
+        return "static_fallback"
+    return "partial_ref"
+
+
 def judge_time_of(metric, rules, refs=None):
     """时刻型判读线 → 分钟数。
 

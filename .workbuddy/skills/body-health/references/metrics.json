@@ -595,5 +595,14 @@
    "dir": null,
    "note": "急慢性负荷比（设备算出）。进观测层后才能做「负荷 vs 恢复」的跨窗比较。"
   }
+ },
+ "reference_policy": {
+  "_comment": "信源参考量缺失时的处置策略（2026-10-25 Sir 选 c）。fallback_static：有动态值就用动态、没有就退回注册表声明的静态口径——不跳过判定、不静默。代价是同一判定会在不同日子换尺子，所以 must_report_ruler=true：凡使用动态阈值的断言，evidence 必须带 ruler（device_need / device_window / static_fallback），报告与主页必须能说出今天用的是哪把尺子。index.py verify 会强制检查这一条。",
+  "on_missing": "fallback_static",
+  "must_report_ruler": true,
+  "rejected_alternatives": {
+   "skip_judgement": "缺参考量时不判（na）——诚实但会有 16/36 天没有入睡结论",
+   "always_static": "永久用静态 01:30——一致但对该作息天天报晚，等于把尺子当结论"
+  }
  }
 }

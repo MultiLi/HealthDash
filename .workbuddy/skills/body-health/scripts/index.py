@@ -423,6 +423,21 @@ def cmd_verify(a):
     chk("断言引用不存在的单元（跨尺度断言除外）",
         "SELECT COUNT(*) c FROM assertions a WHERE a.scale!='day' AND NOT EXISTS "
         "(SELECT 1 FROM units u WHERE u.scale=a.scale AND u.key=a.key)")
+    # 策略强制：reference_policy.must_report_ruler=true —— 凡 rule_ref 含 "ref:" 的断言，
+    # evidence 必须带 ruler，否则「今天用的是哪把尺子」无法回答。
+    _pol = (json.load(open(metricdefs.METRICS_PATH, encoding="utf-8")) or {}).get(
+        "reference_policy") or {}
+    if _pol.get("must_report_ruler"):
+        rows = [r for r in con.execute(
+            "SELECT id, date, evidence FROM assertions WHERE rule_ref LIKE '%ref:%'")]
+        missing = [r for r in rows if "ruler" not in (json.loads(r["evidence"] or "{}"))]
+        print("%s%-46s %d" % ("OK " if not missing else "✗ ",
+                              "动态阈值断言必须标注 ruler", len(missing)))
+        if missing:
+            bad += 1
+            for r in missing[:5]:
+                print("     ✗ %s %s" % (r["date"], r["id"]))
+
     chk("units 里出现未登记的指标",
         "SELECT COUNT(*) c FROM (SELECT DISTINCT metric FROM units) u WHERE u.metric "
         "NOT IN (%s)" % ",".join("'%s'" % m for m in metricdefs.registry()))
