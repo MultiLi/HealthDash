@@ -13,7 +13,7 @@
 | **Agent**（任意框架，第一次接入） | [`AGENT.md`](AGENT.md) | 5 分钟。契约、能力清单、六条硬边界 |
 | **人**，想改代码 | [`docs/architecture.md`](docs/architecture.md) → [`docs/README.md`](docs/README.md) | 15 分钟。分层与文档规范 |
 | **人**，想跑一次补数 / 发一次版 | [`docs/operations.md`](docs/operations.md) | 10 分钟。流程、命令、故障排查 |
-| 想判读报告怎么写 | `.workbuddy/skills/body-health/SKILL.md` | 判读 prompt |
+| 想判读报告怎么写 | `skills/body-health/SKILL.md` | 判读 prompt |
 | 想知道踩过哪些坑 | [`docs/incidents.md`](docs/incidents.md) | 23 条实证事故 |
 
 ---
@@ -27,11 +27,11 @@ cd ~/Documents/Health
 export no_proxy='*' NO_PROXY='*'
 
 # 1. 采集 + 回补截断日 + 重建物化层 + 推主页（一条命令四件事）
-python3 .workbuddy/skills/body-health/scripts/collect.py --days 3
+python3 skills/body-health/scripts/collect.py --days 3
 
 # 2. 自检
-python3 .workbuddy/skills/body-health/scripts/index.py verify     # 11 项，exit 0 = 通过
-python3 .workbuddy/skills/body-health/scripts/backtest.py golden  # 12 条历史锚点
+python3 skills/body-health/scripts/index.py verify     # 11 项，exit 0 = 通过
+python3 skills/body-health/scripts/backtest.py golden  # 12 条历史锚点
 
 # 3. 核验线上数据
 python3 tools/push_data.py --check                                # exit 0 = 逐文件一致
@@ -48,16 +48,16 @@ AGENT.md                 Agent 接入契约（唯一入口）
 README.md                本文件：人的门厅
 docs/                    项目文档：架构 / 运维 / 前端 / 事故 / 决策
 notes/                   历史推导、领域知识基线、欠账清单
-skills/                  ★ 目标位置（当前在 .workbuddy/skills/，见 docs/decisions.md D4）
-  body-health/           判读能力 + 引擎 + 口径
-  garmin-connect-cn/     采集通道
+skills/                  能力包（2026-10-25 H3 已从 .workbuddy/skills/ 搬到这里）
+  body-health/           判读能力 + 引擎 + 口径（rules.json / metrics.json 在这里）
+  garmin-connect-cn/     采集通道与鉴权
 healthd/                 ★ 目标位置（可选独立包，见 docs/decisions.md D3）
 tools/                   构建、推送、冒烟、交互探针
 site/                    前端（原生 ES module，无构建）+ 同源可写服务
-references/              口径数值（rules / metrics / lexicon）—— 代码读它，不是文档
 tests/                   golden.json 金标用例
 data/                    采集原始 + 物化数据库（都不入库）
 reports/                 报告产物（不入库）
+.workbuddy/skills/       ← 两个指向 skills/ 的符号链接（兼容旧路径，勿删）
 ```
 
 ---

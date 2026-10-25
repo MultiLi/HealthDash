@@ -35,10 +35,9 @@ import os
 import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))          # body-health/scripts
-_SKILLS = os.path.abspath(os.path.join(_HERE, "..", ".."))  # .workbuddy/skills
-from settings import ROOT as _WORKSPACE  # noqa: E402  路径唯一解析点（settings.py）
-GARMIN_CN_SCRIPTS = os.path.join(
-    _SKILLS, "garmin-connect-cn-data__skillhub", "scripts")
+from settings import ROOT as _WORKSPACE, garmin_scripts_dir  # noqa: E402
+# 采集通道目录改由 settings 按候选顺序发现（H3 起它搬到了 skills/garmin-connect-cn）
+GARMIN_CN_SCRIPTS = garmin_scripts_dir()
 RAW_DIR = os.environ.get("HEALTH_RAW_DIR") or os.path.join(_WORKSPACE, "data", "raw")
 
 # 逐日端点：(raw 键名, ENDPOINTS 键名)

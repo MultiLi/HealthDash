@@ -19,9 +19,9 @@
 | 项 | 值 |
 |---|---|
 | 工作区根 | `/Users/tian.li/Documents/Health`（下文记作 `$W`） |
-| 核心代码 | `$W/.workbuddy/skills/body-health/scripts`（记作 `$S`）· 目标位置为 `$W/skills/body-health/`，搬迁见 `docs/decisions.md` |
+| 核心代码 | `$W/skills/body-health/scripts`（记作 `$S`）。2026-10-25 H3 已从 `.workbuddy/skills/` 搬到这里；旧路径 `.workbuddy/skills/body-health` 是指向它的符号链接，仍可用但**不要再写进新代码** |
 | **路径解析** | `$S/settings.py` 是**唯一入口**：`HEALTH_ROOT` 环境变量 > 向上找锚点（含 `tools/`+`docs/` 的祖先）> 旧布局兜底。**不许再用 `__file__` 往上数层** |
-| 采集通道 | `$W/.workbuddy/skills/garmin-connect-cn-data__skillhub/scripts` |
+| 采集通道 | `$W/skills/garmin-connect-cn/scripts`（旧名 `garmin-connect-cn-data__skillhub` 保留为兼容符号链接） |
 | 运行时服务 | `$W/site/server.py`（标准库，单端口） |
 | Python | `python3`（3.9+）；引擎零第三方依赖，见 `pyproject.toml` |
 | **代理坑** | 系统代理指向 `127.0.0.1:1087/1080` 但进程常不在。**Python urllib 会 `Connection refused`，curl 正常**。跑任何联网脚本前加 `no_proxy='*' NO_PROXY='*'` |
@@ -99,7 +99,7 @@ site/index.json + site/daily/*.json  前端数据层
 | 顺序 | 文件 | 读它是为了 |
 |---|---|---|
 | 1 | 本文件 | 契约与禁令 |
-| 2 | `skills/body-health/SKILL.md`（当前在 `.workbuddy/skills/`） | 判读怎么说、怎么写、什么时候拒判 |
+| 2 | `skills/body-health/SKILL.md` | 判读怎么说、怎么写、什么时候拒判 |
 | 3 | `docs/operations.md` | 具体流程与验证手段 |
 | 4 | `docs/incidents.md` | 20+ 条已经踩过的坑（省你重复踩） |
 | 5 | `docs/architecture.md` | 只在你要改代码时读 |
@@ -148,8 +148,8 @@ python3 tools/probe_interactions.py      # 8 用例
 
 | 事实 | 影响 | 状态 |
 |---|---|---|
-| 核心代码住在 `.workbuddy/skills/body-health/scripts/` | **路径耦合已于 2026-10-25 解除**（统一走 `settings.py`，搬迁不断代码）；但代码物理上仍在宿主私有目录 | 待 H3 搬到 `$W/skills/` |
-| 5 个定时班次的 prompt 在 WorkBuddy 自动化配置里，不在仓库 | 换调度器需人肉重写 | 待 H2 落盘到 `skills/*/automations/` |
+| ~~核心代码住在宿主私有目录~~ | **H1 + H3 已于 2026-10-25 完成**：路径解析集中到 `settings.py`，代码搬到 `$W/skills/`，旧路径留符号链接兼容。引擎不再依赖任何宿主的目录约定 | ✅ 已解除 |
+| 5 个定时班次的 prompt 在 WorkBuddy 自动化配置里，不在仓库 | 换调度器需人肉重写；且 prompt 里的路径若写死旧目录，搬迁后会失效 | 待 H2 落盘到 `skills/*/automations/` |
 | 判读规则与架构约束、事故复盘混在同一份 SKILL.md | 判读 agent 要吞 644 行 | 待 H4 拆分为 prompt / docs / incidents |
 
 迁移方案与顺序见 `docs/architecture.md` 第 6 节、`docs/decisions.md` 的「待定」。

@@ -2,7 +2,7 @@
 
 > 本文只写**做什么、什么时候做、怎么验证**。前端细节见 `docs/frontend.md`，判读纪律见 skill，架构见 `docs/architecture.md`。
 >
-> 约定：`$W` = 工作区根，`$S` = `$W/.workbuddy/skills/body-health/scripts`（目标 `$W/skills/body-health/`）。
+> 约定：`$W` = 工作区根，`$S` = `$W/skills/body-health/scripts`（2026-10-25 H3 起；旧路径 `$W/.workbuddy/skills/body-health/scripts` 经符号链接仍可用）。
 
 ---
 

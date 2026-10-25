@@ -50,9 +50,21 @@ references/                口径数值与指标定义（代码读它，不是�
   metrics.json             指标注册表（语义、聚合、达标方向）
   lexicon.json             呈现词表（断言 id 的中文名）
   exercise_science.md      运动学判据
+
+skills/                    能力包（2026-10-25 H3 起在根目录；代码读它，不是文档）
+  body-health/scripts/     引擎：采集/物化/判读编排/调度；settings.py 是路径唯一入口
+  body-health/references/  口径（rules / metrics / lexicon）
+  body-health/SKILL.md     判读说明（面向 agent）
+  garmin-connect-cn/       采集通道与鉴权
+
+tools/                     构建、推送、冒烟、交互探针
+site/                      前端（原生 ES module，无构建）+ 同源可写服务
+tests/                     golden.json 金标用例
+data/  reports/            采集原始与报告产物（都不入库）
+.workbuddy/skills/         ← 两个指向 skills/ 的符号链接（兼容旧路径，勿删）
 ```
 
-代码目录见 `docs/architecture.md`。
+代码分层与调用关系见 `docs/architecture.md`。
 
 ---
 

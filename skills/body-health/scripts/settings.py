@@ -80,6 +80,26 @@ REFERENCES_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__
                                               "..", "references"))
 
 
+def garmin_scripts_dir():
+    """采集通道（Garmin 网关）的脚本目录。
+
+    2026-10-25 H3：目录从 `.workbuddy/skills/garmin-connect-cn-data__skillhub/`
+    搬到 `skills/garmin-connect-cn/`（去掉平台私有痕迹）。`sync.py` 原来把名字
+    写死在一处，改这里用候选顺序找，命中 `garmin_gc_api.py` 即认——以后再改名
+    也不用动调用方。
+    """
+    env = os.environ.get("HEALTH_GARMIN_SCRIPTS")
+    if env:
+        return os.path.abspath(os.path.expanduser(env))
+    for rel in (("skills", "garmin-connect-cn", "scripts"),
+                ("skills", "garmin-connect-cn-data__skillhub", "scripts"),
+                (".workbuddy", "skills", "garmin-connect-cn-data__skillhub", "scripts")):
+        cand = os.path.join(ROOT, *rel)
+        if os.path.isfile(os.path.join(cand, "garmin_gc_api.py")):
+            return cand
+    raise RuntimeError("找不到 garmin 采集脚本目录（试过 skills/ 与 .workbuddy/skills/）")
+
+
 def describe():
     """自检用：把解析结果打印出来，搬迁后第一件事就是看它。"""
     return {

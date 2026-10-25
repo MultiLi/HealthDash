@@ -52,10 +52,13 @@ site/.data/
 # 应用注册表：纯宿主状态（appId 与地址的唯一来源是 tools/deploy.json）
 .workbuddy/applications.yaml
 # 技能市场的安装元数据：宿主靠它识别技能，但不属于项目源码。
-# 本地必须有、仓库不该有；skills/ 搬到根目录后这几行自然失效。
-.workbuddy/skills/**/_meta.json
-.workbuddy/skills/**/_skillhub_meta.json
-.workbuddy/skills/**/_icon.png
+# 本地必须有、仓库不该有——它现在住在 skills/ 下（H3 已搬离 .workbuddy/）。
+skills/**/_meta.json
+skills/**/_skillhub_meta.json
+skills/**/_icon.png
+# 兼容符号链接本身**要入库**（clone 后旧路径仍可用）：
+#   .workbuddy/skills/body-health -> ../../skills/body-health
+#   .workbuddy/skills/garmin-connect-cn-data__skillhub -> ../../skills/garmin-connect-cn
 # 发布句柄
 .wbapp_*.genie
 

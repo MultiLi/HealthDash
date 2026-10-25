@@ -547,8 +547,8 @@ fact_pack.py     算（facts.inbody 节点）     ← 只认「报告日及以�
 
 ```bash
 cd /Users/tian.li/Documents/Health
-python3 .workbuddy/skills/body-health/scripts/sync_inbody.py --check   # 只验凭据
-python3 .workbuddy/skills/body-health/scripts/sync_inbody.py           # 全量落盘
+python3 skills/body-health/scripts/sync_inbody.py --check   # 只验凭据
+python3 skills/body-health/scripts/sync_inbody.py           # 全量落盘
 ```
 
 **MCP 为什么放弃（2026-10-18 实测，别再试一遍）**：上游 `inbody-api-mcp` 0.1.0 声明

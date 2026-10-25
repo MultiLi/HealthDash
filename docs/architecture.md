@@ -66,46 +66,46 @@ L5  surface        主页 / 日报告 / 周期查询 / 对话                   
 
 ## 四、代码组织：现状与目标
 
-### 4.1 现状（2026-10-25）
+### 4.1 现状（2026-10-25 H3 后）
 
 | 位置 | 行数 | 内容 |
 |---|---|---|
-| `.workbuddy/skills/body-health/scripts/` | 7,222 | 全部核心引擎：采集 / 物化 / 判读编排 / 调度 |
-| `.workbuddy/skills/garmin-connect-cn-data__skillhub/scripts/` | 2,285 | 采集通道与鉴权 |
+| `skills/body-health/scripts/` | 7,222 | 全部核心引擎：采集 / 物化 / 判读编排 / 调度 |
+| `skills/garmin-connect-cn/scripts/` | 2,285 | 采集通道与鉴权 |
 | `tools/` + `tools/homepage/` | 1,756 | 视图装配、构建、推送、冒烟 |
 | `site/js` + `site/css` | 2,585 | 前端（原生 ES module，无构建） |
 | `site/server.py` | 468 | 同源可写端点（标准库，单端口） |
-| `references/` | — | 口径与指标定义 |
+| `skills/body-health/references/` | — | 口径与指标定义（rules / metrics / lexicon） |
 
-**83% 的后端代码住在 `.workbuddy/skills/`** —— 一个名字就宣告「我是某 Agent 平台插件」的目录。这不是设计选择，是历史结果，代价在下一节。
+2026-10-25 之前，83% 的后端代码住在 `.workbuddy/skills/` —— 一个名字就宣告「我是某 Agent 平台插件」的目录。H3 已把它们搬到根目录 `skills/`，`.workbuddy/skills/` 下只留两个指向新位置的符号链接（兼容旧命令路径与宿主 skill 发现）。**新代码一律写新路径。**
 
-### 4.2 路径解析（H1 已于 2026-10-25 解除）
+### 4.2 路径解析（H1 已完成）
 
-**曾经的病灶**：13 个脚本各写一遍 `dirname(__file__)/../../../..` 反推工作区根，外加 `tools/homepage/paths.py` 用一条硬编码字符串指回引擎目录。**代码放在哪就是运行时契约**——搬一次目录，13 处同时断，且报错位置离根因很远。这才是「代码改不动」的技术根因。
+**曾经的病灶**：13 个脚本各写一遍 `dirname(__file__)/../../../..` 反推工作区根，外加 `tools/homepage/paths.py` 用一条硬编码字符串指回引擎目录。**代码放在哪就是运行时契约**——搬一次目录，13 处同时断，且报错位置离根因很远。
 
-**现在**：`scripts/settings.py` 是唯一解析点，按三级顺序找根：
+**现在**：`skills/body-health/scripts/settings.py` 是唯一解析点，按三级顺序找根：
 
 1. 环境变量 `HEALTH_ROOT`（换机器、测试、fixture 目录）
 2. 从自身位置向上找**锚点**（同时存在 `tools/` 与 `docs/` 的祖先目录，最多 8 层）
 3. 按旧布局兜底（`scripts/` 上四层）
 
-关键是第 2 级用锚点而不是固定层数，所以两种布局都能命中：
+关键是第 2 级用锚点而不是固定层数，所以 H3 搬迁是**零代码改动**：
 
 | 布局 | 深度 | 结果 |
 |---|---|---|
-| `.workbuddy/skills/body-health/scripts/`（当前） | 上 4 层 | 解析到工作区根 |
-| `skills/body-health/scripts/`（H3 目标） | 上 3 层 | 同样解析到工作区根，**零代码改动** |
+| `skills/body-health/scripts/`（当前） | 上 3 层 | 解析到工作区根 |
+| `.workbuddy/skills/body-health/scripts/`（兼容符号链接） | 上 4 层 | 同样解析到工作区根 |
 
-`_SKILLS`（`_HERE/../..`）这类相对层级在搬迁后仍成立，无需改——两个 skill 会一起搬。
+采集通道目录（`skills/garmin-connect-cn/`）由 `settings.garmin_scripts_dir()` 按候选顺序发现——它改过名（去掉 `__skillhub` 平台痕迹），调用方无需跟着改。
 
-**规则**：新代码一律 `from settings import ROOT / RAW_DIR / REPORTS_DIR ...`，不许再用 `__file__` 往上数。`tools/homepage/paths.py` 同样改为按候选顺序定位脚本目录（先 `skills/`，后 `.workbuddy/skills/`），不再写死路径。
+**规则**：新代码一律 `from settings import ROOT / RAW_DIR / REPORTS_DIR ...`，不许再用 `__file__` 往上数。
 
-### 4.3 其余两条约束（仍未解除）
+### 4.3 仍未解除的两条
 
-1. **编排在宿主里**：5 个定时班次的 prompt 存在 WorkBuddy 自动化配置，不在仓库。仓库里只有执行记忆。
-2. **判读规则与工程文档混装**：`SKILL.md` 644 行里，判读 prompt 约 35%、架构约束 20%、事故复盘 30%、操作手册 15%。
+1. **编排在宿主里**：5 个定时班次的 prompt 存在 WorkBuddy 自动化配置，不在仓库。仓库里只有执行记忆。⚠️ 搬迁后若 prompt 里写死了旧目录名，会失效——需要人工核对（见 H2）。
+2. **判读规则与工程文档混装**：`skills/body-health/SKILL.md` 644 行里，判读 prompt 约 35%、架构约束 20%、事故复盘 30%、操作手册 15%。
 
-### 4.3 目标形态
+### 4.4 目标形态（剩余部分）
 
 原则一句话：**宿主降级为适配器，不是架构的一部分。** skills 放到项目根目录，任何 agent 框架用同一条命令行调用。
 
@@ -164,14 +164,14 @@ docs/        项目文档（人读）
 
 | 步 | 动作 | 风险 | 验证 |
 |---|---|---|---|
-| **H1** | ✅ **2026-10-25 完成**：`scripts/settings.py` 集中路径解析（`HEALTH_ROOT` 环境变量优先，其次向上找锚点）；14 处反推改为导入；`tools/homepage/paths.py` 改为按候选顺序定位；新增 `pyproject.toml`（依赖与工具配置的唯一声明，引擎零第三方依赖） | 低，零行为变化 | 22 个模块全部导入成功、根解析一致；`index.py verify` 11 项 / `backtest golden` 12/12 / `smoke_site` 113 项 / `probe_interactions` 8/8 全过；另做**搬迁布局模拟**（把 `settings.py` 放到 `skills/body-health/scripts/` 的三层结构下）确认解析不变 |
+| **H1** | ✅ **2026-10-25 完成**：`skills/body-health/scripts/settings.py` 集中路径解析（`HEALTH_ROOT` 环境变量优先，其次向上找锚点）；14 处反推改为导入；`tools/homepage/paths.py` 改为按候选顺序定位；新增 `pyproject.toml`（依赖与工具配置的唯一声明，引擎零第三方依赖） | 低，零行为变化 | 22 个模块全部导入成功、根解析一致；`index.py verify` 11 项 / `backtest golden` 12/12 / `smoke_site` 113 项 / `probe_interactions` 8/8 全过；另做**搬迁布局模拟**确认解析不变 |
 | **H2** | 5 个班次 prompt 落进 `skills/*/automations/`，宿主配置只留「读该文件」 | 低 | 手动触发一次 10:00 班比对行为 |
-| **H3** | `skills/` 搬到根目录；`references/` 随行；清掉平台元数据 | 中，需独占窗口 | 同上三套 + probe |
+| **H3** | ✅ **2026-10-25 完成**：`skills/` 搬到根目录（`.workbuddy/skills/body-health` 与 `garmin-connect-cn-data__skillhub` 留符号链接兼容）；garmin 目录去掉 `__skillhub` 平台痕迹改名为 `garmin-connect-cn`，`sync.py` 改由 `settings.garmin_scripts_dir()` 发现；`.gitignore` 的平台元数据规则随之改到 `skills/` 下 | 中 | 搬迁后 22 模块导入 / verify 11 / golden 12/12 / smoke 113 / build / compose / check_inbody / slot resolve 全过；**旧路径命令逐条实测仍可用** |
 | **H4** | 拆 SKILL.md：prompt / 架构 / 事故 / 手册 四份 | 中，会改判读行为 | 连出 3 天与旧版逐条比 findings |
 | **H5** | `reports/` 按机器件 / 人件分目录 | 中 | 跑补跑流程验单一终版 |
 | **H6** | `make verify` + CI + 脱敏 fixture + 发布动作脚本化 | 低 | CI 绿 + 一次真实发布 |
 
-H1+H2 不碰任何线上行为。H3 之后所有事都变简单，但它是最大的一次机械改动。
+H1 与 H3 已完成，H4 之前不再有机械性阻塞。**H2 是唯一带外部依赖的一步**：prompt 住在 WorkBuddy 自动化配置里，仓库只能写规范，实际配置要人工同步。
 
 ---
 
