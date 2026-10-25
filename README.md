@@ -27,7 +27,7 @@ S=.workbuddy/skills/body-health/scripts
 
 # 物化三层（首次 / 改了 rules.json 或 metrics.json 之后必跑）
 python3 $S/index.py build          # raw → obs → units → assertions
-python3 $S/index.py verify         # 七项一致性自检，exit 0 = 通过
+python3 $S/index.py verify         # 11 项一致性自检，exit 0 = 通过
 
 # 指标定义（唯一权威来源）：改完 rules.json 或 metrics.json 必跑
 python3 $S/metricdefs.py validate   # 逐条解析声明，断链/区间写反都会报出来
@@ -39,7 +39,18 @@ python3 $S/units.py series --metric hrv_ms --scale week --n 12
 python3 $S/assertions.py list --date 2026-10-24 --level WARN
 python3 $S/assertions.py summary --days 90      # 维度 × 断言的触发频次
 python3 $S/assertions.py rollup --date 2026-10-24   # 总评（代码定）
+
+# 出报告：骨架 / 自检 / 回测
+python3 $S/compose.py --date 2026-10-24           # 从断言直渲骨架（不调 LLM，数字全对）
+python3 $S/compose.py --date D --as-final --force # LLM 挂了时的兜底（顶替正式报告）
+python3 $S/verify_judgment.py --date 2026-10-24   # 判读自检：总评一致 / findings / 数字溯源
+python3 $S/backtest.py snapshot                  # 改口径前存基线
+python3 $S/backtest.py diff                      # 改口径后：哪几天改判了
+python3 $S/backtest.py golden                    # 12 条金标用例
 ```
+
+**采集即物化**：`collect.py` 拉完数会自动跑一次 `index.py build`（第 ④ 步），
+所以 23:30 出报告时断言已经是新的。手动分析历史日时记得先跑 `index.py build`。
 
 采集与出报告的链路（`sync.py` / `collect.py` / `slot.py` / 自动化 prompt）不受影响，见 `.workbuddy/skills/body-health/SKILL.md`。
 

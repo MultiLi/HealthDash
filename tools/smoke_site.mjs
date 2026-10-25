@@ -60,8 +60,8 @@ const { store } = await import(mod("js/store.js"));
 const { renderPage } = await import(mod("js/metricgrid.js"));
 const { unitOf, prevUnitOf, unitSeries, unitRows } = await import(mod("js/scope.js"));
 const { DETAILS } = await import(mod("js/detail.js"));
-const { METRICS } = await import(mod("js/constants.js"));
-const { metricValue, rowsWith, unitRowsAll } = await import(mod("js/aggregate.js"));
+const { metrics } = await import(mod("js/constants.js"));
+const { metricValue, rowsWith, unitRowsAll, unitCell, cellJudge } = await import(mod("js/aggregate.js"));
 
 console.log("== 发布产物指纹 ==");
 ok(!!VER, "index.html 的资源引用已带内容指纹（CDN 免疫）", VER ? "v=" + VER : "缺失！");
@@ -144,9 +144,10 @@ for (const scale of ["day", "week", "month"]) {
   const drillable = count(grid, /data-detail=/g);
   ok(count(cal, /cal-cell/g) % 7 === 0, `[${scale}] 日历渲染`, count(cal, /cal-cell/g) + " 格");
   ok(html("unit-scope").length > 0 && html("unit-score").length > 0, `[${scale}] 当前单元总览有内容`);
-  ok(count(html("unit-checks"), /class="uc"/g) === 4, `[${scale}] 四项达标计数`);
-  ok(count(grid, /mx-card/g) === METRICS.length, `[${scale}] 指标卡 ${METRICS.length} 张`);
-  ok(count(grid, /class="spark"/g) === METRICS.length, `[${scale}] 每卡一条单元序列`);
+  ok(count(html("unit-checks"), /class="uc[ "]/g) === 4, `[${scale}] 四项达标计数`);
+  const nCards = metrics(ix).length;
+  ok(count(grid, /mx-card/g) === nCards, `[${scale}] 指标卡 ${nCards} 张`);
+  ok(count(grid, /class="spark"/g) === nCards, `[${scale}] 每卡一条单元序列`);
   ok(scale === "day" ? !hidden("brief-zone") : hidden("brief-zone"),
     `[${scale}] 当日判读区 ${scale === "day" ? "显示" : "隐藏（它一天一份）"}`);
   ok(scale === "day" ? drillable > 0 : drillable === 0,
@@ -154,7 +155,7 @@ for (const scale of ["day", "week", "month"]) {
 }
 
 console.log("\n== 尺度真的改变口径（同一指标三尺度对比） ==");
-const mSleep = METRICS.filter((m) => m.key === "sleep_h")[0];
+const mSleep = metrics(ix).filter((m) => m.key === "sleep_h")[0];
 for (const scale of ["day", "week", "month"]) {
   const u = unitOf(store.anchor, scale);
   const rows = rowsWith(unitRowsAll(u, store.byDate), mSleep);
@@ -164,6 +165,49 @@ for (const scale of ["day", "week", "month"]) {
 }
 const dVals = ["2026-09-11", "2026-09-10", "2026-09-09"].map((d) => store.byDate[d].sleep_h);
 ok(new Set(dVals).size > 1, "日尺度逐日值互不相同（不是聚合值冒充）", dVals.join(" / "));
+
+console.log("\n== 环比与达标由后端判定（S2 接线） ==");
+ok(ix.units && ix.units.day && ix.units.week, "index.json 已下发 units（各尺度单元判定）",
+  Object.keys(ix.units || {}).join("/"));
+const mHrv = metrics(ix).filter((m) => m.key === "hrv")[0];
+const cW43 = unitCell(ix, "week", "2026-W43", mHrv);
+ok(cW43 && cW43.dv, "周单元带 delta_verdict", JSON.stringify(cW43));
+store.scale = "week"; store.anchor = "2026-10-22"; renderPage();
+const gridWeek = html("metric-grid");
+ok(/在误差内/.test(gridWeek), "within-noise 的指标出「在误差内」而不是箭头百分比");
+ok(!/dl (good|bad)/.test(gridWeek.split('data-metric="hrv"')[1] || ""),
+  "within-noise 的 HRV 卡不画红绿箭头");
+ok(/不做环比/.test(gridWeek), "tier.change=low 的指标（步数）写「不做环比」");
+const mSteps = metrics(ix).filter((m) => m.key === "steps")[0];
+const cW = unitCell(ix, "week", "2026-W43", mSteps);
+ok(cW && cW.dv === "suppressed", "步数周环比被判 suppressed（6 天样本分不开 6400 与 10294）",
+  JSON.stringify(cW));
+
+store.scale = "day"; store.anchor = "2026-10-25"; renderPage();
+const gridToday = html("metric-grid");
+ok(/覆盖 4[0-9]% · 不给结论|不给结论/.test(gridToday),
+  "覆盖不足的当日卡明确「不给结论」，而不是给个看起来很确定的数字");
+ok(!/class="uc"/.test(html("unit-checks")) || /uc-na/.test(html("unit-checks")),
+  "四项达标里进行中的当天显示「–」而不是 0/0");
+
+store.scale = "month"; store.anchor = ix.today; renderPage();
+ok(hidden("brief-zone"), "月尺度判读区仍隐藏");
+
+console.log("\n== 滚动窗尺度（7/28/90 天） ==");
+for (const scale of ["roll7", "roll28", "roll90"]) {
+  store.scale = scale;
+  store.anchor = ix.today;
+  renderPage();
+  const n = parseInt(scale.slice(4), 10);
+  const u = unitOf(store.anchor, scale);
+  ok(u.dates.length === n && u.dates[n - 1] === store.anchor,
+    `[${scale}] 单元 = 锚点往前 ${n} 天`, u.label);
+  ok(prevUnitOf(store.anchor, scale).key === unitOf(store.anchor, scale).key ? false : true,
+    `[${scale}] 环比对象是非重叠的上一窗`);
+  const g = html("metric-grid");
+  ok(count(g, /mx-card/g) === metrics(ix).length, `[${scale}] 指标卡齐全`);
+  ok(/近 \d+ 天/.test(nodes.get("axis-note").textContent), `[${scale}] 时间轴说明点明窗口长度`);
+}
 
 console.log("\n== 卡内细分渲染器（喂完整分片） ==");
 const closedLast = store.closed[store.closed.length - 1].date;
@@ -191,9 +235,16 @@ store.scale = "month"; store.anchor = "2026-09-15"; renderPage();
 const mReady = [...html("unit-score").matchAll(/<b style="color:(#[0-9A-Fa-f]{6})">(\d+)<\/b>/g)]
   .map((m) => ({ color: m[1], n: +m[2] }));
 ok(mReady.length === 2, "总览两项分数都能取出数字与颜色", JSON.stringify(mReady));
-ok(mReady[1].n === 75 && mReady[1].color === readyOf(null, 75).color,
-  "9 月均准备度 74.5 → 显示 75 且配色按 75 判（不是按 74.5 的琥珀）",
-  `显示 ${mReady[1].n} · ${mReady[1].color}（74.5 本会判 ${readyOf(null, 74.5).color}）`);
+/* 断言的**意图**是「显示值与配色同源」，不是记住 2026-09 的具体数值——
+   写死 75 会在数据回补后变成伪阳性（2026-10-25 实测已变成 76）。
+   所以现算月均，再要求显示值 = 四舍五入后的原始值、颜色按显示值判。 */
+const sepRows = ix.days.filter((r) => r.date.slice(0, 7) === "2026-09" &&
+  !r.morning && r.readiness != null).map((r) => r.readiness);
+const sepAvg = sepRows.reduce((a, b) => a + b, 0) / sepRows.length;
+const sepShow = Math.round(sepAvg);
+ok(mReady[1].n === sepShow && mReady[1].color === readyOf(null, sepShow).color,
+  "月均准备度显示值与配色同源（先四舍五入再分档）",
+  `${sepRows.length} 天均值 ${sepAvg.toFixed(1)} → 显示 ${mReady[1].n} · ${mReady[1].color}`);
 
 store.scale = "day"; store.anchor = closedLast; renderPage();
 const rsDay = html("unit-score");
@@ -229,7 +280,7 @@ if (!liveRow) {
   ok(html("unit-scope").includes("进行中"), "明确标注进行中",
     html("unit-scope").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
   ok(/[0-9]+\.[0-9]h/.test(liveGrid), "昨夜睡眠仍给出实测值（不被整行排除）");
-  ok(count(liveGrid, /mx-card/g) === METRICS.length, "仍渲染全部指标卡");
+  ok(count(liveGrid, /mx-card/g) === metrics(ix).length, "仍渲染全部指标卡");
   const liveDay = store.byDate[store.anchor];
   ok(liveDay.steps == null, "当日步数本就为 null（未结束），不进步数分母");
 }

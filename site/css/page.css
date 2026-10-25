@@ -46,6 +46,10 @@
 .uc-k { font-size: 12.5px; color: var(--text-2); }
 .uc-v { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .uc-v i { font-style: normal; font-size: 12px; font-weight: 500; color: var(--text-3); margin-left: 3px; }
+/* 分母为 0（覆盖不足 / 进行中）：显示「–」，数字压灰，条留空。
+   这是「不知道」，不能画成 0%（0% 读作「一天都没做到」）。 */
+.uc-na .uc-v { color: var(--text-3); }
+.uc-na .uc-bar i { background: var(--text-3); opacity: .3; }
 .uc-bar { height: 6px; border-radius: 3px; background: rgba(15,20,25,.06); overflow: hidden; display: block; }
 .uc-bar i { display: block; height: 100%; background: var(--green); border-radius: 3px; transition: width .5s ease; }
 

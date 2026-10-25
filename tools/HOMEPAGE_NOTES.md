@@ -11,11 +11,18 @@
 - 服务端只服务扩展名白名单内文件：`server.py`、`.push_token`、`.data/` 一律 404。令牌在 `site/.push_token`，缺失则端点半闭并如实上报。启动自愈 `seed_state_from_bundle()`：`.data` 缺失或比打包副本旧则用副本播种。
 - **资源必须带内容指纹**（`tools/homepage/assetver.py::stamp_all()`，随 build 幂等自动跑）：取数 URL 打 `?b=<token>`；**js 模块图内部 import 说明符也要打 `?v=<ver>`**（只打入口会得到「新入口+旧模块」混血）。**改了 js 必须重跑 build 再发布。** 数据两层：`index.json`（逐日轻量索引，首屏唯一载荷）+ `daily/YYYY-MM.json`（按月分片按需拉）。
 - **判读按日装配**：一天一份，build 按日读全部 `body_brief_*.json`。新增一天 = 写 `judgment_D.json` → `fact_pack --date D --merge-judgment` → 重跑 build + push。- 综合指数（`scoring.py`）：睡眠达成/步数/HRV/静息心率/久坐五项等权（晨间快照日四项）。**铁律：分项必须由实测值经 rules.json 阈值推导，禁止常数短路**。**Garmin 的 BALANCED 由 7 日滚动均值决定，不能当「昨夜状态」；HRV 归一唯一入口 `recovery.py::hrv_view`**。KPI「HRV 达标率」= 当晚实测 ≥ 基线下限。
-- **前端是单页单视图**，状态只有 `anchor` + `scale`（日/周/月），没有「概览页/某日页」之分。逐指标统计按 `字段 != null` 过滤、不按 morning 整行排除（唯一整行特例是综合指数）。尺度决定日历选中 / 主值口径 / x 轴粒度 / 达标分母，由 `scope.js` 解析成「单元」。日历格三态点：实心绿达标 / 实心琥珀未达标 / 空心灰无实测——**缺数据不等于没做到**。
+- **前端是单页单视图**，状态只有 `anchor` + `scale`（**六个**：日 / 周 / 月 / 近 7 天 / 近 28 天 / 近 90 天），没有「概览页/某日页」之分。逐指标统计按 `字段 != null` 过滤、不按 morning 整行排除（唯一整行特例是综合指数）。尺度决定日历选中 / 主值口径 / x 轴粒度 / 达标分母，由 `scope.js` 解析成「单元」。日历格三态点：实心绿达标 / 实心琥珀未达标 / 空心灰无实测——**缺数据不等于没做到**。
 - **层次纪律**：①时间轴 → ②当前单元总览 → ③指标网格 → ④当日判读；**④只放人写的结论**，有量化指标的实测值一律归 ②/③。
 - **准备度进总览、与综合指数并排**（行为达标度 vs 恢复/负荷准备度：各自具名 + 各自带环比，绝不合并）：档位用**设备自己的五档**（`constants.READY`），不套我们的 score 阈值。周/月是聚合值**不编档位词**。
-- **空日文案只对今天说「进行中」**，过去/未来的空日标「无采集记录」。
-- **已知缺口（均未改代码）**：① 日历配色只由综合指数驱动，恢复报警日（09-07 准备度 41 LOW）日历上仍是绿色 92 徽标；② 主页准备度取单一主字段，**不认 `readiness_series`**——09-17 展示 HIGH(78)（来自 00:19 前夜重置），报告口径是日间 MODERATE(70)；③ 数据模型无「部分日」标记，半天账会在主页当完整日展示（09-15）。
+- **空日文案只对今天说「进行中」**，过去/未来的空日标「无采集记录」。跨度内的空白日（有行但全 null）走**同一个空态**——`dayIsEmpty()`，否则总览说「无采集记录」、判读区说「简报尚未生成」，同屏两种说法。
+- **指标定义来自后端，前端不留副本**（2026-10-25）：`constants.js` 的 `metrics(ix)` 从 `index.json.metric_defs` 派生 label/unit/dir/agg/goal/band，本文件只保留「怎么画」（fmt / detail 渲染器 / 目标线措辞）。老 index（无 metric_defs）走 `FALLBACK`，**先发 js 再推数据时不能白**。
+- **环比与达标由后端判定**（2026-10-25）：`index.json.units[scale][key][metric]` = `{v 值, j 达标ok/no/na, c 覆盖率, n 实测天数, r 达标率, d 差值, dv 五档判定, vs 对比单元}`。前端只把 `dv` 翻成人话（`aggregate.VERDICT_TEXT`）：
+  - `changed` → 才给红绿箭头 + 差值；`within-noise` 写「在误差内」；`suppressed`（步数这类 tier.change=low 的指标）写「不做环比」；`insufficient` 写「样本不足」。
+  - **前端禁止自己比大小**——mdc 门槛在 `rules.confidence`，判定在 L2。以前这里画「↑7%」而报告写「在误差内」，两边都不算错，因为口径只约束了写报告的人。
+  - `j=na`（覆盖不足）时卡片显示「覆盖 x% · 不给结论」，四项达标显示「–」而不是 0/0（0/0 会被读成「一天都没做到」）。
+  - 滚动窗的环比**必须非重叠**（`prevUnitOf` 直接跳一个窗长）：相邻两窗只差一天时重叠 6/7，比它们等于比「自己和几乎自己」。
+- **已知缺口（均未改代码）**：① 日历配色只由综合指数驱动，恢复报警日（09-07 准备度 41 LOW）日历上仍是绿色 92 徽标；② 主页准备度取单一主字段，**不认 `readiness_series`**——09-17 展示 HIGH(78)（来自 00:19 前夜重置），报告口径是日间 MODERATE(70)。
+- **进行中的当天**：units 的 `j` 会是 `na`（coverage < 0.95），卡片显示「覆盖 x% · 不给结论」但**数字照给**——步数这类白天累计值比「—」有信息量，前提是明确标了不可判。注意 index 行的 `steps` 对 morning 日为 null（不含白天 activity），而 units 的 `v` 有值（raw 全天累计），两者不同源，**主值以后端 `v` 为准**。
 
 ### 体成分（InBody）· 事件型数据源（2026-10-18 建）
 
@@ -32,10 +39,11 @@
 - **目标路径现算**：`体重 = FFM ÷ (1 − 目标体脂率)`，禁止写死 85.9/80.8。
 - 数据源：`data/inbody/{index,latest,profile}.json` + `raw/scan_*.json`，由
   `body-health/scripts/sync_inbody.py` 采集（独立凭据，与佳明无关）。
+- 尺度按钮从 3 个变 6 个（日/周/月/7天/28天/90天），`.seg` 在 ≤620px 收窄（`base.css`），否则窄屏顶出卡片。
 - **改了 `js/` 或 `css/` 就必须重新发布**（数据推送不影响它）；新加 `inbody.css` 时记得在
   `index.html` 里加 `<link>`，否则样式静默失效。
 
 ### 前端改动的验证手段（09-16 立，血账）
-- `tools/smoke_site.mjs`：**改完 js/ 必跑**（零依赖，77 项断言，含取数链路 + 空日/冻死回归）。须按 index.html 里带指纹的地址 import 模块，否则拿到第二个模块实例直接崩。DOM 桩抓不到事件层问题。
+- `tools/smoke_site.mjs`：**改完 js/ 必跑**（零依赖，100 项断言，含取数链路 + 空日/冻死回归）。须按 index.html 里带指纹的地址 import 模块，否则拿到第二个模块实例直接崩。DOM 桩抓不到事件层问题。
 - `tools/probe_interactions.py`：**真浏览器真点**，抓「点完冻死」这类交互层问题（8 用例，约 30 秒）。⚠️ **给无头 Chrome 传 `--user-data-dir=<新建目录>` 会让它永不返回**，症状是「所有用例 HUNG」——**连基线都 HUNG 就是工具坏了**。默认复用默认 profile + `--incognito`。
-- **截图验证**：`"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --disable-gpu --no-sandbox --hide-scrollbars --window-size=1440,4200 --screenshot=out.png --virtual-time-budget=9000 <url>`。**起本地服务必须在同一条 bash 里「起→截图→kill」**（`run_in_background` 起的 server 从别的调用连不上）。看非默认尺度就把 index.html 复制成 `site/_probe_*.html` 换显式 boot，截完即删。**呈现层问题只能靠截图发现。**
+- **截图验证**：`"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --disable-gpu --no-sandbox --hide-scrollbars --window-size=1440,4200 --screenshot=out.png --virtual-time-budget=9000 <url>`。**起本地服务必须在同一条 bash 里「起→截图→kill」，或者用 `run_in_background=true` 起的常驻 server**（2026-10-25 实测可用；此前记的「run_in_background 起的 server 连不上」是因为用了 `(cmd &)` 子 shell，进程随命令退出就没了）。看非默认尺度就把 index.html 复制成 `site/_probe_*.html` 换显式 boot，截完即删。**呈现层问题只能靠截图发现。**

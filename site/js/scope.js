@@ -14,13 +14,26 @@
 import {
   addDays, weekDates, weekStart, isoWeekKey, weekRangeLabel,
   monthKey, monthLabel, shiftMonth, fmtMD, weekdayCN
-} from "./dateutil.js?v=1c2a93bd";
+} from "./dateutil.js?v=ceda129d";
 
+/* 六个尺度 = 两类单元：
+ *  · 自然周期（日 / 周 / 月）：边界由日历决定，用来对齐「本月」「本周」这类复习惯例。
+ *  · 滚动窗（7 / 28 / 90 天）：边界由锚点决定，**没有「本周还没结束」的问题**——
+ *    自然周的周均在被问到的那一刻必然是被截断的，滚动窗不会。
+ *    这也是为什么趋势判定优先看滚动窗：它的相邻两步重叠 6/7 天，环比必须用
+ *    非重叠位移差（prevUnitOf 直接跳一整个窗长，见下）。 */
 export var SCALES = [
   { key: "day", label: "日", unit: "天", seriesN: 30, seriesLabel: "近 30 天" },
   { key: "week", label: "周", unit: "周", seriesN: 12, seriesLabel: "近 12 周" },
-  { key: "month", label: "月", unit: "月", seriesN: 12, seriesLabel: "近 12 个月" }
+  { key: "month", label: "月", unit: "月", seriesN: 12, seriesLabel: "近 12 个月" },
+  { key: "roll7", label: "7天", unit: "窗", seriesN: 12, seriesLabel: "近 12 个 7 天窗" },
+  { key: "roll28", label: "28天", unit: "窗", seriesN: 6, seriesLabel: "近 6 个 28 天窗" },
+  { key: "roll90", label: "90天", unit: "窗", seriesN: 4, seriesLabel: "近 4 个 90 天窗" }
 ];
+
+export function rollLen(scale) {
+  return scale.indexOf("roll") === 0 ? parseInt(scale.slice(4), 10) : 0;
+}
 
 export function scaleDef(key) {
   return SCALES.filter(function (s) { return s.key === key; })[0] || SCALES[0];
@@ -35,6 +48,15 @@ export function unitOf(anchor, scale) {
     return { scale: scale, key: isoWeekKey(anchor), label: weekRangeLabel(anchor),
              sub: "ISO " + isoWeekKey(anchor), dates: weekDates(anchor) };
   }
+  var rn = rollLen(scale);
+  if (rn) {
+    var ds = [];
+    for (var j = rn - 1; j >= 0; j--) ds.push(addDays(anchor, -j));
+    return {
+      scale: scale, key: anchor, label: fmtMD(ds[0]) + "–" + fmtMD(anchor),
+      sub: "近 " + rn + " 天 · 滚动窗", dates: ds
+    };
+  }
   var mk = monthKey(anchor);
   var y = +mk.slice(0, 4), m = +mk.slice(5, 7);
   var n = new Date(y, m, 0).getDate();
@@ -47,6 +69,11 @@ export function unitOf(anchor, scale) {
 export function prevUnitOf(anchor, scale) {
   if (scale === "day") return unitOf(addDays(anchor, -1), "day");
   if (scale === "week") return unitOf(addDays(anchor, -7), "week");
+  /* 滚动窗的环比必须**非重叠**：相邻两步（差 1 天）重叠 6/7，比它们等于比
+     「自己和几乎自己」，任何差异都会被重叠部分稀释成 0。
+     所以直接跳一整个窗长——7 天窗比的是「这 7 天 vs 前 7 天」。 */
+  var rn = rollLen(scale);
+  if (rn) return unitOf(addDays(anchor, -rn), scale);
   var mk = monthOf(shiftMonth(monthKey(anchor), -1));
   return unitOf(mk, "month");
 }
@@ -60,6 +87,7 @@ export function unitSeries(anchor, scale, n) {
   for (var i = 1; i < (n || 12); i++) {
     if (scale === "day") cur = addDays(cur, -1);
     else if (scale === "week") cur = addDays(cur, -7);
+    else if (rollLen(scale)) cur = addDays(cur, -rollLen(scale));
     else cur = monthOf(shiftMonth(monthKey(cur), -1));
     out.push(unitOf(cur, scale));
   }

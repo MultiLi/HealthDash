@@ -76,6 +76,56 @@ export function aggRows(rows, ix) {
   };
 }
 
+/* ===== 后端单元判定的读取口（2026-10-25，S2）=====
+
+   为什么环比的数学要从前端搬走：`|Δ| < mdc_change` 时禁用「上升/下降」是写进
+   SKILL.md 的判读纪律，但 `site/js` 里 mdc 出现 0 次——前端直接给百分比和箭头，
+   于是同一份数据主页说「↑ 7%」、报告说「在误差内」。现在判定只在 units 表做，
+   前端只负责把 verdict 翻成人话。
+
+   三态之外还有 `part`：`n`/`c` 说明这一格是几天值、覆盖多少，覆盖不足时
+   宁可不给结论（契约在 rules.units.coverage_min）。 */
+
+export var VERDICT_TEXT = {
+  changed: "明显变化",
+  "within-noise": "在误差内",
+  insufficient: "样本不足",
+  uncalibrated: "无噪声门槛",
+  suppressed: "不做环比"
+};
+
+/* 取某个 (尺度, 单元, 指标) 的后端判定。没有就返回 null（调用方回落现算）。 */
+export function unitCell(ix, scale, key, m) {
+  var u = ix && ix.units;
+  var byKey = u && u[scale];
+  if (!byKey || !byKey[key]) return null;
+  return byKey[key][m.key] || null;
+}
+
+/* 后端达标三态 -> 前端三态。ok / no / na（na = 覆盖不足或没数据，不给结论） */
+export function cellJudge(cell) {
+  if (!cell || cell.j == null) return null;
+  if (cell.j === "na") return "na";
+  return cell.j === "ok" ? true : false;
+}
+
+/* 一个单元内某指标的达标计数（逐日读后端判定）。
+   用后端而不是前端重判，是为了让「达标」吃上动态阈值
+   （睡眠判读线 = max(静态 7h, 设备当晚需求) 这类逐日变化的口径）。 */
+export function okCount(ix, unit, m) {
+  var n = 0, tot = 0, backend = false;
+  unit.dates.forEach(function (d) {
+    var c = unitCell(ix, "day", d, m);
+    if (c) {
+      backend = true;
+      if (c.j == null || c.j === "na") return;
+      tot += 1;
+      if (c.j === "ok") n += 1;
+    }
+  });
+  return backend ? { ok: n, tot: tot, src: "backend" } : null;
+}
+
 /* 一个指标在若干行上的代表值。agg 决定用均值还是中位数——
    HRV 这类偏态指标用中位数，避免单夜暴跌把周/月代表值带跑。 */
 export function metricValue(rows, m) {
@@ -92,11 +142,13 @@ export function metricValue(rows, m) {
 export function seriesPoints(units, byDate, m, ix) {
   return units.map(function (u) {
     var rows = rowsWith(unitRowsAll(u, byDate), m);
-    var v = metricValue(rows, m);
+    var cell = unitCell(ix, u.scale, u.key, m);
+    var v = cell ? cell.v : metricValue(rows, m);
+    var ok = cell ? cellJudge(cell) : judgeValue(v, m, ix);
     return {
       label: u.label,
       v: v,
-      ok: judgeValue(v, m, ix),
+      ok: ok === "na" ? null : ok,
       partial: rows.some(function (r) { return r.morning; })
     };
   });

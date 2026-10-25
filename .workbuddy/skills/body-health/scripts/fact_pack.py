@@ -40,6 +40,69 @@ def load_events(days=3):
     return [r for r in rows if r.get("date", "") >= cutoff]
 
 
+LEXICON = os.path.join(_HERE, "..", "references", "lexicon.json")
+_SCALE_SERIES = (("week", 12), ("month", 12), ("roll7", 12), ("roll28", 6), ("roll90", 4))
+
+
+def scales_block(con, date):
+    """多尺度摘要：当日 + 本周/本月 + 三个滚动窗的**当前值与其序列**（2026-10-25 接）。
+
+    为什么进事实包：以前报告只有 `trend`（4 行字符串表），判读想问「近 90 天怎么样」
+    只能重读历史报告。units 里已经算好了每个尺度的值/达标/覆盖率/环比判定，
+    这里只是把它按「当前值 + 最近 N 个单元」的形状端出来。
+
+    覆盖不足的单元**照发**，但带着 coverage 与 judge=na 一起发——判读必须看见
+    「这个尺度谈不了」，而不是拿到一个看起来确定的数字。
+    """
+    try:
+        lex = json.load(open(LEXICON, encoding="utf-8"))
+        metrics = lex.get("headline_metrics") or []
+        rows = list(con.execute(
+            "SELECT scale,key,metric,value,judge,judge_rate,coverage,n,"
+            "delta_v,delta_vs,delta_verdict,start,end FROM units WHERE metric IN (%s)"
+            % ",".join("?" * len(metrics)), metrics))
+    except Exception as e:
+        return {"error": str(e)[:120]}
+
+    by = {}
+    for r in rows:
+        node = by.setdefault(r["scale"], {}).setdefault(
+            r["key"], {"key": r["key"], "start": r["start"], "end": r["end"], "metrics": {}})
+        node["metrics"][r["metric"]] = {
+            "v": r["value"], "judge": r["judge"], "cov": r["coverage"], "n": r["n"],
+            "rate": r["judge_rate"], "delta": r["delta_v"], "vs": r["delta_vs"],
+            "verdict": r["delta_verdict"],
+        }
+    # **锚定目标日，不取全库最新**：回补历史日时若取「最新单元」，
+    # 10-24 的报告会拿到 10-25 的滚动窗——那不是这一天该看到的数。
+    d = datetime.date.fromisoformat(date)
+    anchor_key = {"week": "%04d-W%02d" % d.isocalendar()[:2],
+                  "month": date[:7], "roll7": date, "roll28": date, "roll90": date}
+    out = {}
+    for scale, n in _SCALE_SERIES:
+        items = by.get(scale) or {}
+        if scale.startswith("roll"):
+            # 滚动窗序列必须**非重叠**：相邻两窗只差一天时重叠 27/28，
+            # 拿它们画趋势等于把同一个数搬来搬去，斜率必然是 0。
+            # 所以每往前跳一整个窗长取一个点（与 units 的 prev_key 一致）。
+            step = int(scale[4:])
+            keys = [(d - datetime.timedelta(days=i * step)).isoformat()
+                    for i in range(n)][::-1]
+            series = [items[k] for k in keys if k in items]
+        else:
+            # 以 **start <= 目标日** 为界：月的 end 是月末（10-31），用 end<=10-24
+            # 会把「10 月」整个排掉，于是 latest 有值、series 却没有——同一份 facts 自相矛盾。
+            keys = sorted((k for k in items if (items[k]["start"] or "") <= date),
+                          key=lambda k: items[k]["start"] or "")[-n:]
+            series = [items[k] for k in keys]
+        out[scale] = {"latest": items.get(anchor_key[scale]), "series": series}
+    out["day"] = {"latest": (by.get("day") or {}).get(date)}
+    out["_note"] = ("v=值 judge=达标(ok/no/na) cov=覆盖 n=实测天数 rate=达标率 "
+                    "delta=与上一单元差 verdict=五档判定(changed/within-noise/"
+                    "insufficient/uncalibrated/suppressed)。judge=na 时不引用该数字下结论。")
+    return out
+
+
 def build(date, days):
     rules = load_rules()
     bundle = get_adapter("garmin-cn").collect(date, days)
@@ -114,6 +177,22 @@ def build(date, days):
     except Exception as e:
         completeness = {"level": "unknown", "blocking": ["闸门不可用：%s" % e]}
 
+    # —— L3 断言快照（2026-10-25 接入）——
+    # 判读的**判定来源**从这里读：哪条规则触发、证据是什么、过去 30 天是第几次。
+    # 以前判读方直接读 computed 里的散数字自己推规则，那是「每晚重新执行一遍规则」的根源。
+    scales_snap = {}
+    try:
+        import db as _db
+        import assertions as _asrt
+        _con = _db.connect()
+        assertions_snap = _asrt.snapshot(_con, date)
+        scales_snap = scales_block(_con, date)
+        _con.close()
+    except Exception as e:                       # 物化层不可用不阻断事实包
+        assertions_snap = {"date": date, "error": str(e),
+                           "rollup": {"level": "NEUTRAL", "label": "不可判读"},
+                           "l1": [], "cross": [], "device": [], "unit_scope": []}
+
     facts = {
         "date": date, "source": bundle["source"],
         "synced_at": bundle.get("synced_at") or "",
@@ -122,6 +201,8 @@ def build(date, days):
         "completeness": completeness,
         "inbody": inbody,
         "thresholds_ref": os.path.join(_HERE, "..", "references", "rules.json"),
+        "assertions": assertions_snap,
+        "scales": scales_snap,
         "trend": build_trend(all_days, rules),
         "target_day": day,
         "computed": {
@@ -163,6 +244,23 @@ def build(date, days):
              "canonical": all_days, "judgment": None}
     json.dump(brief, open(os.path.join(REPORTS, f"body_brief_{date}.json"), "w"),
               ensure_ascii=False, indent=1)
+    if assertions_snap.get("error"):
+        print("assertions: ✗ 不可用（%s）——判读将退回 computed" % assertions_snap["error"])
+    else:
+        r = assertions_snap["rollup"]
+        print("assertions: %s（l1 %d / cross %d / device %d / 跨尺度 %d）%s"
+              % (r.get("label"), len(assertions_snap["l1"]),
+                 len(assertions_snap["cross"]), len(assertions_snap["device"]),
+                 len(assertions_snap["unit_scope"]),
+                 "  ⚠ 物料过期，请先跑 index.py build" if assertions_snap.get("stale") else ""))
+    if scales_snap.get("error"):
+        print("scales: ✗ %s" % scales_snap["error"])
+    else:
+        we = (scales_snap.get("week") or {}).get("latest") or {}
+        print("scales: week=%s month=%s roll7/28/90=%s" % (
+            we.get("key"), ((scales_snap.get("month") or {}).get("latest") or {}).get("key"),
+            "/".join(str(((scales_snap.get(s) or {}).get("latest") or {}).get("key"))
+                     for s in ("roll7", "roll28", "roll90"))))
     print("facts:", facts_path)
     print("brief-contract:", os.path.join(REPORTS, f"body_brief_{date}.json"))
     return facts

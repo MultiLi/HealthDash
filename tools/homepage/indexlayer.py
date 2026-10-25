@@ -88,6 +88,61 @@ def hrv_band(days, rules):
     return {"low": lo, "high": hi}
 
 
+# 主页要下发的单元指标（== METRICS 的 8 张卡）。只发这些：
+# units 表里有 30+ 指标 × 6 尺度 ≈ 3,800 行，全发会把首屏撑到 1MB+。
+# 卡以外的东西（体成分、血氧…）走各自的节，不需要单元判定。
+_UNIT_METRICS = ("sleep_h", "hrv_ms", "rhr_bpm", "steps_daily", "sedentary_min",
+                 "stress_avg", "active_kcal", "intensity_min")
+
+
+def units_block(rules):
+    """L2 单元判定下发（2026-10-25 接入，S2）。
+
+    **为什么必须由后端下发**：`delta` 到底是「明显变化」还是「在误差内」，
+    要过 rules.confidence 的 mdc 门槛；`judge` 要不要因为覆盖率不足而给 `na`；
+    达标率的分母怎么算——这三件以前都在浏览器里各自实现一遍，于是主页画着
+    「↑ 7%」的报告写着「在误差内」。现在只有一份：units 表。
+
+    字段压短（v/j/c/n/d/dv/r/vs）是为了首屏体积：七个字段带全名会把
+    index.json 从 26KB 推到 200KB+，而这些键在 js 侧只被一个函数读。
+
+    DB 不可用（没跑过 index.py build）时返回 None，前端按旧逻辑回落并标注。
+    """
+    try:
+        import db as _db
+        con = _db.connect()
+        rows = list(con.execute(
+            "SELECT scale, key, metric, value, judge, judge_rate, coverage, n, "
+            "delta_v, delta_verdict, delta_vs FROM units WHERE metric IN (%s)"
+            % ",".join("?" * len(_UNIT_METRICS)), _UNIT_METRICS))
+        con.close()
+    except Exception as e:                     # 派生层缺失不阻断主页构建
+        return {"_error": str(e)[:120]}
+
+    # 后端 metric -> 前端 key（同一份注册表，前端不再自己维护映射）
+    fk = {}
+    for m, d in metricdefs.resolve_all(rules).items():
+        k = d.get("frontend_key")
+        if k and m in _UNIT_METRICS:
+            fk[m] = k
+    out = {}
+    for r in rows:
+        k = fk.get(r["metric"])
+        if not k:
+            continue
+        cell = {"v": r["value"], "j": r["judge"], "c": r["coverage"], "n": r["n"]}
+        if r["judge_rate"] is not None:
+            cell["r"] = r["judge_rate"]
+        if r["delta_v"] is not None:
+            cell["d"] = round(r["delta_v"], 2)
+        if r["delta_verdict"]:
+            cell["dv"] = r["delta_verdict"]
+        if r["delta_vs"]:
+            cell["vs"] = r["delta_vs"]
+        out.setdefault(r["scale"], {}).setdefault(r["key"], {})[k] = cell
+    return out
+
+
 def _goals(rules):
     """兼容旧的 ix.goals 结构 —— 值全部经唯一解析器取得。"""
     md = metricdefs.resolve_all(rules)
@@ -124,6 +179,9 @@ def build_index(data, rules):
             "score": {"good_min": rules["hero"]["good_min"],
                       "fair_min": rules["hero"]["fair_min"]},
         },
+        # L2 单元判定（每个尺度 × 单元 × 指标：值 / 达标 / 覆盖率 / 环比判定）。
+        # 前端的环比箭头与达标色从**这里**读，不再自己比大小（2026-10-25）。
+        "units": units_block(rules),
         "trend_windows": hp.get("trend_windows", [7, 30, 90]),
         "span": {"first": days[0]["date"], "last": days[-1]["date"], "n": len(days)},
         # 事件型数据源随索引下发：它是独立节，不进 days[]、不吃尺度，

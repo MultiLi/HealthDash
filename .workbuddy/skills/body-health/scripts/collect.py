@@ -6,8 +6,9 @@
   ① 拉目标日（今天）：d == date 时 sync 恒重拉，历史日已落盘自动跳过
   ② 回补窗口内「被截断」的历史日（data_gate 判 partial 的才碰，完整日不动）
   ③ 打印完整性一览（哪几天完整、哪几天还差多少分钟）
-  ④ 可选：刷新主页数据（--push，默认开）
-  ⑤ InBody：刷一次扫描 + 过体成分闸门（check_inbody，本地零网络），**成功也打一行**
+  ④ 重建物化层（index.py build：obs → units → assertions，只读本地 raw，不联网）
+  ⑤ 可选：刷新主页数据（--push，默认开）
+  ⑥ InBody：刷一次扫描 + 过体成分闸门（check_inbody，本地零网络），**成功也打一行**
 
 为什么值得高频跑（2026-10-18 定）：
 **提高拉数频率并不能「催出」数据** —— 云端没有就是没有，手表不同步，
@@ -79,7 +80,25 @@ def run(days=3, push=False, quiet=False, with_inbody=True):
                    r.get("steps") if r.get("steps") is not None else "-",
                    (r["blocking"][0] if r["blocking"] else "")))
 
-    # ④ 主页热更新
+    # ④ 物化层（2026-10-25 接入）：raw 一变就把 obs/units/assertions 跟上。
+    #    放在主页推送之前——主页数据要读 units，顺序反了会推一版旧单元。
+    #    **失败不影响采集**：派生层坏了可以随时 index.py build 重建，没必要连累拉数。
+    indexed = None
+    try:
+        r = subprocess.run([sys.executable, os.path.join(_HERE, "index.py"), "build"],
+                           capture_output=True, text=True, timeout=300)
+        indexed = (r.returncode == 0)
+        if not indexed:
+            log("[collect] 物化层重建失败（rc=%s）：%s"
+                % (r.returncode, ((r.stderr or r.stdout or "").strip()
+                                  .splitlines() or ["?"])[-1]))
+    except Exception as e:
+        indexed = False
+        log("[collect] 物化层重建失败：%s" % e)
+
+    log("[collect] 物化层：%s" % ("已重建" if indexed else "未重建（见上）"))
+
+    # ⑤ 主页热更新
     pushed = None
     if push:
         script = os.path.join(_WORKSPACE, "tools", "build_homepage_data.py")
@@ -88,7 +107,7 @@ def run(days=3, push=False, quiet=False, with_inbody=True):
         pushed = (rc == 0)
         log("[collect] 主页数据推送：%s" % ("成功" if pushed else "失败（不影响采集）"))
 
-    # ⑤ InBody（事件型）：顺手确认有没有新扫描，并过一遍体成分闸门。
+    # ⑥ InBody（事件型）：顺手确认有没有新扫描，并过一遍体成分闸门。
     #    拉取失败只记一行，不影响佳明数据；闸门（check_inbody）只读本地，零额外网络。
     inbody, inbody_check = None, None
     if with_inbody:
@@ -121,6 +140,7 @@ def run(days=3, push=False, quiet=False, with_inbody=True):
         "sync": s,
         "repair": rep,
         "gate": rows,
+        "indexed": indexed,
         "pushed": pushed,
         "inbody": inbody,
         "inbody_check": inbody_check,

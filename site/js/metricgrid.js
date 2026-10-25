@@ -8,21 +8,25 @@
  *   ② 当前单元总览（综合指数 + Garmin 准备度 并排 + 四项达标计数）
  *   ③ 指标网格（8 张同构卡：主值 + 环比 + 单元序列 + 达标统计；日尺度下可展开当日细分）
  */
-import { store } from "./store.js?v=1c2a93bd";
-import { METRICS, CHECKS, bandOf, BAND, READY, readyOf } from "./constants.js?v=1c2a93bd";
-import { esc, $ } from "./utils.js?v=1c2a93bd";
-import { metricValue, seriesPoints, judgeValue, delta, unitRowsAll, rowsWith } from "./aggregate.js?v=1c2a93bd";
-import { unitOf, prevUnitOf, unitSeries, scaleDef } from "./scope.js?v=1c2a93bd";
-import { renderMonth, renderHeatstrip } from "./calendar.js?v=1c2a93bd";
-import { sparkline } from "./charts.js?v=1c2a93bd";
-import { DETAILS, readinessTrail, briefHtml } from "./detail.js?v=1c2a93bd";
-import { ensureShard, dayOf, hasShard } from "./data.js?v=1c2a93bd";
-import { monthLabel, fmtMD, weekdayCN } from "./dateutil.js?v=1c2a93bd";
+import { store } from "./store.js?v=ceda129d";
+import { metrics, CHECKS, bandOf, BAND, READY, readyOf } from "./constants.js?v=ceda129d";
+import { esc, $ } from "./utils.js?v=ceda129d";
+import { metricValue, seriesPoints, judgeValue, unitRowsAll, rowsWith,
+         unitCell, cellJudge, okCount, VERDICT_TEXT } from "./aggregate.js?v=ceda129d";
+import { unitOf, prevUnitOf, unitSeries, scaleDef } from "./scope.js?v=ceda129d";
+import { renderMonth, renderHeatstrip } from "./calendar.js?v=ceda129d";
+import { sparkline } from "./charts.js?v=ceda129d";
+import { DETAILS, readinessTrail, briefHtml } from "./detail.js?v=ceda129d";
+import { ensureShard, dayOf, hasShard } from "./data.js?v=ceda129d";
+import { monthLabel, fmtMD, weekdayCN } from "./dateutil.js?v=ceda129d";
 
 function ix() { return store.ix; }
 
 /* 口径文案：同一个指标在三种尺度下叫什么，用户必须一眼看懂 */
-function unitNoun(scale) { return { day: "当日", week: "本周", month: "本月" }[scale]; }
+function unitNoun(scale) {
+  var fixed = { day: "当日", week: "本周", month: "本月" }[scale];
+  return fixed || (scale.indexOf("roll") === 0 ? "近 " + scale.slice(4) + " 天" : scale);
+}
 function aggNoun(scale, m) {
   if (scale === "day") return "当日值";
   return unitNoun(scale) + (m.agg === "median" ? "中位" : "日均");
@@ -51,7 +55,10 @@ function renderAxis(unit) {
   var hint = {
     day: "日尺度：点日历任意一格即切换日期；每张卡显示该日的值与该日所在周的逐日序列。",
     week: "周尺度：点任意一格即选中它所在的整周（高亮整行）；每张卡显示该周日均与近 12 周的走向。",
-    month: "月尺度：整个月就是观测范围；每张卡显示月日均与近 12 个月的走向。点日历某天可直接下钻到日尺度看那天。"
+    month: "月尺度：整个月就是观测范围；每张卡显示月日均与近 12 个月的走向。点日历某天可直接下钻到日尺度看那天。",
+    roll7: "近 7 天滚动窗：从锚点往前数 7 天，不受自然周切割——所以「本周还没结束」那种偏差在这里不存在。环比比的是前一个 7 天窗（非重叠）。",
+    roll28: "近 28 天滚动窗：比自然月稳（月长 28–31 天不一致），适合看月度级趋势。环比比前一个 28 天窗。",
+    roll90: "近 90 天滚动窗：低频指标（体重、VO2 Max、体成分）才看得清的尺度。覆盖不足时只报数字不给结论。"
   }[store.scale];
   $("axis-note").textContent = hint;
 }
@@ -128,19 +135,27 @@ function renderOverview(unit) {
   $("unit-score").innerHTML =
     uscore(scoreV == null ? "–" : scoreV, BAND[band],
       "综合指数 · " + bandName,
-      deltaChip(delta(score, prevScore), "up", prev.label)) +
+      rawDeltaChip(score, prevScore, prev.label)) +
     uscore(readyV == null ? "–" : readyV, rColor, rLabel,
-      deltaChip(delta(ready, prevReady), "up", prev.label));
+      rawDeltaChip(ready, prevReady, prev.label));
 
   renderReadyTrail();
 
+  /* 四项达标：分子分母都来自**后端逐日判定**（units.day[date].j）。
+     以前这里自己拿 goals 比大小，于是睡眠的「设备当晚需求」这类逐日阈值
+     永远进不了主页口径——主页与报告一个用 7h、一个用 7.83h。 */
+  var ms = metrics(ix());
   $("unit-checks").innerHTML = CHECKS.map(function (c) {
-    var rows = rowsWith(unitRowsAll(unit, store.byDate), { key: CHECK_FIELD[c.key] });
-    var n = rows.filter(function (r) { return checkOne(r, c.key); }).length;
-    var tot = rows.length;
-    var pct = tot ? Math.round(n / tot * 100) : 0;
-    return '<div class="uc"><span class="uc-k">' + esc(c.label) + '</span>' +
-      '<span class="uc-v">' + n + '<i>/' + tot + '</i></span>' +
+    var m = ms.filter(function (x) { return x.key === CHECK_FIELD[c.key]; })[0];
+    var st = m ? okStat(unit, m) : null;
+    if (!st) return "";
+    var pct = st.tot ? Math.round(st.ok / st.tot * 100) : 0;
+    /* 分母为 0 = 该单元内没有可判定的天（覆盖不足 / 进行中），显示「–」而不是 0/0：
+       0/0 看起来像「一天都没达标」，那是把「不知道」写成了「没做到」。 */
+    var num = st.tot ? st.ok : "–";
+    var den = st.tot ? st.tot : "–";
+    return '<div class="uc' + (st.tot ? "" : " uc-na") + '"><span class="uc-k">' + esc(c.label) + '</span>' +
+      '<span class="uc-v">' + num + '<i>/' + den + '</i></span>' +
       '<span class="uc-bar"><i style="width:' + pct + '%"></i></span></div>';
   }).join("");
 }
@@ -170,45 +185,100 @@ function checkOne(r, key) {
   return r.sedentary_min != null && r.sedentary_min <= g.sedentary_min;
 }
 
-function deltaChip(d, better, prevLabel) {
-  if (!d || d.pct == null) return '<span class="dl flat">无环比基数</span>';
-  if (d.dir === "flat") return '<span class="dl flat">与' + esc(prevLabel) + "持平</span>";
-  var good = d.dir === better;
-  return '<span class="dl ' + (good ? "good" : "bad") + '">' + (d.delta > 0 ? "+" : "") + d.pct +
-    "% vs " + esc(prevLabel) + "</span>";
+/* 环比 chip。**措辞由后端的 delta_verdict 决定，不由数值大小决定**：
+   `within-noise`（|Δ| < mdc）时不给箭头、不给百分比，只写「在误差内」；
+   `suppressed`（tier.change=low，如步数）写「不做环比」，因为 6 天样本的均值
+   本来就分不开 6400 和 10294；`insufficient` 写「样本不足」。 */
+function deltaChip(cell, better, prevLabel) {
+  if (!cell) return '<span class="dl flat">无环比基数</span>';
+  var dv = cell.dv;
+  if (!dv) return '<span class="dl flat">该指标未登记噪声门槛</span>';
+  var word = VERDICT_TEXT[dv] || dv;
+  if (dv !== "changed") return '<span class="dl flat">' + word + "</span>";
+  var d = cell.d || 0;
+  /* band 型指标（HRV）不给好/坏色：它的目标是「落在个人带内」，
+     不是「越高越好」——从带外回到带内是好事，冲过带顶不是。方向交给判读，
+     主页只报「变了多少、过没过门槛」。 */
+  if (!better) {
+    return '<span class="dl flat">' + (d > 0 ? "+" : "") + trimNum(d) + " " + word + "</span>";
+  }
+  var good = better === "down" ? d < 0 : d > 0;
+  return '<span class="dl ' + (good ? "good" : "bad") + '">' +
+    (d > 0 ? "+" : "") + trimNum(d) + " " + word + "</span>";
+}
+
+/* 分数类（综合指数 / 准备度）没有登记 mdc，因此**不判好坏**：
+   只给差值，中性色。以前这里按百分比上红绿箭头，等于凭空给分数判了方向。 */
+function rawDeltaChip(cur, prev, prevLabel) {
+  if (cur == null || prev == null) return '<span class="dl flat">无环比基数</span>';
+  var d = cur - prev;
+  if (Math.abs(d) < 0.5) return '<span class="dl flat">与' + esc(prevLabel) + "持平</span>";
+  /* 两个分数都是 0–100 的整数分，差值也取整：写「-13.7」会让读者以为
+     分数本身有小数精度，而它没有。 */
+  return '<span class="dl flat">' + (d > 0 ? "+" : "") + Math.round(d) +
+    " vs " + esc(prevLabel) + "</span>";
+}
+
+function trimNum(v) {
+  var s = String(Math.round(v * 10) / 10);
+  return s.replace(/\.0$/, "");
 }
 
 /* ================= ③ 指标网格 ================= */
-function cardHtml(m, unit, prevUnit) {
+/* 某指标在单元内的达标计数：后端优先，缺 units 时回落前端现算 */
+function okStat(unit, m) {
+  if (!m || !m.dir) return null;
+  var r = okCount(ix(), unit, m);
+  /* 后端有单元就以后端为准，哪怕它判了 na（覆盖不足）——那时 tot=0，
+     由卡面显示「覆盖 x% · 不给结论」。**不能回落到前端现算**：回落等于
+     用 index 行的旧字段盖掉后端口径，而旧字段对「进行中的今天」是全 null
+     （morning 行不含白天 activity），一回落就会把已有数字抹成「—」。 */
+  if (r && r.src === "backend") return r.tot ? r : { ok: 0, tot: 0, na: true };
   var usable = rowsWith(unitRowsAll(unit, store.byDate), m);
-  var val = metricValue(usable, m);
-  var prevUsable = rowsWith(unitRowsAll(prevUnit, store.byDate), m);
-  var prevVal = metricValue(prevUsable, m);
-  var ok = judgeValue(val, m, ix());
-  var color = m.dir == null ? "var(--text)" : ok === null ? "var(--text-3)" : ok ? "var(--green-deep)" : "var(--amber-deep)";
+  if (!usable.length) return null;
+  return {
+    ok: usable.filter(function (x) { return judgeValue(x[m.key], m, ix()) === true; }).length,
+    tot: usable.length
+  };
+}
+
+function cardHtml(m, unit, prevUnit) {
+  var cell = unitCell(ix(), store.scale, unit.key, m);
+  var val = cell ? cell.v : metricValue(rowsWith(unitRowsAll(unit, store.byDate), m), m);
+  var prevCell = unitCell(ix(), prevUnit.scale, prevUnit.key, m);
+
+  var j = cell ? cellJudge(cell) : judgeValue(val, m, ix());
+  var na = j === "na";                     // 覆盖不足 / 无数据：不给结论
+  var ok = na ? null : j;
+  var color = m.dir == null ? "var(--text)"
+    : na ? "var(--text-3)" : ok ? "var(--green-deep)" : "var(--amber-deep)";
 
   var pts = seriesPoints(unitSeries(store.anchor, store.scale, scaleDef(store.scale).seriesN), store.byDate, m, ix());
+  var st = okStat(unit, m);
+  var canDrill = store.scale === "day" && m.detail && DETAILS[m.detail];
 
-  /* 达标统计只认该指标有实测的天数；dir=null 的指标不判达标 */
-  var okCount = null, tot = usable.length;
-  if (m.dir && tot) {
-    okCount = usable.filter(function (r) { return judgeValue(r[m.key], m, ix()) === true; }).length;
+  /* 覆盖率的诚实表达：后端把 coverage < 门槛的单元判成 na，
+     这里必须说出来（「3/7 天数据」），而不是显示一个看起来很确定的数字。 */
+  var stat;
+  if (!st) {
+    stat = '<span class="mx-stat">该指标无独立达标线</span>';
+  } else if (na && cell && cell.c != null) {
+    stat = '<span class="mx-stat">覆盖 ' + Math.round(cell.c * 100) + "% · 不给结论</span>";
+  } else {
+    stat = '<span class="mx-stat">达标 <b>' + st.ok + "</b>/" + st.tot + " " +
+      (store.scale === "day" ? "（当日）" : "天") + "</span>";
   }
 
-  var canDrill = store.scale === "day" && m.detail && DETAILS[m.detail];
   return '<article class="mx-card' + (ok === false ? " is-warn" : "") + '" data-metric="' + m.key + '">' +
     '<div class="mx-head">' +
-      '<div class="mx-title"><h3>' + esc(m.label) + '</h3><p class="mx-goal">' + esc(m.goalText(ix())) + "</p></div>" +
+      '<div class="mx-title"><h3>' + esc(m.label) + '</h3><p class="mx-goal">' + esc(m.goalText()) + "</p></div>" +
       '<div class="mx-value"><b style="color:' + color + '">' + esc(m.fmt(val)) + "</b></div>" +
     "</div>" +
     '<div class="mx-meta">' + esc(aggNoun(store.scale, m)) +
-      (deltaChip(delta(val, prevVal), m.dir === "below" ? "down" : "up", prevUnit.label)) + "</div>" +
+      deltaChip(cell, m.dir === "below" ? "down" : m.dir === "above" ? "up" : null,
+        prevUnit.label) + "</div>" +
     '<div class="mx-chart">' + sparkline(pts, m, ix(), {}) + "</div>" +
-    '<div class="mx-foot">' +
-      (okCount == null
-        ? '<span class="mx-stat">该指标无独立达标线</span>'
-        : '<span class="mx-stat">达标 <b>' + okCount + "</b>/" + tot + " " +
-          (store.scale === "day" ? "（当日）" : "天") + "</span>") +
+    '<div class="mx-foot">' + stat +
       (canDrill ? '<button class="mx-more" type="button" data-detail="' + esc(m.detail) + '"><span>展开当日细分</span>' + caret() + "</button>" : "") +
     "</div>" +
     (canDrill ? '<div class="mx-detail" hidden></div>' : "") +
@@ -221,14 +291,25 @@ function caret() {
 
 function renderGrid(unit) {
   var prev = prevUnitOf(store.anchor, store.scale);
-  $("metric-grid").innerHTML = METRICS.map(function (m) { return cardHtml(m, unit, prev); }).join("");
+  $("metric-grid").innerHTML = metrics(ix()).map(function (m) {
+    return cardHtml(m, unit, prev);
+  }).join("");
 }
 
 /* ================= ④ 当日判读（仅日尺度）=================
    这一区**只放结论**：交叉判读 + 分组判点 + 数据缺口。
    任何有量化指标的实测值（如准备度）归总览或指标网格——判读区一旦夹带
    原始设备值，「交叉判读先行」这句副标题就会被自己的版式推翻。 */
+/* 有行但全空：跨度内的空白日（raw 缺失）在分片里是「一行全 null」，
+   不是「没有这一天」。**必须走与未来日相同的空态**——否则总览说
+   「无采集记录」、判读区说「简报尚未生成」，同一屏两种说法（探针 2026-10-25 抓到）。 */
+function dayIsEmpty(d) {
+  return !!d && !d.has_brief && d.score == null && d.sleep_h == null &&
+    d.hrv == null && d.steps == null;
+}
+
 function fillBrief(d) {
+  if (dayIsEmpty(d)) { fillBriefEmpty(d.date); return; }
   var b = briefHtml(d);
   $("brief-grid").innerHTML = b.html;
   $("brief-sub").textContent = b.sub;

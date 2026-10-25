@@ -50,58 +50,120 @@ export function readyOf(level, score) {
   return score >= 75 ? READY.HIGH : score >= 50 ? READY.MODERATE : READY.LOW;
 }
 
-/* 指标定义表。dir: above=越高越好 / below=越低越好 / band=落在个人带内最好；
-   agg: 单元聚合方式（日/周/月尺度下都是同一个量，只是粒度不同）。
-   detail: 日尺度下卡内展开的细分渲染器名（见 detail.js）。 */
-export var METRICS = [
-  {
-    key: "sleep_h", label: "睡眠时长", unit: "h", dir: "above", agg: "mean", detail: "sleep",
-    goal: function (ix) { return ix.goals.sleep_h; },
-    goalText: function (ix) { return "目标 ≥ " + ix.goals.sleep_h + "h"; },
-    fmt: function (v) { return v == null ? "—" : v.toFixed(1) + "h"; }
+/* 指标呈现表。**定义不在这里**——dir / agg / goal / band 全部来自
+   index.json.metric_defs（后端 references/metrics.json + rules.json 的解析结果）。
+   本表只留「怎么画」：卡内细分渲染器、数字格式、目标线的措辞。
+
+   2026-10-25 之前这里同时持有 label/unit/dir/agg/goal/band 六份定义副本，
+   与后端各算一套：同一份数据，主页画「↑ 7%」、报告写「在误差内」，两边都不算错。 */
+var ORDER = ["sleep_h", "hrv", "rhr", "steps", "sedentary_min", "stress",
+             "active_kcal", "intensity_min"];
+
+var PRESENT = {
+  sleep_h: {
+    detail: "sleep",
+    fmt: function (v) { return v == null ? "—" : v.toFixed(1) + "h"; },
+    goalText: function (g) { return "目标 ≥ " + g + "h"; }
   },
-  {
-    key: "hrv", label: "HRV 心率变异性", unit: "ms", dir: "band", agg: "median", detail: "hrv",
-    band: function (ix) { return ix.baselines.hrv; },
-    goalText: function (ix) { return "个人区间 " + ix.baselines.hrv.low + "–" + ix.baselines.hrv.high + " ms"; },
-    fmt: function (v) { return v == null ? "—" : Math.round(v) + "ms"; }
+  hrv: {
+    detail: "hrv",
+    fmt: function (v) { return v == null ? "—" : Math.round(v) + "ms"; },
+    goalText: function (g, ix, m) {
+      var b = m.band();
+      return b ? "个人区间 " + b.low + "–" + b.high + " ms" : "个人区间未知";
+    }
   },
-  {
-    key: "rhr", label: "静息心率", unit: "bpm", dir: "below", agg: "mean", detail: "rhr",
-    goal: function (ix) { return ix.baselines.rhr_ok_max; },
-    goalText: function (ix) { return "目标 ≤ " + ix.baselines.rhr_ok_max + " bpm"; },
-    fmt: function (v) { return v == null ? "—" : Math.round(v) + "bpm"; }
+  rhr: {
+    detail: "rhr",
+    fmt: function (v) { return v == null ? "—" : Math.round(v) + "bpm"; },
+    goalText: function (g) { return "目标 ≤ " + g + " bpm"; }
   },
-  {
-    key: "steps", label: "步数", unit: "步", dir: "above", agg: "mean", detail: "activity",
-    goal: function (ix) { return ix.goals.steps; },
-    goalText: function (ix) { return "日均目标 ≥ " + Math.round(ix.goals.steps / 1000) + "k"; },
-    fmt: function (v) { return v == null ? "—" : Math.round(v).toLocaleString("en-US"); }
+  steps: {
+    detail: "activity",
+    fmt: function (v) { return v == null ? "—" : Math.round(v).toLocaleString("en-US"); },
+    goalText: function (g) { return "日均目标 ≥ " + Math.round(g / 1000) + "k"; }
   },
-  {
-    key: "sedentary_min", label: "久坐时长", unit: "", dir: "below", agg: "mean", detail: "sedentary",
-    goal: function (ix) { return ix.goals.sedentary_min; },
-    goalText: function (ix) { return "日均上限 ≤ " + (ix.goals.sedentary_min / 60) + "h"; },
-    fmt: function (v) { return v == null ? "—" : (v / 60).toFixed(1) + "h"; }
+  sedentary_min: {
+    detail: "sedentary",
+    fmt: function (v) { return v == null ? "—" : (v / 60).toFixed(1) + "h"; },
+    goalText: function (g) { return "日均上限 ≤ " + (g / 60) + "h"; }
   },
-  {
-    key: "stress", label: "平均压力", unit: "", dir: "below", agg: "mean", detail: "stress",
-    goal: function (ix) { return ix.baselines.stress_avg_good; },
-    goalText: function (ix) { return "越低越放松（≤ " + ix.baselines.stress_avg_good + "）"; },
-    fmt: function (v) { return v == null ? "—" : String(Math.round(v)); }
+  stress: {
+    detail: "stress",
+    fmt: function (v) { return v == null ? "—" : String(Math.round(v)); },
+    goalText: function (g) { return "越低越放松（≤ " + g + "）"; }
   },
-  {
-    key: "active_kcal", label: "活动消耗", unit: "kcal", dir: null, agg: "mean", detail: "energy",
-    goalText: function () { return "越高说明活动量越大（无独立目标线）"; },
-    fmt: function (v) { return v == null ? "—" : Math.round(v) + "kcal"; }
+  active_kcal: {
+    detail: "energy",
+    fmt: function (v) { return v == null ? "—" : Math.round(v) + "kcal"; },
+    goalText: function () { return "越高说明活动量越大（无独立目标线）"; }
   },
-  {
-    key: "intensity_min", label: "中高强度分钟", unit: "min", dir: "above", agg: "mean", detail: null,
-    goal: function (ix) { return ix.goals.intensity_min; },
-    goalText: function (ix) { return "日均目标 ≥ " + ix.goals.intensity_min + " min（WHO 周 150min ÷ 7）"; },
-    fmt: function (v) { return v == null ? "—" : Math.round(v) + "min"; }
+  intensity_min: {
+    detail: null,
+    fmt: function (v) { return v == null ? "—" : Math.round(v) + "min"; },
+    goalText: function (g) { return "日均目标 ≥ " + g + " min（WHO 周 150min ÷ 7）"; }
   }
-];
+};
+
+/* 老 index.json（没有 metric_defs）时的兜底：数值仍来自 ix.goals / ix.baselines，
+   与改造前的行为一致。**这是发布顺序的保险**——先发 js、再推数据，中间那段
+   线上仍是旧 index，不能因为缺 metric_defs 就白屏或丢掉目标线。 */
+var FALLBACK = {
+  sleep_h: { key: "sleep_h", label: "睡眠时长", unit: "h", dir: "above", agg: "mean",
+             goalOf: function (ix) { return ix.goals.sleep_h; } },
+  hrv: { key: "hrv_ms", label: "HRV 心率变异性", unit: "ms", dir: "band", agg: "median",
+         bandPersonal: true },
+  rhr: { key: "rhr_bpm", label: "静息心率", unit: "bpm", dir: "below", agg: "mean",
+         goalOf: function (ix) { return ix.baselines.rhr_ok_max; } },
+  steps: { key: "steps_daily", label: "步数", unit: "步", dir: "above", agg: "mean",
+           goalOf: function (ix) { return ix.goals.steps; } },
+  sedentary_min: { key: "sedentary_min", label: "久坐时长", unit: "", dir: "below", agg: "mean",
+                   goalOf: function (ix) { return ix.goals.sedentary_min; } },
+  stress: { key: "stress_avg", label: "平均压力", unit: "", dir: "below", agg: "mean",
+            goalOf: function (ix) { return ix.baselines.stress_avg_good; } },
+  active_kcal: { key: "active_kcal", label: "活动消耗", unit: "kcal", dir: null, agg: "mean" },
+  intensity_min: { key: "intensity_min", label: "中高强度分钟", unit: "min", dir: "above",
+                   agg: "mean", goalOf: function (ix) { return ix.goals.intensity_min; } }
+};
+
+/* 指标列表（随 index.json 的 metric_defs 变）。每次渲染调用一次，不缓存：
+   缓存会让「换了数据但没刷新」变成静默的口径错位。 */
+export function metrics(ix) {
+  var defs = (ix && ix.metric_defs) || {};
+  var byFk = {};
+  Object.keys(defs).forEach(function (k) {
+    var d = defs[k];
+    if (d && d.frontend_key) byFk[d.frontend_key] = d;
+  });
+  return ORDER.map(function (fk) {
+    var p = PRESENT[fk] || {};
+    var d = byFk[fk] || FALLBACK[fk] || { key: fk, label: fk };
+    return {
+      key: fk,
+      metric: d.key || fk,
+      label: d.label || fk,
+      unit: d.unit || "",
+      dir: d.dir === undefined ? null : d.dir,
+      agg: d.agg || "mean",
+      goal: function () {
+        if (typeof d.goalOf === "function") return d.goalOf(ix);
+        return d.goal == null ? null : d.goal;
+      },
+      band: function () {
+        if (d.band === "@personal" || d.bandPersonal) {
+          return ix && ix.baselines ? ix.baselines.hrv : null;
+        }
+        return d.band || null;
+      },
+      goalText: function () {
+        var g = this.goal();
+        return typeof p.goalText === "function" ? p.goalText(g, ix, this) : "";
+      },
+      fmt: p.fmt,
+      detail: p.detail || null
+    };
+  });
+}
 
 export var ICONS = {
   rhr: '<svg width="22" height="22" viewBox="0 0 44 44" fill="none"><path d="M22 32.5C22 32.5 11.5 26.4 11.5 19.5C11.5 16 14.2 13.5 17.2 13.5C19 13.5 20.7 14.4 22 16C23.3 14.4 25 13.5 26.8 13.5C29.8 13.5 32.5 16 32.5 19.5C32.5 26.4 22 32.5 22 32.5Z" stroke="#10B981" stroke-width="2.2" stroke-linejoin="round"/><path d="M14.5 21.5H18L19.5 18.5L22.5 25L24.5 21.5H29.5" stroke="#10B981" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',

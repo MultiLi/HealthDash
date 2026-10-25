@@ -331,6 +331,15 @@ def rebuild(con, rules=None, metrics=None, quiet=True):
             continue
         dv = round(row["value"] - prev["value"], 3)
         row["delta_v"] = dv
+        # 覆盖不足时**不给变化结论**（2026-10-25）。理由：近 28/90 天窗只有 50% 覆盖时，
+        # 两个窗的均值差把「缺数据」算成了「变了」——这正是趋势分析最容易被污染的形态。
+        # 优先级最高：它比样本量、比门槛都更根本（数字本身不可比）。
+        cmin = float(cov_min.get(sc, 0) or 0)
+        cs = [x for x in (row.get("coverage"), prev.get("coverage")) if x is not None]
+        if cmin and cs and min(cs) < cmin:
+            row["delta_verdict"] = "insufficient"
+            row["delta_note"] = "覆盖不足（%.0f%% / 门槛 %.0f%%）" % (min(cs) * 100, cmin * 100)
+            continue
         need_n = 1 if sc == "day" else delta_min_n
         if min(row["n"], prev["n"]) < need_n:
             row["delta_verdict"] = "insufficient"

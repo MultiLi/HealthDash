@@ -214,6 +214,82 @@ resolve  →  按需拉数/事实包/判读/合并（skills 原有流程）  →
 新数据源接入 = 只写一个适配器 + sync 采集路径，引擎与 rules.json 零改动。若发现自己想改引擎来兼容某个源的怪癖，
 说明归一化做晚了——退回适配器层解决。
 
+## 判读框架与纪律：判定读断言，解释归 LLM（2026-10-25 重构，每份报告必读）
+
+**一句话：`facts_D.json` 的两个新节点决定了报告长什么样——`assertions` 是判定，
+`scales` 是多尺度事实。判读只做解释，不做判定。**
+
+### 1. `facts.assertions` 是判定的唯一来源
+
+里面三组：`l1`（单指标）、`cross`（交叉规则，代码算的布尔）、`device`（设备自己的判断，
+INFO 透传），加一个 `rollup`（总评）与 `counts`。每条带 `id / level / confidence /
+evidence / rule_ref / n_hist`（近 30 天第几次触发）。
+
+五条硬约束：
+
+1. **总评取 `assertions.rollup.label`，不得改档。** 你要降档可以，但必须写成
+   「规则档 🔴 红、判读档 🟡 黄（理由：…）」两档并列，**不许只写黄**。
+   历史 30 天里 8 天代码判红、报告全写黄，一篇红灯都没有——这就是「改档不留痕」的代价。
+2. **不要自己拿 `computed` 里的数字去比阈值。** 判定已经在 L3 做完了，你再算一遍
+   等于每晚重新执行一遍规则，且必然与主页、与断言表打架。
+3. **每条触发的 `cross` 必须出现在报告「交叉判读」里**，正文引用其 `id` 与 evidence 数字。
+4. **`device.*` 只是证据**，不能替代我们的 level；`hrv_status` 是设备按 7 日均算的，
+   照旧不采信为当日结论。
+5. **数字只能来自 facts**（含 `assertions.evidence` 与 `scales`）。facts 里没有的，
+   如实进「数据缺口」，不要凭印象补。
+
+### 2. `facts.scales` 是趋势的答案
+
+`week / month / roll7 / roll28 / roll90` 各有 `latest`（当前单元）与 `series`（最近的
+若干单元，滚动窗已按非重叠抽样）。单元里 `judge` 的 `na` = 覆盖不足，**此时不许拿
+这个数下结论**（`cov` 就是覆盖率）。想问「近 90 天怎么样」，读这里，不要去翻旧报告。
+
+### 3. `judgment_D.json` 必须带 `findings[]`
+
+```json
+{"summary": "…", "cross": [[级别, 文本], …], "sections": {…},
+ "findings": [{"id": "<assertion id>", "level": "WARN", "dimension": "autonomic",
+               "evidence": {…从 assertions 原样抄…}, "n_hist": 4,
+               "note": "一句话：它意味着什么"}]}
+```
+
+`findings` 至少覆盖 `assertions.l1` 与 `cross` 里所有 BAD/WARN。`note` 是你唯一的
+增量——把「38ms 意味着什么」写清楚，别复述数字。它的价值是让「过去 90 天红灯出现在
+哪些维度」变成一次查询，而不是重读 90 份散文。
+
+### 4. 出报告后必须自检
+
+```bash
+python3 <本技能目录>/scripts/verify_judgment.py --date D
+```
+
+它检查：总评是否与 `rollup` 一致、`findings` 是否漏掉 BAD/WARN、每条 `cross` 是否
+出现在正文、正文数字是否都能在 facts 里找到出处、有没有「v2/修正版」这类字样。
+**不通过就按提示改报告并重跑，最多一次**；仍不通过就在报告头部加一行
+「自检未通过：<项>」，照常交付——**不许因为自检不出报告**。
+
+### 5. LLM 不可用时的兜底
+
+```bash
+python3 <本技能目录>/scripts/compose.py --date D            # 打印骨架（数字全对、无归因）
+python3 <本技能目录>/scripts/compose.py --date D --as-final  # 顶替正式报告（需 --force）
+```
+
+骨架路径**不调 LLM**：措辞生硬但每个数字都能溯源。默认 `--write` 只写
+`.skeleton.md`，永远不碰正式报告。
+
+### 6. 改口径前后必跑回测
+
+```bash
+python3 <本技能目录>/scripts/backtest.py snapshot   # 改之前
+python3 <本技能目录>/scripts/index.py build
+python3 <本技能目录>/scripts/backtest.py diff       # 改之后：哪几天改判了
+python3 <本技能目录>/scripts/backtest.py golden     # 12 条金标用例
+```
+
+金标钉的是真实发生过的日子（10-22 同向偏软 / 10-24 单腿过门槛 / 10-08 截断 /
+10-18 配速差一档…）。任何一条翻转都要能解释清楚，否则不该合并。
+
 ## 用法（按角色分步）
 
 ```bash
@@ -234,7 +310,11 @@ python3 <本技能目录>/scripts/data_gate.py matrix --days 7
 python3 <本技能目录>/scripts/check_inbody.py [--fetch] [--json] [--as-of D]
 python3 <本技能目录>/scripts/check_inbody.py --mark-reported [DATETIMES]   # 并入报告后记账
 
-# 2. 事实包（只算不判：计算事实 + canonical 契约，供 agent 判读与主页消费）
+# 2. 物化层（断言/单元的来源；collect.py 已自动调用，手动分析时先跑一次）
+python3 <本技能目录>/scripts/index.py build     # raw → obs → units → assertions
+python3 <本技能目录>/scripts/index.py verify    # 11 项一致性自检，exit 0 才算干净
+
+# 2b. 事实包（只算不判：计算事实 + assertions 快照 + 多尺度 scales + canonical 契约）
 uv run --python 3.11 python \
   <本技能目录>/scripts/fact_pack.py [--date YYYY-MM-DD] [--days 4]
 #    产物：reports/facts_D.json（事实，agent 判读输入）
@@ -299,41 +379,26 @@ uv run --python 3.11 python \
 **阈值逐日变 → 单元判定必须逐日做**：`judge_mode: "daily"` 时单元达标 = 达标天数/可判天数
 （`units.daily_ok_rate`），不是「日均值 ÷ 日均阈值」。两个均值相除会失真。
 
-## 多重观测框架（2026-10-19 建，`scripts/observations.py`）
+## 多重观测框架（2026-10-19 建 → **2026-10-25 归档**）
 
-**一句话：观测是一等公民，不是一个字段。**
-
-现状毛病：canonical 日字典里一个指标只留一个值（`activities_own` 覆盖 `activities`），
-InBody 与晨起体重完全不通，`daily_log` 是第三套。项目原则里「多观测并存、仲裁在判读层」
-一直只是文档里的一句话。本模块把它变成数据结构。
-
-```
-scripts/observations.py          # 读时视图层，不做 ETL、不复制数据
-references/metrics.json          # 指标注册表：kind / role / comparable_on / error_ref
-data/{raw,inbody,daily_log}       # provider 各自从原生存储取数
-```
-
-四条硬规则：
-
-1. **`query()` 永不合并、永不平均、永不择一**——它返回该指标在区间内的全部观测。
-2. **可比性由注册表声明**：每个指标有 `comparable_on`（如体重必须同 method/device/空腹）。
-   任一项不满足，`resolve()` 直接判 `not-comparable`，**不给差值**。
-3. **仲裁显式化**：`resolve()` 输出「选了哪条、为什么、有什么冲突」，不静默挑一个。
-   `question=level` 问当前值，`question=change` 问变没变（过 `mdc_change` 门槛）。
-4. **派生观测必须留输入**（`derived_from`），否则无法级联重算与溯源。
-
-```bash
-python3 observations.py sources
-python3 observations.py query   --metric weight_kg --days 120
-python3 observations.py resolve --metric body_fat_pct --question level
-python3 observations.py resolve --metric rhr_bpm --question change --json
-python3 observations.py matrix  --days 60
-```
-
-**接入新源只需三步**：① 在 `metrics.json` 登记该源能产的指标（含 `comparable_on`）；
-② 写一个 provider 函数（读该源的原生存储，返回观测列表）；③ 加进 `PROVIDERS`。
-**判读引擎、rules.json、前端都不用改。** 未采集的指标（`waist_cm`/`calf_cm`）留在注册表里
-空着即可——数据哪天来了自动进入体系。
+> **已归档到 `scripts/legacy/observations.py`，不要再从它 import。**
+> 它当年想解决的两件事已各有归属：
+> · **观测结构化** → `obs` 表（`index.py` 是唯一 ETL：raw → obs 只在那里发生）
+> · **可比条件与多源裁决** → `references/metrics.json` 的 `role` / `error_ref` / `agg`
+>   ，以及 `units` 的 `agg` 与 coverage 门禁
+>
+> 保留文件是因为 `resolve()` 的「权重 × 条件」思路在新接数据源（体脂秤、血压计）时
+> 还会用到。但它是**只读参考**：新增代码再从它取数，就等于又开了一条取值路径，
+> 违反架构公理 4（一个指标只有一条取值路径）。
+>
+> 四条硬规则本身仍然有效，只是执行者换了：
+>
+> 1. **观测不合并**——`obs` 表按 (metric, t, source, method) 存，同一指标多源并存。
+> 2. **可比性由注册表声明**——`metrics.json` 的 `role`（真值/proxy）与 `error_ref`；
+>    体重同条件比 0.6kg、异条件 2.0kg 这类门槛在 `rules.confidence`。
+> 3. **仲裁显式化**——单元层出 `delta_verdict`（changed / within-noise / insufficient /
+>    uncalibrated / suppressed），**不给差值的时候要说明为什么**，不静默挑一个。
+> 4. **派生观测留输入**——`obs` 有 `raw_ref`，`assertions.evidence` 只放已算好的数字。
 
 **与 canonical 的分工**：canonical 仍是日渲染的快路径（画图、算指数）；
 observations 是**多源问题的答案层**。报告里凡涉及「某指标现在是多少」「变没变」，

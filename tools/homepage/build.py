@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""主构建：装配 days[] + summary，产出 site/data.json 视图模型。
+"""主构建：装配 days[] + inbody，产出站点视图模型（index 层再切轻量索引）。
 
 数据模型 v3（配合前端双 Tab：每日 / 汇总）：
 - days[]：每个 raw 日一份完整视图
@@ -8,7 +8,6 @@
   - activity：该日活动量（步数 / 爬楼 / 24h 步数分布 / 正式活动记录）——完整日才有
   - brief：该日判读简报（交叉判读 + sections）——仅 23:30 分析日有
   - hero：该日综合指数
-- summary：全量汇总层（达标率 KPI / 均值 / 多日趋势行）
 """
 from datetime import datetime
 
@@ -19,7 +18,6 @@ from homepage.recovery import build_recovery
 from homepage.load import build_load
 from homepage.activity import build_activity
 from homepage.scoring import score_day
-from homepage.summary import build_summary
 from homepage.brief import build_brief_payload
 from homepage.inbody import build as build_inbody
 
@@ -76,9 +74,10 @@ def build():
                             "gaps": gaps}
         days.append(day)
 
-    complete_days = [d for d in days if not d["morning"]]
-    summary = build_summary(complete_days)
-
+    # 汇总层（达标率 KPI / 均值 / 多日趋势行）已由 L2 units 承担（2026-10-25）：
+    # 以前这里每次构建都白算一套 summary 塞进 data["summary"]，而 indexlayer
+    # 只取 days/inbody，**从不读它**——算完就丢。前端要的达标率现在有唯一来源
+    # （index.json.units 的 judge/judge_rate），没必要再维护第二套 KPI。
     latest = days[-1]
     return {
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -87,7 +86,6 @@ def build():
         "synced_at": (meta[-1][1] or "")[11:16],
         "default_day": latest["date"],
         "days": days,
-        "summary": summary,
         # 事件型数据源（InBody）：不属于 days[]——它没有逐日序列，
         # 混进日粒度会凭空造出「月日均」这种不存在的口径。
         "inbody": build_inbody(),

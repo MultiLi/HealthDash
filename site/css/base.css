@@ -62,6 +62,8 @@ button { font-family: var(--font); }
 .seg button { border: 0; background: transparent; color: var(--text-2); font-size: 13px; font-weight: 500; padding: 7px 15px; border-radius: 100px; cursor: pointer; transition: background .15s, color .15s; white-space: nowrap; }
 .seg button:hover { color: var(--text); }
 .seg button.active { background: #fff; color: var(--green-deep); font-weight: 600; box-shadow: 0 1px 3px rgba(15,20,25,.08); }
+/* 尺度从 3 个变 6 个（日/周/月 + 三个滚动窗）。窄屏必须收窄，否则会顶出卡片。 */
+@media (max-width: 620px) { .seg button { padding: 6px 9px; font-size: 12px; } .seg { gap: 2px; padding: 3px; } }
 
 .btn-primary { display: inline-flex; align-items: center; gap: 6px; margin-top: 18px; padding: 10px 20px; border-radius: 100px; background: var(--green); color: #fff; font-size: 14px; font-weight: 500; text-decoration: none; border: 0; cursor: pointer; }
 .btn-primary:hover { background: var(--green-deep); }

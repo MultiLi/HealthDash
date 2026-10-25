@@ -1,3 +1,12 @@
+"""归档：汇总层（2026-10-25 移入 legacy）。
+
+build.py 曾每次构建都调用 build_summary 并把结果塞进 data["summary"]，
+但 indexlayer.build_index 从不读它——算完就丢。达标率 KPI 现在有唯一来源：
+index.json.units（L2 单元的 judge / judge_rate / coverage）。
+
+保留文件是为了留 2026-09-12 那段注释（HRV 达标必须走 scoring.hrv_state，
+别用 status=="BALANCED"）——那是 09-11 事故的直接教训。
+"""
 # -*- coding: utf-8 -*-
 """汇总层视图装配：达标率 KPI / 均值 / 多日趋势行。
 

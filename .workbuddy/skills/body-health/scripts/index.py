@@ -8,7 +8,7 @@
     python3 index.py build            # 全量（首次/口径变更后）
     python3 index.py build --since 2026-10-20   # 指定起始日（单元与断言受影响的自动重算）
     python3 index.py stats            # 表规模 + 指纹
-    python3 index.py verify           # 一致性自检（覆盖率/孤行/断言引用）
+    python3 index.py verify           # 一致性自检（11 项：覆盖率/孤行/断言引用/定义可解析/ruler 标注）
 
 **为什么要有 ETL 并且只此一处**
 架构公理 4：一个指标只有一条取值路径。raw → obs 的解析**只在本文件**

@@ -150,7 +150,7 @@ def build_day(date, v, rules, ctx):
         out.append(A("sleep.bedtime.late", date, "sleep", "sleep_bed_min",
                      "ref:bed_window_end_min + sleep.bed_late_tolerance_min",
                      late_min is not None and bed >= late_min, WARN,
-                     {"bed_min": bed, "threshold_min": late_min,
+                     {"bed_min": bed, "bed_threshold_min": late_min,
                       "device_window_end": bw_end,
                       "ruler": metricdefs.ruler_of("sleep_bed_min",
                                                    {"bed_window_end_min": bw_end}),
@@ -160,7 +160,7 @@ def build_day(date, v, rules, ctx):
             out.append(A("sleep.bedtime.very_late", date, "sleep", "sleep_bed_min",
                          "ref:bed_window_end_min + sleep.bed_severe_offset_min",
                          True, BAD,
-                         {"bed_min": bed, "threshold_min": severe_bed,
+                         {"bed_min": bed, "bed_severe_min": severe_bed,
                           "ruler": metricdefs.ruler_of("sleep_bed_min",
                                                        {"bed_window_end_min": bw_end}),
                           "offset_from_window_min": bed - bw_end if bw_end else None},
@@ -168,7 +168,7 @@ def build_day(date, v, rules, ctx):
     out.append(A("sleep.debt.streak_ge_2", date, "sleep", "sleep_h",
                  "cross.sleep_debt_nights", ctx.get("short_streak", 0) >= 2, WARN,
                  {"streak": ctx.get("short_streak", 0),
-                  "need": rules["cross"]["sleep_debt_nights"]}, conf("sleep_h"),
+                  "min_nights": rules["cross"]["sleep_debt_nights"]}, conf("sleep_h"),
                  "睡眠债按周计，一晚还不清"))
 
     # ---- activity ----
@@ -194,7 +194,7 @@ def build_day(date, v, rules, ctx):
         out.append(A("activity.sedentary.over", date, "activity", "sedentary_min",
                      "activity.sedentary_warn_hours",
                      sed_max is not None and sed >= sed_max, WARN,
-                     {"sedentary_min": sed, "threshold_min": sed_max},
+                     {"sedentary_min": sed, "limit_min": sed_max},
                      None, "每 60 分钟起身一次，比事后补运动有效"))
     im = v.get("intensity_min")
     if im is not None:
@@ -263,7 +263,7 @@ def build_day(date, v, rules, ctx):
     out.append(A("stress_energy.bb.net_negative_streak", date, "stress_energy", "bb_net",
                  "cross.bb_net_negative_days", ctx.get("bb_neg_streak", 0) >= 2, WARN,
                  {"streak": ctx.get("bb_neg_streak", 0),
-                  "need": rules["cross"]["bb_net_negative_days"]}, None,
+                  "min_days": rules["cross"]["bb_net_negative_days"]}, None,
                  "收支倒挂的源头通常在入睡时间"))
     sa = v.get("stress_avg")
     good = _th("stress_avg", "judge", rules)
@@ -487,6 +487,71 @@ def rollup(con, date):
     return {"date": date, "level": worst,
             "label": {BAD: "红灯", WARN: "黄灯", GOOD: "绿灯", INFO: "不可判读"}[worst],
             "dimensions": {k: [lv for lv, _ in v] for k, v in dims.items()}}
+
+
+# ------------------------------------------------------------------ 对外快照
+def snapshot(con, date, history_days=30):
+    """某日断言的**唯一对外形态**（fact_pack / compose / verify 都读它）。
+
+    为什么要有这一层：判读方以前直接读 facts.computed 里的散数字，于是
+    「今天哪几条规则触发了、证据是什么、过去一个月是常态还是新事」只能靠 LLM 重推。
+    这里一次给全，每条带 `n_hist`（近 N 天同 id 触发次数）——
+    「10-24 的 HRV 破位是 30 天里第 4 次」这种上下文，散文版永远拿不到。
+    """
+    rows = [dict(r) for r in con.execute(
+        "SELECT * FROM assertions WHERE date=? AND scale='day' ORDER BY dimension, id",
+        (date,))]
+    since = (datetime.date.fromisoformat(date)
+             - datetime.timedelta(days=history_days)).isoformat()
+    hist = {}
+    for r in con.execute(
+            "SELECT id, COUNT(*) c FROM assertions WHERE scale='day' AND verdict=1 "
+            "AND date>=? AND date<=? GROUP BY id", (since, date)):
+        hist[r["id"]] = r["c"]
+
+    out = []
+    for r in rows:
+        if not r["verdict"]:
+            continue
+        out.append({
+            "id": r["id"], "dimension": r["dimension"], "level": r["level"],
+            "subject": r["subject"], "confidence": r["confidence"],
+            "rule_ref": r["rule_ref"],
+            "evidence": json.loads(r["evidence"] or "{}"),
+            "action_hint": r["action_hint"],
+            "n_hist": hist.get(r["id"], 0),      # 近 history_days 天触发次数（含今天）
+        })
+    order = {BAD: 0, WARN: 1, GOOD: 2, INFO: 3}
+    out.sort(key=lambda x: (order.get(x["level"], 9), x["dimension"], x["id"]))
+
+    unit_scope = [dict(r) for r in con.execute(
+        "SELECT id, scale, key, level, evidence FROM assertions "
+        "WHERE date=? AND scale!='day' AND verdict=1 ORDER BY scale, key", (date,))]
+    for u in unit_scope:
+        u["evidence"] = json.loads(u["evidence"] or "{}")
+
+    counts = {}
+    for a in out:
+        counts[a["level"]] = counts.get(a["level"], 0) + 1
+
+    meta = db.get_meta(con)
+    eng_now, rules_now = db.engine_ver(), db.rules_hash()
+    return {
+        "date": date,
+        "rollup": rollup(con, date),
+        "counts": counts,
+        "l1": [a for a in out if a["dimension"] not in ("cross", "device")],
+        "cross": [a for a in out if a["dimension"] == "cross"],
+        "device": [a for a in out if a["dimension"] == "device"],
+        "unit_scope": unit_scope,     # 周/月/滚动窗覆盖不足，明示「不给结论」
+        "history_days": history_days,
+        "fingerprint": {"rules_hash": rules_now, "engine_ver": eng_now,
+                        "data_hash": meta.get("data_hash"),
+                        "built_at": meta.get("built_at")},
+        # 库的指纹与当前代码/规则不一致 = 物料过期。报告必须据实声明，不能装作没事。
+        "stale": bool((meta.get("rules_hash") and meta["rules_hash"] != rules_now)
+                      or (meta.get("engine_ver") and meta["engine_ver"] != eng_now)),
+    }
 
 
 # ------------------------------------------------------------------ CLI

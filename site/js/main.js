@@ -3,12 +3,12 @@
  * 观测状态只有两个自由度：**anchor（锚定日期）+ scale（尺度）**。
  * 没有「概览页」「某日页」之分——那两者是同一个视图在月尺度与日尺度下的样子。
  * 首屏只拉索引；单日细分在展开时才拉当月分片（取数链路见 data.js）。 */
-import { store } from "./store.js?v=1c2a93bd";
-import { esc, $ } from "./utils.js?v=1c2a93bd";
-import { renderPage, setupDetailToggle } from "./metricgrid.js?v=1c2a93bd";
-import { shiftMonth, monthKey } from "./dateutil.js?v=1c2a93bd";
-import { loadIndex } from "./data.js?v=1c2a93bd";
-import { renderInBody, setInBody } from "./inbody.js?v=1c2a93bd";
+import { store } from "./store.js?v=ceda129d";
+import { esc, $ } from "./utils.js?v=ceda129d";
+import { renderPage, setupDetailToggle } from "./metricgrid.js?v=ceda129d";
+import { shiftMonth, monthKey } from "./dateutil.js?v=ceda129d";
+import { loadIndex } from "./data.js?v=ceda129d";
+import { renderInBody, setInBody } from "./inbody.js?v=ceda129d";
 
 function setScale(scale) {
   store.scale = scale;
@@ -41,7 +41,8 @@ function setupNav() {
       e.preventDefault();
       var d = a.getAttribute("data-date");
       /* 月尺度下点某天 = 下钻到日尺度看那天（整月范围内点一天，本意就是看那天） */
-      if (store.scale === "month") store.scale = "day";
+      /* 月与滚动窗都没有「某一天」的概念，点日历即下钻到日尺度 */
+      if (store.scale === "month" || store.scale.indexOf("roll") === 0) store.scale = "day";
       selectDate(d);
       return;
     }

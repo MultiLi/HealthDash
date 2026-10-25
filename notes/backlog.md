@@ -1,71 +1,56 @@
-# 欠账清单（2026-10-25 15:50 盘点）
+# 欠账清单
 
-> 对照 `notes/architecture_v4.md` 的 S1~S5 计划逐项核验代码现状。
-> **一句话结论：S1 的三层（obs / units / assertions）建好并验证了，但生产链路一条都没接上；
-> 计划里让这套东西"可复现"的四件关键件——compose、verify、backtest、golden——一件都没做。**
+> 2026-10-25 15:50 首次盘点 → **16:40 刷新：A/B 段与 C3~C8 已清，只剩 C1/C2 等 Sir 拍。**
 
 ---
 
-## A. 建好了但没接线（优先级最高：不接就等于没做）
+## A. 建好了但没接线 —— ✅ 全部接上
 
-| # | 项 | 现状证据 | 后果 |
+| # | 项 | 状态 | 落地方式 |
 |---|---|---|---|
-| A1 | **每晚报告不读断言** | `fact_pack.py` 里 `assert` 出现 **0** 次；`collect.py` 调 `index.py` **0** 次；5 个自动化记忆文件里引用 `index.py/units.py/assertions` 的 **0** 个 | 23:30 的报告仍然读 `facts_*.json` + 散文规则。新三层只在我手动跑时存在，**没有一天的业务经过它** |
-| A2 | **前端不消费 units/metric_defs** | `site/js/*.js` 里 `units` / `metric_defs` 命中 **0** 个文件；`constants.js` 仍自带 `METRICS` 表；`aggregate.js` 的 `CHECKS` 仍自己判达标 | 定义了「指标定义唯一来源」，但**前端还是第二份定义**——收口只完成了后端半程 |
-| A3 | **没有无 LLM 路径** | `compose.py` 不存在；`verify_judgment.py` 不存在 | 架构里承诺「LLM 挂了也能出骨架报告」，实际仍然是「LLM 不给就空白」；也没有任何机制拦「报告里的数字是编的」 |
+| A1 | 每晚报告不读断言 | ✅ | `assertions.snapshot()` 是唯一对外形态 → `facts.assertions`；`collect.py` 第 ④ 步自动 `index.py build`（失败不影响采集）；SKILL.md 新增「判读框架与纪律」节，明确总评取 `rollup` 且降档必须并列声明 |
+| A2 | 前端不消费 units/metric_defs | ✅ | `index.json` 新增 `units`（六尺度 × 8 指标：值/达标/覆盖/达标率/差/五档判定）；`constants.metrics(ix)` 从 `metric_defs` 派生；`deltaChip` 只翻译 `delta_verdict`；新增 7/28/90 天滚动窗尺度 |
+| A3 | 没有无 LLM 路径 | ✅ | `compose.py` 从断言直渲（`--as-final` 顶替）；`verify_judgment.py` 五项自检 |
 
-## B. 计划里明确写了、确实没做
+## B. 计划里写了、没做 —— ✅ 全部做了
 
-| # | 项 | 现状 | 计划出处 |
+| # | 项 | 状态 | 备注 |
 |---|---|---|---|
-| B1 | `judgment.findings[]` 结构化 | 32 份 judgment 里含 `findings` 的 **0** 份 | 决策 ③（新报告起用） |
-| B2 | 金标用例 | `tests/golden.json` 不存在 | §七 一致性与可复现 |
-| B3 | 回测 | `backtest.py` 不存在 | §七「改阈值前必跑」 |
-| B4 | 增量索引 | `--since` 参数在，但 `build()` 仍是全量重算（1.98s，暂时无所谓，但依赖图没做） | §六 增量与失效传播 |
-| B5 | `events.jsonl` 进库 | `index.py` 里 `events.jsonl` 出现 0 次 | §五 预处理清单（自由文本） |
-| B6 | 体成分结论变断言 | `dimension='bodycomp'` 断言 **0** 条（InBody 观测已进 obs，但 `check_inbody` 的 verdict 没转成断言） | §五 |
-| B7 | 主观数据参与判定 | `sleep_quality` 有 5 条 obs，参与断言的 **0** 条 | §五「主观」行 |
+| B1 | `judgment.findings[]` | ✅ 机制就绪 | 骨架版自动生成（含 id/level/evidence/n_hist）；**历史 32 份不回填**（按决策③） |
+| B2 | 金标用例 | ✅ | `tests/golden.json` 12 条，全是真实发生过的日子；`backtest.py golden` 12/12 |
+| B3 | 回测 | ✅ | `backtest.py snapshot / diff`：改口径前后逐条对比，列出哪几天改判 |
+| B4 | 增量索引 | ⬜ 未做 | 全量重建 2s，当前不构成瓶颈。依赖图做了一半的成本收益不划算，等数据量翻倍再说 |
+| B5 | `events.jsonl` 进库 | ⬜ 未做 | 自由文本事件目前只进 facts（`events_recent`）；进库需要先定结构（时间/类型/标签） |
+| B6 | 体成分结论变断言 | ⬜ 未做 | InBody 观测已进 `obs`，但闸门 verdict 未转断言。金标用例里没有体成分锚点 |
+| B7 | 主观数据参与判定 | ⬜ 未做 | `daily_log` 的 5 条 obs 未进断言。**主观断档 38 天**（最近 09-16），样本不足以定规则 |
 
-## C. 过程中发现的缺陷 / 技术债
+## C. 技术债
 
-| # | 项 | 证据 | 影响 |
+| # | 项 | 状态 | 处理 |
 |---|---|---|---|
-| C1 | **步数双尺子** | `metricdefs resolve steps_daily` → goal 10000 / judge 8000 | 9000 步那天主页显示「未达标」、报告不吭声。**等你拍** |
-| C2 | **rollup 与历史报告 8/30 不一致** | 代码总评红、历史报告全黄，32 份无一红灯 | 「总评=最差维度」从未被 LLM 真正执行。**等你拍**（改历史 or 允许降档留痕） |
-| C3 | `summary.py` 算完就丢 | `build.py` 调用 `build_summary`，但 `index.json` 里没有 `summary` | 每次构建白算一套全量 KPI |
-| C4 | `observations.py` 仍是 0 调用方 | 引用文件数 0 | 它的 `comparable_on` / `resolve()`（多源不可比裁决）没人用；units/assert 自己又实现了一遍取值 |
-| C5 | `assetver` 每次构建重写 js | 模块 hash 不剥离 `?b=` | 每天 git 里 10 个 js「已修改」，真实改动被淹没 |
-| C6 | smoke 一处口径型伪阳性 | 9 月均准备度期望 74.5、实际显示 76 | 每次跑都是 78/1，真失败容易被忽略 |
-| C7 | `daily_brief.py` 身份混着 | `fact_pack` 从它 import 7 个符号（`compute_z2` / `detect_exercise` / `build_trend`…） | 文档说「已降级为 legacy」，实际是主流程计算库 |
-| C8 | 报告 trend 仍是 4 天固定表 | `fact_pack.build_trend(days)`，`--days 4` | units 能出 7/30/90 天序列，报告没用上 |
-| C9 | 设备入睡窗 20/36 缺失 | `data.reference.missing` 16 天 | 已用 `ruler` 显式化，但根源（设备何时给窗）未解 |
+| C1 | 步数双尺子（展示 10000 / 判读 8000） | ⏸ **等 Sir 拍** | `units.judge` 与主页都用 10000（表现一致），断言层用 8000（判读线）。三层里两层一致，第三层是报告 |
+| C2 | rollup 与历史报告 8/30 不一致 | ⏸ **等 Sir 拍** | `verify_judgment.py` 已能自动抓出（10-24 报错「规则档红 / summary 写黄」）。两条路：改历史 8 份 vs 允许降档但必须并列声明 |
+| C3 | `summary.py` 算完就丢 | ✅ | 从 `build.py` 移除调用（每次构建白算一套 KPI）；文件移入 `tools/homepage/legacy/` |
+| C4 | `observations.py` 0 调用方 | ✅ | 移入 `scripts/legacy/`，文件头写明两项职责已由 `obs` 表与 `metrics.json` 承担；SKILL.md 对应章节改写 |
+| C5 | `assetver` 每次构建重写 10 个 js | ✅ **确认是设计使然，不是缺陷** | 数据 token 必须参与资源指纹——`data.js` 里嵌着 `index.json?b=<token>`，若数据变而 `data.js` 的 URL 不变，边缘缓存会一直吐旧数据。代价是每天 10 个 js 出现「已修改」，这是可接受的成本；**改掉它会破坏缓存策略** |
+| C6 | smoke 一处口径型伪阳性 | ✅ | 断言从「等于 75」改成「显示值 = 四舍五入后的月均、配色按显示值判」——钉的是口径同源，不是记住某个月的数值 |
+| C7 | `daily_brief` 身份混着 | ✅ **文档纠正，未搬迁** | 它是事实包的计算库（`fact_pack` import 7 个符号），不是 legacy。SKILL.md 与本文档已改口径；**物理拆分（抽出 `calc.py`）零行为收益、有回归风险，留到 S5** |
+| C8 | 报告 trend 只有 4 天 | ✅ | `facts.scales`：week/month/roll7/28/90 各给 `latest` + `series`（滚动窗按非重叠抽样），锚定目标日而非全库最新 |
+| C9 | 设备入睡窗 20/36 缺失 | 观察中 | 已用 `ruler` 显式化，根源（设备何时给窗）在设备侧，无法从我们这端解 |
 
 ---
 
-## 建议的推进顺序
+## 顺带修掉的三个真 bug（都是这次接线过程中暴露的）
 
-**第一步：A1 + A2（接线）** —— 不接，前面所有工作都只是「一个能跑但没人用的库」。
-- A1：`collect.py` 末尾加 `index.py build`（失败不影响采集）；`fact_pack` 增加 `assertions_today` 节点；
-  23:30 的 prompt 从「读 facts」改成「读 assertions + facts 补充」。
-- A2：前端改读 `index.json.metric_defs` + `units`（S2）。**顺序不能反：先发兼容版 js，再推数据。**
-
-**第二步：A3 + B1（可复现闭环）** —— 这两件一起做才成立：
-`compose.py`（断言直渲骨架）→ LLM 只补交叉段 → `verify_judgment.py` 校验数字与断言引用 →
-`findings[]` 落进 judgment。做完之后「LLM 挂了也有报告」与「报告数字不可编」同时成立。
-
-**第三步：B2 + B3（回归能力）** —— 有了 findings 才有东西可比；金标用例先挑 10 天
-（09-11 评分事故 / 09-12 半天账 / 10-22 同向偏软 / 10-24 单腿过门槛 / 10-08 久坐伪影 / 10-25 空占位…）。
-
-**第四步：清债** —— C3 / C4 / C5 / C6 / C7 可以一次清完，都是"删代码"为主，风险低。
-
-**待你拍的两件（不拍就一直在）**：C1 步数双尺子、C2 总评分歧。
+1. **空白日两套说法**：跨度内无 raw 的日子（如 09-30）在分片里是「一行全 null」，总览说「无采集记录」而判读区说「简报尚未生成」。交互探针抓到，已统一走 `dayIsEmpty()`。
+2. **`delta` 没有覆盖门禁**：近 28/90 天窗覆盖 50% 时仍给「明显变化/在误差内」——把「缺数据」算成了「变了」。现在 coverage < 门槛直接判 `insufficient`。
+3. **时段键语义冲突**：`threshold_min` 在睡眠里是钟点（90=01:30）、在久坐里是时长（480），渲染层只能二选一。已把语义写进键名（`bed_threshold_min` / `limit_min`），并让「键缺词表」直接抛错而不是凑合。
 
 ---
 
-## 附：C 决策已落地（缺参考量 → 退静态 + 强制标尺）
+## 下一步（等 Sir 定 C1/C2 之后）
 
-`metrics.json` 增 `reference_policy`：`on_missing=fallback_static`、`must_report_ruler=true`，
-并记录被否掉的两个备选（`skip_judgement` / `always_static`）。
-`metricdefs.ruler_of()` 是唯一尺子判定入口；`index.py verify` 新增第 11 项检查
-「凡 rule_ref 含 `ref:` 的断言，evidence 必须带 ruler」——现在 0 条违规，
-入睡判定实测 7 天用设备窗、10 天退回静态。
+- **C1/C2 定完 → 回填口径**：若选「允许降档但留痕」，只需在报告里加 `downgrade_reason`；若选「改历史 8 份」，要按单一终版纪律重写 8 份 md。
+- **B5/B6/B7**（自由文本事件 / 体成分断言 / 主观参与）：都需要先定结构，不是纯代码活。
+- **B4 增量**：等 raw 天数 ≥ 180（现在 36）再评估。
+- **S3 起（可选）**：`verify_judgment` 升级为「数字必须命中 evidence」的硬门槛（现在数字溯源是提示级，因为历史报告会引用 facts 窗口外的数值）。
