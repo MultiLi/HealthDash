@@ -257,9 +257,22 @@ def check_smoke():
 
 
 def check_golden():
-    """判读回归：需要 data/db/health.db。"""
-    if not os.path.isfile(os.path.join(ROOT, "data", "db", "health.db")):
+    """判读回归：需要 data/db/health.db。守卫不只看文件存在——sqlite 连接会
+    凭空创建空库（2026-11-01 CI 实证：fixture 生成器的 db.connect() 在裸
+    checkout 里造出空 health.db，金标假性运行 0/11）。必须真的有 assertions
+    表才算数。"""
+    db_path = os.path.join(ROOT, "data", "db", "health.db")
+    if not os.path.isfile(db_path):
         return "skip", "缺少 data/db/health.db（数据不入库，CI 里必然没有）"
+    import sqlite3
+    try:
+        con = sqlite3.connect(db_path)
+        n = con.execute("SELECT count(*) FROM sqlite_master WHERE name='assertions'").fetchone()[0]
+        con.close()
+    except sqlite3.Error as e:
+        return "skip", "health.db 打不开（%s），判读回归无法执行" % e
+    if not n:
+        return "skip", "health.db 是空库（无 assertions 表）——判读回归需要真实数据"
     script = os.path.join(ROOT, "skills", "body-health", "scripts", "backtest.py")
     if not os.path.isfile(script):
         return "skip", "找不到 backtest.py"
