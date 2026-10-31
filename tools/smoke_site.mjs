@@ -57,7 +57,12 @@ const VER = (idxHtml.match(/js\/main\.js\?v=([0-9a-f]+)/) || [])[1] || "";
 const mod = (rel) => path.join(SITE, rel) + (VER ? "?v=" + VER : "");
 
 const { store } = await import(mod("js/store.js"));
-const { renderPage } = await import(mod("js/metricgrid.js"));
+/* main.js 的 boot 会在 import 时自动触发（拉数据 + 整页渲染）。
+   DOM 桩下那一步既没意义又会把 body 写脏，用显式开关关掉。
+   ——但纯函数（syncText）和片段渲染器（renderNudge）仍然要能单独调用。 */
+globalThis.__SMOKE_NO_BOOT__ = true;
+const { syncText, renderNudge, renderCollectBar } = await import(mod("js/main.js"));
+const { renderPage, renderBriefLog } = await import(mod("js/metricgrid.js"));
 const { unitOf, prevUnitOf, unitSeries, unitRows } = await import(mod("js/scope.js"));
 const { DETAILS } = await import(mod("js/detail.js"));
 const { metrics } = await import(mod("js/constants.js"));
@@ -110,11 +115,18 @@ store.ix = ix;
 store.rows = ix.days.slice();
 store.closed = ix.days.filter((r) => !r.morning);
 ix.days.forEach((r) => { store.byDate[r.date] = r; });
-store.anchor = ix.today || ix.default_day;
+/* 锚点必须复刻 main.js 的判定，不能简化成 `ix.today || ix.default_day`：
+   今天常常**还没有行**（当晚才出终版），main.js 于是退回 default_day。
+   测试若照抄简化版，每月 1 号就会去读「当月分片」——那天根本还没有这个月的数据，
+   直接 ENOENT 崩在 117 行（2026-11-01 实证）。测试替身跑偏，报出来的是假 bug。 */
+store.anchor = store.byDate[ix.today] ? ix.today : (ix.default_day || ix.days[ix.days.length - 1].date);
 store.month = store.anchor.slice(0, 7);
 store.scale = "month";
 const shardMonth = store.anchor.slice(0, 7);
-store.shards[shardMonth] = JSON.parse(fs.readFileSync(path.join(SITE, "daily", shardMonth + ".json"), "utf8")).days;
+const shardPath = path.join(SITE, "daily", shardMonth + ".json");
+store.shards[shardMonth] = fs.existsSync(shardPath)
+  ? JSON.parse(fs.readFileSync(shardPath, "utf8")).days
+  : {};
 
 /* ---------------- 测试锚点：动态挑，不写死日期 ----------------
    这些断言验证的是**规则**（「无数据日要给空态」「单点轨迹不画」），
@@ -126,15 +138,27 @@ store.shards[shardMonth] = JSON.parse(fs.readFileSync(path.join(SITE, "daily", s
    于是三条断言同时失效——看起来像产品坏了，其实只是那一天不再是那样。
    同理，拿 `ix.today` 当锚点也不安全：当天可能整日无数据（手表没同步），
    而无数据日按设计不渲染四项达标。 */
-const closedLast = store.closed[store.closed.length - 1].date;
-const anchorMonth = ix.default_day.slice(0, 7);
-const inAnchorMonth = (d) => d.slice(0, 7) === anchorMonth;
-
 /* 无数据日 = 索引里**有这一行**，但没有任何实测值。
    注意不是「索引里没有这一天」——主页跨度含断档空白格，缺采集的日子照样有行。 */
 const isEmptyRow = (r) => r.steps == null && r.sleep_h == null &&
   r.hrv == null && r.score == null;
-const emptyDays = ix.days.filter((r) => inAnchorMonth(r.date) && isEmptyRow(r))
+
+/* 锚点必须是**最后一个有实测的完整日**，不能只取 `closed` 末项。
+   2026-11-01 实证：10-31 采集整日失败（steps/sleep 全 null，三个端点报错），
+   但它 `morning=false`（不是当天，所以不算进行中），于是成为 `closed` 末项，
+   被当作「代表日」去验四项达标与卡内细分——七条细分同时为 0 字符，看起来像
+   产品把渲染炸了，其实只是那天的数据没采到。**测试的基准日必须是真有数据的那天。**
+   （10-31 这类"采集失败但非进行中"的日子，产品层由 collect 状态字段标记，见 index.json.collect。） */
+const closedLast = (store.closed.filter((r) => !isEmptyRow(r)).pop()
+  || store.closed[store.closed.length - 1]).date;
+const anchorMonth = ix.default_day.slice(0, 7);
+const inAnchorMonth = (d) => d.slice(0, 7) === anchorMonth;
+
+/* 无数据日（isEmptyRow 已在锚点段定义）——这里只挑「锚点月内、且不是今天」的空日。
+   **必须再排除 has_brief**：采集失败的那天仍可能产出一份「数据缺失」的判读简报
+   （2026-10-31 就是：raw 三个端点报错，报告照样写了 gaps），此时判读区有正文、
+   不是空态。把这种日子当空态样本，验的是报告层，不是空态渲染。 */
+const emptyDays = ix.days.filter((r) => inAnchorMonth(r.date) && isEmptyRow(r) && !r.has_brief)
   .map((r) => r.date);
 /* 必须排除今天：今天标「进行中」，过去的空日标「无采集记录」——两种文案，
    本节验的是后者。原判据会挑到今天，然后断言"不标进行中"必然失败。 */
@@ -171,8 +195,12 @@ console.log("\n== 三尺度渲染（同一视图，换粒度） ==");
 for (const scale of ["day", "week", "month"]) {
   store.scale = scale;
   /* 日尺度锚在最后一个完整日：ix.today 可能整日无数据（手表没同步），
-     而无数据日按设计不渲染四项达标，用它当锚点测不出任何东西。 */
-  store.anchor = scale === "day" ? closedLast : ix.today;
+     而无数据日按设计不渲染四项达标，用它当锚点测不出任何东西。
+     周/月尺度同理——2026-11-01 是月初第一天，`ix.today` 落在 11 月，
+     而 11 月一个数据日都没有，四项达标天然是 0 个 uc（不是缺陷）。
+     基准必须落在**有数据的那个月**，否则验的是空月份的形状。 */
+  store.anchor = scale === "day" ? closedLast
+    : (scale === "month" ? closedLast.slice(0, 8) + "15" : ix.today);
   renderPage();
   const cal = html("axis-cal");
   const grid = html("metric-grid");
@@ -400,6 +428,143 @@ if (!withRow.has(ix.today)) {
 }
 store.anchor = closedLast;
 store.scale = "month";
+
+/* ================= 采集健康度（2026-11-01） =================
+   这一节验的不是「画得好看」，是**归因没被混淆**：
+   采集失败 / 原始数据没落盘 / 设备没推数，三者必须在数据与 DOM 上都分得开。
+   以前它们在前端塌成同一个空心灰点，于是「采集挂了」被读成「我没戴表」。 */
+console.log("\n== 采集健康度：三种「没数」必须分得开 ==");
+const col = ix.collect || {};
+const csSum = col.summary || {};
+ok(!!ix.collect, "index.json 下发 collect 块");
+ok(csSum.n === ix.days.length, "采集汇总覆盖全部索引行", `${csSum.n}/${ix.days.length}`);
+ok(ix.days.every((r) => !!r.cs), "每一行都有 cs 采集状态",
+  [...new Set(ix.days.map((r) => r.cs))].join("/"));
+ok((csSum.ok || 0) + (csSum.failed || 0) + (csSum.missing || 0) +
+   (csSum.absent || 0) + (csSum.pending || 0) === csSum.n,
+  "四态之和 = 总行数（无漏判状态）");
+/* 失败日必须带端点名，否则告警条只能说「失败了」却说不出哪个端点 */
+const failedRow = ix.days.filter((r) => r.cs === "failed")[0];
+ok(!failedRow || (failedRow.ce && failedRow.ce.length > 0),
+  "failed 行带失败端点名", failedRow ? failedRow.ce.join(",") : "无 failed 样本");
+ok(!ix.days.filter((r) => r.cs !== "failed").some((r) => r.ce),
+  "非 failed 行不下发端点名（不制造噪声）");
+
+/* 日历：状态必须落到 DOM，不能只停在数据层 */
+store.scale = "month";
+store.anchor = closedLast.slice(0, 8) + "15";
+renderPage();
+const calHtml = html("axis-cal");
+ok(/data-cs="ok"/.test(calHtml), "日历格带 data-cs 状态");
+if (csSum.failed > 0) {
+  ok(/cal-cell[^"]*cs-failed/.test(calHtml), "采集失败日渲染 cs-failed 类");
+} else {
+  console.log("  – 跳过：跨度内没有采集失败日");
+}
+if (csSum.missing > 0) {
+  ok(/cal-cell[^"]*cs-missing/.test(calHtml), "无原始数据日渲染 cs-missing 类（不是普通灰）");
+} else {
+  console.log("  – 跳过：跨度内没有 missing 日");
+}
+/* title 是唯一能说清「为什么这天是空的」的地方，必须带原因 */
+if (csSum.failed > 0) {
+  ok(/title="[^"]*采集失败/.test(calHtml), "失败格的 title 写明「采集失败」");
+}
+if (csSum.missing > 0) {
+  ok(/title="[^"]*无原始数据/.test(calHtml), "缺失格的 title 写明「采集未运行」");
+}
+
+/* 胶囊：不能说「N 个数据日」——那是把空壳算成有数据 */
+const pill = syncText(ix, "endpoint");
+ok(/\d+\/\d+ 天有实测/.test(pill.text), "胶囊按「有实测天数/跨度」报数", pill.text);
+ok(!/个数据日/.test(pill.text), "胶囊不再用「N 个数据日」这种含混口径");
+ok(pill.warn === ((csSum.failed || 0) + (csSum.missing || 0) > 0),
+  "有未采到的日子时胶囊转警示态", "warn=" + pill.warn);
+ok(syncText(ix, "bundled").text.includes("静态副本"), "走静态副本时胶囊明说（不冒充已同步）");
+
+/* 告警条：只在管线出过问题时出现，且必须给出可定位的信息 */
+renderCollectBar(col, csSum);
+const bar = document.getElementById("collect-bar");
+if (csSum.failed > 0 || csSum.missing > 0) {
+  ok(!bar.hidden && bar.innerHTML.length > 0, "有采集故障时显示告警条");
+  ok(/不是「没戴表」/.test(bar.innerHTML), "告警条点明「不是没戴表」（纠正归因）");
+  if (csSum.missing > 0) {
+    ok((col.missing_ranges || []).length > 0, "缺失按区间聚合，不是逐日罗列",
+      (col.missing_ranges || []).join("、"));
+  }
+} else {
+  console.log("  – 跳过：没有采集故障，告警条应隐藏");
+}
+
+/* ================= 主观补数提示（2026-11-01） ================= */
+console.log("\n== 主观补数提示 ==");
+const nud = ix.nudge;
+if (nud && nud.missing && nud.missing.length) {
+  ok(true, "index.json 下发 nudge 缺口", nud.labels + " · 断 " + nud.gap_days + " 天");
+  ok(typeof nud.prompt === "string" && nud.prompt.length > 0, "带一句话补数模板");
+  store.ix = ix;
+  renderNudge();
+  ok(!document.getElementById("nudge-bar").hidden, "待补提示可见");
+  ok(/还缺/.test(html("nudge-bar")), "待补条说明缺哪几项");
+  ok(/补数：/.test(html("nudge-bar")), "待补条给出可复制的回复模板");
+  if (nud.gap_days > 1) {
+    ok(/已断 \d+ 天/.test(html("nudge-bar")), "断档天数写出来（缺一天是疏忽，断几十天是链路断了）");
+  }
+} else {
+  console.log("  – 跳过：今天没有待补项（三项都答了）");
+}
+
+/* ================= 判读可达性 + 分组 + 矩阵（2026-11-01） ================= */
+console.log("\n== 判读历史可达 ==");
+const briefs = ix.briefs || {};
+const evs = ix.events || {};
+const briefDays = Object.keys(briefs);
+ok(briefDays.length > 0, "index.json 下发判读流水（briefs）", briefDays.length + " 天");
+ok(briefDays.every((d) => briefs[d] && briefs[d].head && briefs[d].head.length > 8),
+  "每条流水都有结论首句");
+ok(briefDays.every((d) => briefs[d].head.length <= 90),
+  "首句有长度上限（列表里一行就是一行）",
+  "最长 " + Math.max(...briefDays.map((d) => briefs[d].head.length)));
+/* 有判读的日子必须在日历上看得出来，否则 37 条结论「藏在页脚」等于没有 */
+ok(ix.days.filter((r) => r.has_brief && r.cs !== "failed").length >= briefDays.length - 5,
+  "has_brief 与 briefs 基本对齐",
+  ix.days.filter((r) => r.has_brief).length + " / " + briefDays.length);
+renderBriefLog();
+ok(!document.getElementById("brief-log-zone").hidden, "判读流水区可见");
+ok(document.getElementById("bl-list").innerHTML.split("bl-i").length - 1 === briefDays.length,
+  "流水条数 = 判读天数",
+  String(document.getElementById("bl-list").innerHTML.split("bl-i").length - 1));
+ok(/data-date="\d{4}-\d{2}-\d{2}"/.test(document.getElementById("bl-list").innerHTML),
+  "每条流水带日期（可点击跳转）");
+
+console.log("\n== 当日背景事件 ==");
+ok(Object.keys(evs).length > 0, "index.json 下发事件流", Object.keys(evs).length + " 天");
+const evDay = Object.keys(evs).sort().pop();
+store.scale = "day";
+store.anchor = evDay;
+store.month = evDay.slice(0, 7);
+renderPage();
+ok(!document.getElementById("day-events").hidden, "有事件的日期显示背景事件区", evDay);
+ok(document.getElementById("day-events").innerHTML.includes("当日背景事件"), "事件区带标题");
+store.anchor = closedLast.slice(0, 7) + "-15";
+store.scale = "month";
+renderPage();
+
+console.log("\n== 指标分组 ==");
+const gridHtml = html("metric-grid");
+ok((gridHtml.match(/class="mx-group"/g) || []).length >= 3, "指标按恢复/行为/负荷分组",
+  String((gridHtml.match(/class="mx-group"/g) || []).length) + " 组");
+ok(count(gridHtml, /mx-card/g) === metrics(ix).length, "分组后卡片总数不变（一张都没丢）",
+  count(gridHtml, /mx-card/g) + "/" + metrics(ix).length);
+ok(/data-group="recover"/.test(gridHtml) && /data-group="behave"/.test(gridHtml),
+  "恢复组与行为组都在");
+
+console.log("\n== 逐日达标矩阵 ==");
+const matHtml = html("day-matrix");
+ok(!document.getElementById("day-matrix").hidden, "矩阵可见");
+ok(count(matHtml, /dm-c /g) > 40, "矩阵画出逐日格子", count(matHtml, /dm-c /g) + " 格");
+ok(/dm-c na/.test(matHtml), "无判定格与未达标格分开画（na 不等于 no）");
+ok(/dm-s/.test(matHtml), "每行给达标比");
 
 console.log("\n" + "=".repeat(46));
 console.log(failed === 0 ? `全部通过：${passed} 项` : `${passed} 通过 / ${failed} 失败`);

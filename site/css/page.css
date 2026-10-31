@@ -9,7 +9,7 @@
 .mnav-btn { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--border); background: #fff; color: var(--text-2); font-size: 16px; line-height: 1; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
 .mnav-btn:hover { border-color: var(--green); color: var(--green-deep); }
 .month-label { font-size: 22px; font-weight: 600; letter-spacing: -.01em; min-width: 158px; }
-.mnav-today { margin-left: 4px; border: 1px solid var(--border); background: #fff; color: var(--text-2); font-size: 12.5px; padding: 6px 12px; border-radius: 100px; cursor: pointer; }
+.mnav-today { margin-left: 4px; border: 1px solid var(--border); background: #fff; color: var(--text-2); font-size: 12.5px; padding: 6px 12px; border-radius: 100px; cursor: pointer; white-space: nowrap; }
 .mnav-today:hover { border-color: var(--green); color: var(--green-deep); }
 .axis-note { margin-top: 14px; font-size: 13px; color: var(--text-3); line-height: 1.7; }
 
@@ -65,6 +65,20 @@
 @media (max-width: 1080px) { .metric-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 680px) { .metric-grid { grid-template-columns: 1fr; } }
 
+/* 指标分组（2026-11-01）：恢复 / 行为 / 负荷。
+   每组内部才可比，跨组比较没有意义——所以用组标题把它们隔开，
+   而不是排成一条 8 张卡的流水线。 */
+.mx-groups { display: flex; flex-direction: column; gap: 30px; }
+.mx-group { display: flex; flex-direction: column; gap: 14px; }
+.mx-gh { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.mx-gh h3 { font-size: 15px; font-weight: 600; color: var(--text); }
+.mx-gh h3::before { content: ""; display: inline-block; width: 4px; height: 13px; border-radius: 2px; background: var(--green); margin-right: 9px; vertical-align: -1px; }
+.mx-group[data-group="behave"] .mx-gh h3::before { background: #38BDF8; }
+.mx-group[data-group="load"] .mx-gh h3::before { background: var(--amber); }
+.mx-group[data-group="other"] .mx-gh h3::before { background: var(--text-3); }
+.mx-gh span { font-size: 12.5px; color: var(--text-3); }
+@media (max-width: 680px) { .mx-groups { gap: 24px; } }
+
 .mx-card { background: #fff; border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-card); padding: 22px 22px 16px; display: flex; flex-direction: column; gap: 12px; }
 .mx-card.is-warn { border-color: #F6E0BC; }
 .mx-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
@@ -78,6 +92,9 @@
 .mx-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px dashed var(--border); padding-top: 12px; flex-wrap: wrap; }
 .mx-stat { font-size: 12.5px; color: var(--text-2); }
 .mx-stat b { font-variant-numeric: tabular-nums; }
+/* 采集缺口：和「达标 x/y 天」并排，但用琥珀小字——
+   它不是说这一天没做到，是说这几天根本没采到（2026-11-01）。 */
+.mx-gap { display: inline-block; margin-left: 8px; font-size: 11.5px; color: var(--amber-deep); background: var(--amber-tint); border-radius: 5px; padding: 1px 6px; }
 .mx-more { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-alt); color: var(--text-2); font-size: 12px; font-weight: 500; cursor: pointer; transition: color .15s, border-color .15s, background .15s; }
 .mx-more:hover { color: var(--green-deep); border-color: var(--green); background: var(--green-tint); }
 .mx-more svg { transition: transform .2s ease; }
@@ -85,3 +102,40 @@
 .mx-more.open svg { transform: rotate(180deg); }
 .mx-detail { border-top: 1px dashed var(--border); padding-top: 16px; display: flex; flex-direction: column; gap: 12px; }
 .mx-detail[hidden] { display: none; }
+
+/* ---------- 当日背景事件（2026-11-01） ----------
+   判读的结论常常建立在「那天在加班」「那次血氧是误报」这类上下文上。
+   以前这些只存在于 events.jsonl，页面上只有结论没有依据——
+   三个月后回看，会觉得那个判断来得莫名其妙。 */
+.day-events { margin-top: 20px; padding-top: 16px; border-top: 1px dashed var(--border); }
+.de-title { font-size: 13.5px; font-weight: 600; margin-bottom: 11px; }
+.de-title i { font-style: normal; font-weight: 400; font-size: 12px; color: var(--text-3); margin-left: 9px; }
+.de-list { list-style: none; display: flex; flex-direction: column; gap: 9px; }
+.de-list li { display: flex; gap: 9px; align-items: baseline; }
+.de-t { flex: none; font-size: 11.5px; color: var(--green-deep); background: var(--green-tint); border-radius: 5px; padding: 1px 7px; }
+.de-c { font-size: 13px; color: var(--text-2); line-height: 1.7; }
+
+/* ---------- 判读流水（2026-11-01） ----------
+   独立 section、不吃尺度：判读一天一份，但「同一判断连着出现几天」
+   只有把 60 多天排成一行行才看得出来。 */
+.brief-log { border: 1px solid var(--border); border-radius: 14px; background: #fff; box-shadow: var(--shadow-card); padding: 2px 18px 6px; }
+.bl-sum { cursor: pointer; padding: 15px 0; font-size: 15px; font-weight: 600; list-style: none; display: flex; align-items: center; gap: 9px; }
+.bl-sum::-webkit-details-marker { display: none; }
+.bl-sum::before { content: "▸"; color: var(--text-3); font-size: 13px; transition: transform .15s; display: inline-block; }
+.brief-log[open] .bl-sum::before { transform: rotate(90deg); }
+.bl-list { list-style: none; margin: 0; padding: 0 0 8px; }
+.bl-i { display: grid; grid-template-columns: 54px 8px 1fr; gap: 11px; align-items: baseline; padding: 10px 8px; border-top: 1px dashed var(--border); cursor: pointer; border-radius: 8px; transition: background .12s; }
+.bl-i:hover { background: var(--bg-alt); }
+.bl-d { font-size: 12.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.bl-lv { width: 7px; height: 7px; border-radius: 50%; align-self: center; }
+.bl-lv.lv-GOOD { background: var(--green); }
+.bl-lv.lv-INFO, .bl-lv.lv-NEUTRAL { background: #CBD5E1; }
+.bl-lv.lv-WARN { background: var(--amber); }
+.bl-lv.lv-BAD { background: var(--red); }
+.bl-t { font-size: 13.5px; color: var(--text-2); line-height: 1.65; }
+@media (max-width: 620px) {
+  .brief-log { padding: 2px 13px 6px; }
+  .bl-i { grid-template-columns: 46px 8px 1fr; gap: 8px; padding: 9px 4px; }
+  .bl-t { font-size: 13px; }
+  .de-list li { flex-direction: column; gap: 5px; }
+}

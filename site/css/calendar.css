@@ -9,7 +9,7 @@
 .cal-week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; margin-bottom: 8px; }
 .cal-week:last-child { margin-bottom: 0; }
 
-.cal-cell { position: relative; min-height: 74px; padding: 9px 10px 8px 14px; border: 1px solid var(--border); border-radius: 11px; background: #fff; cursor: pointer; text-align: left; display: flex; flex-direction: column; justify-content: space-between; gap: 8px; transition: border-color .15s, box-shadow .15s, background .15s; overflow: hidden; }
+.cal-cell { position: relative; min-height: 74px; min-width: 0; padding: 9px 10px 8px 14px; border: 1px solid var(--border); border-radius: 11px; background: #fff; cursor: pointer; text-align: left; display: flex; flex-direction: column; justify-content: space-between; gap: 8px; transition: border-color .15s, box-shadow .15s, background .15s; overflow: hidden; }
 .cal-cell::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--bc, var(--border)); }
 .cal-cell:hover { border-color: var(--bc, var(--green)); box-shadow: 0 3px 12px rgba(15, 20, 25, .08); }
 .cal-cell.out { opacity: .4; }
@@ -17,10 +17,42 @@
 .cal-cell.nodata .cal-day { color: var(--text-3); font-weight: 500; }
 .cal-cell.today { box-shadow: 0 0 0 2px var(--green-tint); }
 
-/* 当前尺度选中的范围：周尺度下是整行，日尺度下是那一格 */
-.cal-cell.in-scope { background: #F4FBF8; }
-.cal-cell.in-scope.nodata { background: #F7F9F8; }
+/* 当前尺度选中的范围：周尺度下是整行，日尺度下是那一格。
+   这里必须用 background-color 而不是 background 简写——简写会把
+   background-image 一起重置成 none，把下面「原始数据没落盘」的斜纹抹掉，
+   于是选中周里那几天又变回普通灰格（看起来像没戴表）。 */
+.cal-cell.in-scope { background-color: #F4FBF8; }
+.cal-cell.in-scope.nodata { background-color: #F7F9F8; }
 .cal-cell.anchored { border-color: var(--green); box-shadow: 0 0 0 2px rgba(16, 185, 129, .30); background: var(--green-tint); }
+
+/* ---------- 采集状态三档（2026-11-01） ----------
+   三者都「没有数」，但原因完全不同，画法必须能分开：
+     · 灰   absent  —— 设备没往上推（没戴表）。这是**人的行为**。
+     · 斜纹 missing —— 原始数据根本没落盘（采集没跑到这天）。这是**管线**。
+     · 琥珀 failed  —— 端点报错，数据没拉全。这也是**管线**，且更该被看见。
+   以前三者都是同一块 #FCFCFD 灰底，于是「采集挂了」被读成「我没戴表」。
+   顺序有意放在 in-scope / anchored 之后：状态是**关于这一天的事实**，
+   优先于「当前选中范围」这种临时高亮，不能被高亮盖掉。 */
+.cal-cell.cs-missing {
+  background-image: repeating-linear-gradient(135deg, transparent 0 5px, rgba(15, 20, 25, .045) 5px 6px);
+}
+.cal-cell.cs-failed { background-color: #FDEFD9; border-color: #EBC793; }
+.cal-cell.cs-failed::before { background: var(--amber); width: 5px; }
+.cal-cell.cs-failed .cal-day { color: var(--amber-deep); }
+/* 采集未完成 ≠ 没数据：虚线边框表示「还在路上」，与实线的「已经定论」区分开 */
+.cal-cell.cs-pending { border-style: dashed; }
+
+/* 选中态与采集状态会撞在一起：两者都想用边框表达自己。
+   分工——**锚点用外发光**（box-shadow，任何状态下都在），**采集状态用底色+左边条**。
+   这里把边框还给锚点，否则点了 10-31 这种失败日，选中框会被琥珀色吃掉，
+   看的人会以为「没选中」。 */
+.cal-cell.cs-failed.anchored { border-color: var(--green); }
+
+/* 有当日判读：给**日期数字**加下划线（2026-11-01）。
+   最初画的是格子底边线，但底部已经排着四个达标点——多出来的一条细线
+   会被当成「第五个点」，语义直接冲突。下划线是「这里有内容」的通用暗示，
+   与达标点、分数徽标都不抢位置。 */
+.cal-cell.has-brief .cal-day { text-decoration: underline; text-decoration-color: rgba(16, 185, 129, .5); text-underline-offset: 3px; text-decoration-thickness: 1.5px; }
 
 .cal-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .cal-day { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1; }
@@ -47,4 +79,49 @@
   .cal-cell { min-height: 58px; padding: 7px 7px 6px 11px; }
   .cal-score { font-size: 10.5px; padding: 1px 4px; }
   .cal-dots i { width: 5px; height: 5px; }
+}
+
+/* 手机（≤430px）：7 列在 390px 屏上每列只剩 ~37px，而格子内容
+   （左侧色条 11 + 数字 + 四个达标点 4×6+3×4=36）最小要 60px，
+   grid 项默认 min-width:auto 不会收缩，于是整张日历横向溢出、最右列被裁掉。
+   这里把内边距和点位一起压到能塞下的尺寸——**日历必须完整可见**，
+   被裁掉的第七天等于那天的数据不存在。 */
+@media (max-width: 430px) {
+  .cal-week, .cal-head { gap: 4px; }
+  .cal-grid { padding: 10px; border-radius: 12px; }
+  .cal-cell { min-height: 50px; padding: 5px 4px 4px 7px; gap: 5px; border-radius: 8px; }
+  .cal-cell::before { width: 3px; }
+  .cal-day { font-size: 12.5px; }
+  .cal-dots { gap: 2px; }
+  .cal-dots i { width: 4px; height: 4px; }
+  /* 分数徽标在这个宽度下放不下：格子内容区只剩 ~26px，日期数字 + 两位分数
+     需要 ~39px。硬塞的结果是徽标被压成一位数（「88」显示成「8」，
+     「84」显示成「4」）——**错误的数字比没有数字更糟**。
+     小屏只保留左侧色条（分档）+ 四个达标点（逐项），分数交给日尺度。 */
+  .cal-score { display: none; }
+}
+
+/* ---------- 逐日达标矩阵（2026-11-01） ----------
+   日历的转置：行=指标、列=天。回答的是「这几天是不是好几项一起变差」——
+   这个判断在 8 张卡片之间来回扫是做不出来的。 */
+.day-matrix { margin-top: 22px; padding: 16px 18px; border: 1px solid var(--border); border-radius: 14px; background: #fff; box-shadow: var(--shadow-card); overflow-x: auto; }
+.dm-title { font-size: 12.5px; color: var(--text-3); margin-bottom: 12px; }
+.dm-grid { display: flex; flex-direction: column; gap: 5px; min-width: max-content; }
+.dm-row { display: grid; grid-template-columns: 82px repeat(30, 1fr) 42px; gap: 3px; align-items: center; }
+.dm-row.dm-head { margin-bottom: 2px; }
+.dm-k { font-size: 12px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dm-day { font-size: 9.5px; color: var(--text-3); text-align: center; font-style: normal; font-variant-numeric: tabular-nums; }
+.dm-c { height: 13px; border-radius: 3px; display: block; background: #F1F1F4; }
+.dm-c.ok { background: var(--green); opacity: .82; }
+.dm-c.no { background: var(--amber); opacity: .9; }
+/* na = 无判定（采集失败 / 覆盖不足）：用空心+斜线，和「未达标」严格分开——
+   把「不知道」画成「没做到」是这个页面从第一版就在防的错。 */
+.dm-c.na { background: repeating-linear-gradient(135deg, #F4F4F6 0 3px, #E7E7EA 3px 4px); }
+.dm-s { font-size: 11.5px; color: var(--text-3); text-align: right; font-variant-numeric: tabular-nums; }
+.dm-row:hover .dm-k { color: var(--text); font-weight: 500; }
+@media (max-width: 680px) {
+  .day-matrix { padding: 12px 12px; }
+  .dm-row { grid-template-columns: 62px repeat(30, 1fr) 34px; gap: 2px; }
+  .dm-c { height: 10px; }
+  .dm-day { font-size: 8px; }
 }
