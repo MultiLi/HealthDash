@@ -6,7 +6,7 @@
 
 | 阶段 | 内容 | 验收判据 | 依赖 |
 |---|---|---|---|
-| **P0 地基** | ① 班次 prompt 落进 `skills/*/automations/`（architecture §6 H2）；② 事件 schema 定稿：主观/客观同构的字段（时间/来源/类型/载荷/置信度）+ supersede 语义，落 `references/` 供代码读；③ CI 脱敏 fixture（backlog C12/C13） | prompt 改文件即可生效；schema 有解析器与校验命令；CI 在无 `data/` 的环境跑通且能测到判读分支 | 无 |
+| **P0 地基（余项）** | CI 脱敏 fixture（backlog C12）：合成 `index.json` + 分片 fixture 让 `smoke_site.mjs` 在无 `data/` 环境真跑、测到判读分支。①班次 prompt 入库与②事件 schema（`references/event_schema.json` + `tools/validate_events.py` + CI `events:schema` 检查）已完成，记录归 git log | CI 在无 `data/` 的环境跑通且能测到判读分支 | 无 |
 | **P1 事件化** | `events.jsonl` 按 schema 重构为主/客观统一事件总线；`daily_log.jsonl` 改写为日层物化视图（由事件重推，保留"有则更新"接口）；主观观测进 `obs`、主诉类事件可生成断言（backlog B5/B6/B7） | 删掉 `health.db` 三张镜像 + jsonl 后可全量重建，golden 断言逐条复现 | P0② |
 | **P2 聚合管线** | L2 增加片段层（hour/半区）；日层判读改为从片段层确定性聚合；rules 门槛只在日层及以上生效 | P1 存量数据回放，日层结果与改造前逐条一致（golden 零 diff） | P1 |
 | **P3 高频接入** | 评估佳明 CN 高频数据可行来源（API 粒度 / 本地手表缓存 / 第三方同步）；选定一条通道接入 L0，只加适配器不动 `domain/` | 至少一个指标以原生频率进事件总线，且 L1 起按现有管线走 | P2；受外部 API 硬约束，允许长期停在评估 |

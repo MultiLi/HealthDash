@@ -47,7 +47,7 @@
 
 1. **事件流不可变，视图可重算。** 事件总线只有 append 与 supersede（新事件引用旧事件将其作废），没有 update/delete。
 2. **真值带版本与来源。** 聚合结果不只存数值，还存「基于哪批数据、何时算的」。批校准覆盖流暂存时，旧值降级为 `superseded`，不删除。
-3. **主观数据的存储分工**：`events.jsonl` 是事件流（不可变），`daily_log.jsonl` 是日层物化视图（可从事件流重推，允许"有则更新"）。两者的更新语义不同是设计使然，不得混用。
+3. **主观数据的存储分工**：`events.jsonl` 是事件流（不可变），`daily_log.jsonl` 是日层物化视图（可从事件流重推，允许"有则更新"）。两者的更新语义不同是设计使然，不得混用。事件字段口径的机器可读定义在 `skills/body-health/references/event_schema.json`（校验命令 `tools/validate_events.py`，CI 检查项 `events:schema`）。
 
 ---
 

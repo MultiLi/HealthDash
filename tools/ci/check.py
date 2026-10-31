@@ -256,12 +256,38 @@ def check_golden():
     return "fail", "金标未全过\n    修法：改了 rules.json 就会漂，先 backtest.py diff 看改判清单"
 
 
+def check_events_schema():
+    """事件总线 schema 校验（roadmap P0②）。
+
+    CI 里没有真实 events.jsonl（数据不入库），但解析器必须被真的执行——
+    跑 tests/fixtures/events_fixture.jsonl（合成脱敏事件，覆盖 id/supersede/
+    legacy 各分支）。本机有真实数据时额外验一遍：仓库里的 schema 与口径
+    漂了立刻红，而不是等 P1 迁移时才发现。
+    """
+    validator = os.path.join(ROOT, "tools", "validate_events.py")
+    fixture = os.path.join(ROOT, "tests", "fixtures", "events_fixture.jsonl")
+    if not os.path.isfile(validator) or not os.path.isfile(fixture):
+        return "skip", "缺 validate_events.py 或 fixture"
+    rc, out = sh([sys.executable, validator, "--file", fixture, "--quiet"], timeout=60)
+    if rc != 0:
+        return "fail", "fixture 校验失败（解析器或 schema 坏了）：\n    %s\n    修法：本地跑 python3 tools/validate_events.py --file tests/fixtures/events_fixture.jsonl 看逐行错误" % out.strip()[:200]
+    real = os.path.join(ROOT, "data", "logs", "events.jsonl")
+    if not os.path.isfile(real):
+        return "pass", "fixture 9 条通过（CI 无真实数据，本机才验 events.jsonl）"
+    rc, out = sh([sys.executable, validator, "--quiet"], timeout=60)
+    if rc != 0:
+        return "fail", "真实 events.jsonl 违反 schema：\n    %s\n    修法：python3 tools/validate_events.py 看逐行错误；修正只能 append supersede，禁止改旧行" % out.strip()[:200]
+    m = re.search(r"(\d+) 条", out)
+    return "pass", "fixture + 真实数据 %s 均通过" % (m.group(1) if m else "")
+
+
 CHECKS = [
     ("guard", check_guard),
     ("py:compile", check_py_compile),
     ("js:syntax", check_js_syntax),
     ("path:anchor", check_path_anchor),
     ("structure", check_structure),
+    ("events:schema", check_events_schema),
     ("smoke", check_smoke),
     ("golden", check_golden),
 ]

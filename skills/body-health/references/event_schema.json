@@ -1,0 +1,32 @@
+{
+  "$schema_version": 1,
+  "description": "健康事件总线 schema v1（vision.md『流先记账、批定真相』的落地）。events.jsonl 每行一个 JSON 对象 = 一条事件；只允许 append 与 supersede，禁止改写历史行。本文件是解析器与校验命令（tools/validate_events.py）的唯一字段来源。",
+
+  "required_fields": {
+    "ts":      {"type": "string", "format": "iso8601-tz", "description": "事件发生/录入时刻，带时区偏移（如 2026-09-06T10:27:58+08:00）。不可缺失。"},
+    "date":    {"type": "string", "format": "date", "description": "事件**归属日**（本地日历日），可与 ts 的本地日不同——跨零点补记时 date=归属日、ts=补记时刻，二者都如实写。"},
+    "type":    {"type": "string", "enum": ["note", "context", "checkup", "diet", "symptom", "activity", "measurement"], "description": "事件类型。note=口径/备注，context=生活语境（加班/出差/作息），checkup=主动询问与自查，diet=饮食，symptom=症状/主诉，activity=行为事件，measurement=一次性测量（非设备日频）。新增类型必须先改这里的枚举——枚举膨胀是纪律问题，不是格式问题。"},
+    "content": {"type": "string", "min_length": 1, "description": "事件正文，自然语言。结构化数值放 payload，不塞进正文解析。"},
+    "source":  {"type": "string", "enum": ["conversation", "data_inference", "device", "manual"], "description": "来源。conversation=对话注入（主观），data_inference=从数据推断（客观推导，须在 content 写明依据），device=设备直采，manual=手工录入。"}
+  },
+
+  "optional_fields": {
+    "id":        {"type": "string", "format": "ulid-or-uuid", "description": "事件唯一 id。v1 起新事件必须有；存量 legacy 事件允许缺失（校验器记 warning 不报错）。supersede 依赖 id。"},
+    "supersedes":{"type": "string", "description": "被本事件作废的旧事件 id。只有 append 一条新事件引用旧 id 这一种修正方式；绝不修改或删除旧行。"},
+    "confidence":{"type": "string", "enum": ["high", "medium", "low"], "description": "主观注入时的可信度自评；省略视为 medium。"},
+    "payload":   {"type": "object", "description": "结构化附加字段（数值、单位、引用的 facts 键名）。自由 schema，但数值必须放这里而不是埋进 content。"}
+  },
+
+  "invariants": [
+    "append-only：已写入的行永不修改、永不删除",
+    "supersedes 指向的 id 必须在本文件更早的行中出现过，且不得形成环",
+    "一条旧事件最多被 supersede 一次（重复作废报错）",
+    "date 不得晚于 ts 的本地日（归属未来 = 写错）；早于则属于合法的跨零点补记",
+    "带 supersedes 的事件必须自带 id"
+  ],
+
+  "legacy_rules": {
+    "missing_id": "warning 不报错（2026-11 之前的存量事件无 id，P1 事件化时统一补发）",
+    "unknown_extra_fields": "报错——字段必须先入 schema 再使用，防止自由字段变成第二份无口径数据"
+  }
+}
