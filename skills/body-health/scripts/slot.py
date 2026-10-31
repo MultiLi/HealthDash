@@ -56,18 +56,21 @@ REFRESH = os.path.join(_HERE, "refresh_recent.py")
 COLLECT = os.path.join(_HERE, "collect.py")
 GATE = os.path.join(_HERE, "data_gate.py")
 SLOT = os.path.abspath(__file__)
-UV_NET = ("no_proxy='*' NO_PROXY='*' uv run --python 3.11 "
-          "--with curl_cffi --with garth python")
-UV_OFF = "uv run --python 3.11 python"
+# 2026-10-31 修：原前缀缺 --no-project（被 pyproject 的 requires-python>=3.9 卡死，
+# 报错全指向 garth 依赖，是假线索）+ 未 pin curl_cffi（0.17.0 的 chrome 指纹被佳明
+# CN 直接 RST）。这两条每天让首班命令白挂一次，已写进命令本身，不再靠 agent 现场试错。
+UV_NET = ("no_proxy='*' NO_PROXY='*' uv run --no-project --python 3.11 "
+          "--with curl_cffi==0.16.3 --with garth python")
+UV_OFF = "uv run --no-project --python 3.11 python"
 
 # 作业定义：改排程时间只改这里
 JOBS = {
     "evening": {
-        "desc": "晚间健康报告（多班次：23:30 主班 / 02:30 夜间重试 / 11:30 兜底）",
-        # 边界恒为 23:30：02:30 那一班属于**前一晚**的 slot，不能算当天。
-        # 多班次靠同一个账本幂等实现——出完即 targets 空，后续班次自然 noop。
+        "desc": "每日健康报告（单班 02:00，2026-10-31 由「23:30/02:30/11:30 三班」精简）",
+        # 边界恒为 23:30：02:00 那一班属于**前一晚**的 slot，不能算当天。切勿改这两个字段。
+        # 多班次已撤销，此处只留边界；账本仍靠「出完即 targets 空」幂等。
         "hour": 23, "minute": 30,
-        "runs": ["23:30", "02:30", "11:30"],
+        "runs": ["02:00"],
         "catchup_days": 3,    # 排程日前 N 天内的未完成 slot 自动补跑
         "backlog_days": 14,   # 超过补跑窗但未超此值 → 记为积压（列出，不自动跑）
         "max_targets": 3,     # 单次运行最多处理几天（当天最优先，其余从近到远）
@@ -75,7 +78,8 @@ JOBS = {
         "verify_artifacts": True,   # 以报告产物为准做双向自愈
     },
     "morning": {
-        "desc": "晨起主观补数（排程 09:30）",
+        "desc": "晨起主观补数（排程 09:30）· **已撤销 2026-10-31**：无自动化调用方，"
+                "账本里残留 pending 属正常孤儿，不要为它补报告",
         "hour": 9, "minute": 30,
         "catchup_days": 0,    # 晨起主观数据不可回溯 → 无补跑
         "backlog_days": 0,
@@ -94,8 +98,10 @@ DISCIPLINE = [
     "slot 未完成时补跑仍锚定原排程日（迟到不等于改期）。",
     "targets 为空 = 本排程日已完成，不要重复生成报告。",
     "每天一份报告：多个 target 逐日各出一份，禁止合并。",
-    "【2026-10-18 起】data_gate 判 partial 时**禁止写报告**，记 waiting_data 等下一班；"
-    "到 publish_by（D+1 11:00）仍不完整，才允许出「截断终版」并显式标注。",
+    "【2026-10-31 起】只剩 02:00 一班：data_gate 判 partial 时**直接出「截断终版」**"
+    "（--allow-truncated --data-cutoff），禁止记 waiting_data —— 已无兜底班接力。"
+    "旧规则「等到 publish_by（D+1 11:00）」随 11:30 兜底班一并作废；"
+    "publish_by 字段现在只是信息展示，代码不校验时间。",
     "mark done 会被闸门拦截：数据不完整时账本拒绝关账（除非显式 --allow-truncated）。",
 ]
 

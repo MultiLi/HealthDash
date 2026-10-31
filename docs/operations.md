@@ -6,20 +6,25 @@
 
 ---
 
-## 一、日常节奏：五个班次
+## 一、日常节奏：两个班次（2026-10-31 精简）
 
 | 时间 | 班次 | 目的 | 做什么 | 不做什么 |
 |---|---|---|---|---|
-| 09:30 | 晨起补数 | 收主观数据 | `slot.py resolve --job morning` → 收体重/睡眠自评 → 写 `daily_log.jsonl` → `mark done` | **不碰主页、不出报告** |
-| 10:00 | 采集 | 数据一落云就进盘 | `collect.py --days 3` | 不出报告、不碰账本 |
-| 11:30 | 兜底 | 补前一晚漏判 | `resolve --job evening`，targets 非空才处理 | 不重复已完成的日 |
-| 23:30 | 主班 | 出当日终版报告 | 采集 → 闸门 → facts → 判读 → verify → mark | 日内不产结论性报告 |
-| 02:30 | 夜间重试 | 补截断日、跑 InBody 闸门 | 先 `collect` → **收尾再 `resolve` 一次** → 处理 stale | 不新判已完成日 |
+| 14:00 | 采集 | 数据一落云就进盘 | `collect.py --days 3`（含 InBody 刷新 + 闸门 + 推主页） | 不出报告、不碰账本、不调 slot.py |
+| 02:00 | 健康报告 | 出前一日报告 | `resolve` → `collect`（采集含 InBody，**别再单独 `--fetch`**）→ 闸门 → facts → 判读 → mark | 不新判已完成日 |
+
+**已撤销的班次**（2026-10-31，Sir 定「下午、凌晨两点各一次，剩下取消」）：09:30 晨起补数、10:00 采集、11:30 兜底、23:30 主班。
+
+撤销带来的三条口径变更，必须记住：
+
+1. **报告只在 02:00 出，锚定前一晚 23:30 的 slot**（`slot_time` 边界未变，`--job evening` 账本键照旧）。
+2. **02:00 是最后一班 → 数据 partial 时禁止 `waiting_data`，直接出「截断终版」**（`--allow-truncated --data-cutoff`）。以前靠 11:30 兜底，现在没有第二班接力。`slot.py mark` 的 publish_by（D+1 11:00）只是提示文案，代码不校验时间，技术上 02:00 完全可以关账。
+3. **`--job morning` 已无调用方**，账本里若残留 pending 的 morning slot 属正常孤儿，不要为它补报告。
 
 **两个铁律**：
 
-1. **目标日由排程时刻决定，不由运行时刻决定。** 第一步永远是 `slot.py resolve --job evening|morning`，取 `targets[].date`。**严禁用 shell `date` 推导。** targets 空 = 已完成，禁止重出。迟到 ≠ 改期。
-2. **有补跑嫌疑时，收尾要再 resolve 一次。** 02:30 班曾因只 resolve 一次漏掉被提升为待办的 09-12。
+1. **目标日由排程时刻决定，不由运行时刻决定。** 第一步永远是 `slot.py resolve --job evening`，取 `targets[].date`。**严禁用 shell `date` 推导。** targets 空 = 已完成，禁止重出。迟到 ≠ 改期。
+2. **有补跑嫌疑时，收尾要再 resolve 一次。** 旧 02:30 班曾因只 resolve 一次漏掉被提升为待办的 09-12。
 
 ---
 
@@ -33,7 +38,7 @@ python3 $S/collect.py --days 3
 python3 tools/push_data.py --check        # exit 0 = 一致
 ```
 
-`collect.py` 的五步：拉目标日 → 回补截断日 → 打印完整性一览 → `index.py build` → 推主页（+ InBody 闸门）。
+`collect.py` 的六步：拉目标日 → 回补截断日 → 打印完整性一览 → `index.py build` → 推主页 → InBody 刷新 + 闸门。
 
 **它不出报告、不做判读、不碰账本。** 这是有意的：「拉数」与「出报告」解耦，采集可以高频跑。
 
