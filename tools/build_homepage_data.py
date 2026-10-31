@@ -14,6 +14,7 @@
       --push  构建完顺手推到热更新端点（tools/push_data.py），**不需要重新上线**；
               端点不可用时只告警、不影响构建产物——静态副本照旧是兜底。
 """
+import json
 import os
 import subprocess
 import sys
@@ -26,6 +27,23 @@ from homepage.build import build  # noqa: E402
 from homepage.paths import SITE, load_rules  # noqa: E402
 from homepage.indexlayer import write_index_layer  # noqa: E402
 from homepage.assetver import stamp_all  # noqa: E402
+
+DEPLOY_CFG = os.path.join(HERE, "deploy.json")
+
+
+def homepage_url():
+    """线上主页地址，唯一来源 tools/deploy.json 的 origin。
+
+    **为什么要在这里打印**：定时任务的收尾文案必须带上这个链接，否则没人知道
+    从哪点开。地址若写死在 automation prompt 里，换域名时两处会漂——所以让代码
+    把当前地址打出来，prompt 只说「带上构建输出里的『线上主页』那行」。
+    读不到就返回 None，不阻断构建（构建产物本身与线上地址无关）。
+    """
+    try:
+        with open(DEPLOY_CFG, encoding="utf-8") as fh:
+            return (json.load(fh) or {}).get("origin") or None
+    except (OSError, ValueError):
+        return None
 
 
 def main():
@@ -53,6 +71,10 @@ def main():
     print("fingerprint: 资源 v=%s（模块图 %d 个文件） 数据 b=%s（%d 个文件） index.html %s"
           % (ver["assets_version"], ver["import_files"], ver["data_token"],
              ver["data_files"], "已重写" if ver["index_changed"] else "无变化"))
+
+    url = homepage_url()
+    if url:
+        print("线上主页: %s" % url)   # ← 定时任务收尾文案要带上这一行
 
     if "--push" in sys.argv:
         print("\n-- push 到热更新端点 --")

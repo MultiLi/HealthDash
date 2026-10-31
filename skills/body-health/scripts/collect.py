@@ -39,6 +39,21 @@ import sync                                            # noqa: E402
 import data_gate                                       # noqa: E402
 
 
+def homepage_url():
+    """线上主页地址，唯一来源 `tools/deploy.json` 的 origin。
+
+    **为什么要脚本自己打这一行**（2026-10-31）：定时任务的收尾文案必须带链接，
+    否则看完消息不知道从哪点开。地址若写死在 automation prompt 里，换域名时
+    两处必然漂；让代码把当前地址打出来，prompt 只说「带上『线上主页』那行」，
+    就只有一个来源。读不到返回 None，不阻断采集（地址与数据无关）。
+    """
+    try:
+        with open(os.path.join(_WORKSPACE, "tools", "deploy.json"), encoding="utf-8") as fh:
+            return (json.load(fh) or {}).get("origin") or None
+    except (OSError, ValueError):
+        return None
+
+
 def run(days=3, push=False, quiet=False, with_inbody=True):
     today = datetime.date.today()
     log = (lambda *a: None) if quiet else print
@@ -160,6 +175,11 @@ def main():
     out = run(a.days, push=a.push, quiet=a.json, with_inbody=a.with_inbody)
     if a.json:
         print(json.dumps(out, ensure_ascii=False, indent=1))
+    else:
+        # 收尾固定打一行地址：定时任务的文案要带上它，否则看完不知道从哪点开
+        url = homepage_url()
+        if url:
+            print("\n线上主页: %s" % url)
     return 0
 
 
