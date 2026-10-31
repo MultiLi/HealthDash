@@ -8,17 +8,17 @@
  *   ② 当前单元总览（综合指数 + Garmin 准备度 并排 + 四项达标计数）
  *   ③ 指标网格（8 张同构卡：主值 + 环比 + 单元序列 + 达标统计；日尺度下可展开当日细分）
  */
-import { store } from "./store.js?v=9b687d78";
-import { metrics, CHECKS, bandOf, BAND, READY, readyOf } from "./constants.js?v=9b687d78";
-import { esc, $ } from "./utils.js?v=9b687d78";
+import { store } from "./store.js?v=b8889ec3";
+import { metrics, CHECKS, bandOf, BAND, READY, readyOf } from "./constants.js?v=b8889ec3";
+import { esc, $ } from "./utils.js?v=b8889ec3";
 import { metricValue, seriesPoints, judgeValue, unitRowsAll, rowsWith,
-         unitCell, cellJudge, okCount, VERDICT_TEXT } from "./aggregate.js?v=9b687d78";
-import { unitOf, prevUnitOf, unitSeries, scaleDef } from "./scope.js?v=9b687d78";
-import { renderMonth, renderHeatstrip } from "./calendar.js?v=9b687d78";
-import { sparkline } from "./charts.js?v=9b687d78";
-import { DETAILS, readinessTrail, briefHtml } from "./detail.js?v=9b687d78";
-import { ensureShard, dayOf, hasShard } from "./data.js?v=9b687d78";
-import { monthLabel, fmtMD, weekdayCN } from "./dateutil.js?v=9b687d78";
+         unitCell, cellJudge, okCount, VERDICT_TEXT } from "./aggregate.js?v=b8889ec3";
+import { unitOf, prevUnitOf, unitSeries, scaleDef } from "./scope.js?v=b8889ec3";
+import { renderMonth, renderHeatstrip } from "./calendar.js?v=b8889ec3";
+import { sparkline } from "./charts.js?v=b8889ec3";
+import { DETAILS, readinessTrail, briefHtml } from "./detail.js?v=b8889ec3";
+import { ensureShard, dayOf, hasShard } from "./data.js?v=b8889ec3";
+import { monthLabel, fmtMD, weekdayCN } from "./dateutil.js?v=b8889ec3";
 
 function ix() { return store.ix; }
 
@@ -174,6 +174,8 @@ function renderReadyTrail() {
   };
   if (dayOf(anchor)) { fill(); return; }
   box.hidden = true;
+  /* 同 renderBrief：索引里没有这一天就不会有分片，别发那个必然 404 的请求 */
+  if (!store.byDate[anchor]) { box.innerHTML = ""; return; }
   ensureShard(anchor).then(fill).catch(function () { box.innerHTML = ""; });
 }
 
@@ -263,15 +265,21 @@ function cardHtml(m, unit, prevUnit) {
   var canDrill = store.scale === "day" && m.detail && DETAILS[m.detail];
 
   /* 覆盖率的诚实表达：后端把 coverage < 门槛的单元判成 na，
-     这里必须说出来（「3/7 天数据」），而不是显示一个看起来很确定的数字。 */
+     这里必须说出来（「3/7 天数据」），而不是显示一个看起来很确定的数字。
+
+     `cell.g`（2026-11-01）= 该单元里**采集侧没拿到**的天数。它回答的是覆盖率
+     回答不了的那个问题：缺的这几天，是系统没采到，还是你没戴表？
+     两个都让数字变少，但一个是该修管线、一个是该戴表——不能混着说。 */
+  var gapNote = cell && cell.g
+    ? '<span class="mx-gap">' + cell.g + " 天采集故障</span>" : "";
   var stat;
   if (!st) {
     stat = '<span class="mx-stat">该指标无独立达标线</span>';
   } else if (na && cell && cell.c != null) {
-    stat = '<span class="mx-stat">覆盖 ' + Math.round(cell.c * 100) + "% · 不给结论</span>";
+    stat = '<span class="mx-stat">覆盖 ' + Math.round(cell.c * 100) + "% · 不给结论</span>" + gapNote;
   } else {
     stat = '<span class="mx-stat">达标 <b>' + st.ok + "</b>/" + st.tot + " " +
-      (store.scale === "day" ? "（当日）" : "天") + "</span>";
+      (store.scale === "day" ? "（当日）" : "天") + "</span>" + gapNote;
   }
 
   return '<article class="mx-card' + (ok === false ? " is-warn" : "") + '" data-metric="' + m.key + '">' +
@@ -294,11 +302,56 @@ function caret() {
   return '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 5.5L7 9.5L11 5.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 }
 
+/* 指标分组（2026-11-01）。
+ *
+ * 8 张卡平铺时，看的是「一个一个数」；但「反推身体状态」看的是**几个指标
+ * 是否同步变化**——HRV 掉的那几天，睡眠是不是也掉了、静息心率是不是升了。
+ * 那需要把相关的量放在一起，而不是让人在 8 张卡之间来回扫。
+ *
+ * 分组依据是「这个数回答什么问题」，不是医学分类学：
+ *   恢复 —— 昨晚睡得怎么样、身体修没修复（睡眠 / HRV / 静息心率）
+ *   行为 —— 白天动了多少、坐了多久（步数 / 久坐 / 中高强度）
+ *   负荷 —— 付出了多少、承压多大（活动消耗 / 压力）
+ * 三组各自内部才可比；跨组比较没有意义（步数和 HRV 谁「更好」不是个问题）。
+ *
+ * 未列入的指标自动落到「其他」，**不静默丢弃**——新增指标时页面不会悄悄少一张卡。
+ */
+var GROUPS = [
+  { k: "recover", t: "恢复", sub: "昨晚修复得怎么样", keys: ["sleep_h", "hrv", "rhr"] },
+  { k: "behave", t: "行为", sub: "白天动了多少、坐了多久", keys: ["steps", "sedentary_min", "intensity_min"] },
+  { k: "load", t: "负荷", sub: "消耗与承压", keys: ["active_kcal", "stress"] }
+];
+
+function groupHtml(m, unit, prev) {
+  return cardHtml(m, unit, prev);
+}
+
 function renderGrid(unit) {
   var prev = prevUnitOf(store.anchor, store.scale);
-  $("metric-grid").innerHTML = metrics(ix()).map(function (m) {
-    return cardHtml(m, unit, prev);
-  }).join("");
+  var all = metrics(ix());
+  var byKey = {};
+  all.forEach(function (m) { byKey[m.key] = m; });
+  var used = {};
+  var html = "";
+  GROUPS.forEach(function (g) {
+    var ms = g.keys.map(function (k) { return byKey[k]; }).filter(Boolean);
+    if (!ms.length) return;
+    ms.forEach(function (m) { used[m.key] = 1; });
+    html += '<section class="mx-group" data-group="' + g.k + '">' +
+      '<div class="mx-gh"><h3>' + esc(g.t) + "</h3><span>" + esc(g.sub) + "</span></div>" +
+      '<div class="metric-grid">' + ms.map(function (m) {
+        return groupHtml(m, unit, prev);
+      }).join("") + "</div></section>";
+  });
+  var rest = all.filter(function (m) { return !used[m.key]; });
+  if (rest.length) {
+    html += '<section class="mx-group" data-group="other">' +
+      '<div class="mx-gh"><h3>其他</h3><span>尚未归组的指标</span></div>' +
+      '<div class="metric-grid">' + rest.map(function (m) {
+        return groupHtml(m, unit, prev);
+      }).join("") + "</div></section>";
+  }
+  $("metric-grid").innerHTML = html;
 }
 
 /* ================= ④ 当日判读（仅日尺度）=================
@@ -319,6 +372,46 @@ function fillBrief(d) {
   $("brief-grid").innerHTML = b.html;
   $("brief-sub").textContent = b.sub;
   $("gaps").textContent = b.gaps;
+  renderDayEvents(d.date);
+}
+
+/* 当日背景事件（2026-11-01）。判读的结论常常建立在「那天在加班」「那次血氧是误报」
+   这类上下文上，而这些话只存在于 events.jsonl。看不到依据的结论，三个月后回看
+   会觉得判断来得莫名其妙——所以结论和依据必须同屏。 */
+var EV_TYPE = {
+  context: "背景", checkup: "排查", diet: "饮食", note: "记录", more: "另有"
+};
+
+function renderDayEvents(date) {
+  var box = $("day-events");
+  if (!box) return;
+  var list = ((ix().events || {})[date]) || [];
+  if (!list.length) { box.hidden = true; box.innerHTML = ""; return; }
+  box.hidden = false;
+  box.innerHTML = '<h4 class="de-title">当日背景事件<i>判读依赖的上下文，不是当天的实测值</i></h4>' +
+    '<ul class="de-list">' + list.map(function (e) {
+      return '<li><span class="de-t">' + esc(EV_TYPE[e.t] || e.t) + "</span>" +
+        '<span class="de-c">' + esc(e.c) + "</span></li>";
+    }).join("") + "</ul>";
+}
+
+/* 判读流水（2026-11-01）：把 60 多天的结论压成一行行。
+   它放在独立 section 里、不吃 anchor/scale——这是「长期视角」，
+   和「我现在在看哪一天」是两回事，跟着日历翻页只会互相打断。 */
+export function renderBriefLog() {
+  var zone = $("brief-log-zone");
+  var bs = ix().briefs || {};
+  var dates = Object.keys(bs).sort().reverse();
+  if (!dates.length) { zone.hidden = true; return; }
+  zone.hidden = false;
+  $("brief-log-sum").textContent = "判读流水 · " + dates.length + " 天（点任一行跳到那天）";
+  $("bl-list").innerHTML = dates.map(function (d) {
+    var b = bs[d] || {};
+    return '<li class="bl-i" data-date="' + d + '">' +
+      '<span class="bl-d">' + fmtMD(d) + "</span>" +
+      '<span class="bl-lv lv-' + esc(b.lv || "NEUTRAL") + '" title="' + esc(b.lv || "") + '"></span>' +
+      '<span class="bl-t">' + esc(b.head || "") + "</span></li>";
+  }).join("");
 }
 
 /* 该日没有采集记录。**必须是明确空态，不能是「加载中」**：
@@ -331,6 +424,7 @@ function fillBriefEmpty(anchor) {
     "可能是还没到（当天数据要等当晚 23:30 出终版），也可能是当天没戴表或没同步——" +
     "日历上它是空心灰：<b>缺数据不等于没做到</b>。</p>";
   $("gaps").textContent = "";
+  renderDayEvents(anchor);
 }
 
 export function renderBrief() {
@@ -341,6 +435,12 @@ export function renderBrief() {
   var anchor = store.anchor;
   var d = dayOf(anchor);
   if (d) { fillBrief(d); return; }
+
+  /* 索引里没有这一天 = 不在数据跨度内（未来日 / 本月尚未产生任何数据）。
+     这类锚点**永远**拉不到分片，去拉就是自找 404：每月 1 号打开页面，
+     判读区会直接写「详情分片加载失败（2026-11）」——把「还没到」说成了故障
+     （2026-11-01 实证）。先查索引，再决定要不要发请求。 */
+  if (!store.byDate[anchor]) { fillBriefEmpty(anchor); return; }
 
   /* 分片已加载、却仍然没有这一天 = 该日无记录，不是「还没加载」。
      这一句是**防死循环的闸门**：少了它，下面的 ensureShard 会立刻 resolve，
@@ -364,10 +464,69 @@ export function renderBrief() {
   });
 }
 
+/* 逐日达标矩阵（2026-11-01）。
+ *
+ * 日历把每天的**四项达标**画成四个小点，那里只能看到「今天几项过线」。
+ * 真正要回答的问题是另一个：**这几天是不是好几项一起变差**——
+ * 睡眠掉了、HRV 也掉了、久坐还涨了，那是同一件事的三个侧面；
+ * 只有一项掉，那才是那一项自己的问题。
+ * 这件事在 8 张平铺的卡片里做不到（要在其间来回扫），在日历的四个点里也做不到
+ * （只有 4 项、且没有指标身份）。矩阵是唯一能一眼看出来的形态。
+ *
+ * 受容器宽度限制，只画近 30 天；更长周期交给日历热力条。
+ * 判定一律取后端 `units.day`（唯一口径），**前端不自己比大小**。 */
+var MATRIX_N = 30;
+
+function renderDayMatrix() {
+  var box = $("day-matrix");
+  if (!box) return;
+  var rows = store.rows.slice(-MATRIX_N);
+  if (rows.length < 8) { box.hidden = true; return; }
+  var ms = metrics(ix());
+  /* 只留**真的逐日判过**的指标。过滤器要用 units.day 里实际存在的键，
+     不能用 CHECK_FIELD——那是「四项达标」的四个别名（sleep/steps/hrv/sedentary），
+     拿它当白名单会把静息心率、中高强度、压力全筛掉，矩阵只剩两行
+     （2026-11-01 实测：2×30=60 格，看起来像「只有两项被判定」）。 */
+  ms = ms.filter(function (m) {
+    var u = (ix().units || {}).day || {};
+    return rows.some(function (r) {
+      var c = (u[r.date] || {})[m.key];
+      return c && c.j;
+    });
+  });
+  if (!ms.length) { box.hidden = true; return; }
+
+  var head = '<div class="dm-row dm-head"><span class="dm-k"></span>' +
+    rows.map(function (r) {
+      return '<i class="dm-day">' + (Number(r.date.slice(8, 10)) === 1 ? r.date.slice(5, 7) + "/1" : r.date.slice(8, 10)) + "</i>";
+    }).join("") + '<span class="dm-s"></span></div>';
+
+  var body = ms.map(function (m) {
+    var ok = 0, tot = 0;
+    var cells = rows.map(function (r) {
+      var c = (((ix().units || {}).day || {})[r.date] || {})[m.key];
+      var j = c ? c.j : null;
+      var cls = j === "ok" ? "ok" : j === "no" ? "no" : "na";
+      if (j === "ok" || j === "no") { tot++; if (j === "ok") ok++; }
+      var tip = r.date + " · " + m.label + " " + (j === "ok" ? "达标" : j === "no" ? "未达标" : "无判定");
+      return '<i class="dm-c ' + cls + '" title="' + esc(tip) + '"></i>';
+    }).join("");
+    return '<div class="dm-row" data-metric="' + m.key + '">' +
+      '<span class="dm-k">' + esc(m.label) + "</span>" + cells +
+      '<span class="dm-s">' + (tot ? ok + "/" + tot : "–") + "</span></div>";
+  }).join("");
+
+  box.hidden = false;
+  box.innerHTML = '<p class="dm-title">逐日达标矩阵 · 近 ' + rows.length +
+    " 天（行=指标，列=天；看的是「这几项有没有一起变差」）</p>" +
+    '<div class="dm-grid">' + head + body + "</div>";
+}
+
 /* ================= 装配 ================= */
 export function renderPage() {
   var unit = unitOf(store.anchor, store.scale);
   renderAxis(unit);
+  renderDayMatrix();
   renderOverview(unit);
   renderGrid(unit);
   renderBrief();

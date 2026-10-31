@@ -48,10 +48,55 @@ print("  允许删除分支       :", "是" if d.get("allow_deletions", {}).get(
 PY
 }
 
+check_plan() {
+  # 免费账号的私有仓库拿不到任何远端分支保护——经典的和 rulesets 都一样。
+  # 在这里挡一下，比让 PUT 返回 403 再猜原因清楚。
+  curl -sS "${auth[@]}" https://api.github.com/user -o /tmp/_plan.json 2>/dev/null || return 0
+  PLAN=$(python3 -c "
+import json
+try:
+    d = json.load(open('/tmp/_plan.json'))
+    print((d.get('plan') or {}).get('name', ''))
+except Exception:
+    print('')
+" 2>/dev/null)
+  case "$PLAN" in
+    free)
+      cat >&2 <<'EOF'
+
+✗ 当前账号是 GitHub Free。
+
+  私有仓库的分支保护与 Rulesets 需要 GitHub Pro / Team / Enterprise，
+  Free 计划只在「公开」仓库提供。这不是配置问题，换入口也一样——
+  经典分支保护（Settings → Branches）与 Rulesets（Settings → Rules）
+  受同一条限制约束。
+
+  可选：
+    · 升级 GitHub Pro（$4/月，个人账号用这个，不是 Team）
+        https://github.com/settings/billing
+    · 只靠本地 pre-push 钩子（拦手滑，拦不住 --no-verify 和别的机器）
+    · 把仓库转公开（本仓有过泄露前科，不建议）
+
+EOF
+      exit 3
+      ;;
+    "")
+      # 取不到计划（网络或 token 权限问题）。别据此判定账号类型，继续尝试，
+      # 让真正的 PUT 返回它自己的错误码。
+      echo "无法确认账号计划（可能 token 权限不足），继续尝试配置…" >&2
+      ;;
+    *)
+      echo "账号计划：${PLAN}"
+      ;;
+  esac
+}
+
 if [ "${1:-}" = "--check" ]; then
   show
   exit 0
 fi
+
+check_plan
 
 echo "配置 ${REPO}:${BRANCH} …"
 CODE=$(curl -sS -o /tmp/_bp_resp.json -w '%{http_code}' -X PUT "$API" \

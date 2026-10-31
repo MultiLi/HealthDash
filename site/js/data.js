@@ -9,11 +9,23 @@
  * 兜底不是「降级糊弄」：它是同一份构建产物的两个位置，内容同源，只是新鲜度不同。
  * 走了哪条路记在 store.dataFrom，顶部同步胶囊会显式标注——不允许静默用旧数据。
  */
-import { store } from "./store.js?v=9b687d78";
-import { monthKey } from "./dateutil.js?v=9b687d78";
+import { store } from "./store.js?v=b8889ec3";
+import { monthKey } from "./dateutil.js?v=b8889ec3";
 
 function getJSON(url) {
-  return fetch(url, { cache: "no-store" }).then(function (r) {
+  /* fetch 缺失（或被打桩成同步抛）时，`fetch(url)` 抛的是**同步** ReferenceError，
+     它会直接逃出 pick() 的 then/catch 链——「端点失败回落静态副本」根本挂不上，
+     整页渲染崩在这里。2026-11-01 实证：删掉 fetch 后 renderReadyTrail 触发
+     ensureShard，页面不是回落，是白屏。
+     先取能力再调用、异常转成 rejected promise，回落逻辑才真正有效。 */
+  if (typeof fetch !== "function") return Promise.reject(new Error("fetch 不可用"));
+  var p;
+  try {
+    p = fetch(url, { cache: "no-store" });
+  } catch (e) {
+    return Promise.reject(e);
+  }
+  return p.then(function (r) {
     if (!r.ok) throw new Error("HTTP " + r.status);
     return r.json();
   });
@@ -35,7 +47,7 @@ function pick(apiUrl, staticUrl) {
 
 /* 首屏唯一载荷：逐日轻量索引 */
 export function loadIndex() {
-  return pick("api/data/index", "index.json?b=3ad93eab");
+  return pick("api/data/index", "index.json?b=fa1817dd");
 }
 
 /* 月度详情分片的按需加载与缓存：只有在真的要展开某天时才拉当月分片 */
@@ -43,7 +55,7 @@ export function ensureShard(dateStr) {
   var month = monthKey(dateStr);
   if (store.shards[month]) return Promise.resolve(store.shards[month]);
   if (store.pending[month]) return store.pending[month];
-  store.pending[month] = pick("api/data/daily/" + month, "daily/" + month + ".json?b=3ad93eab")
+  store.pending[month] = pick("api/data/daily/" + month, "daily/" + month + ".json?b=fa1817dd")
     .then(function (j) {
       store.shards[month] = j.days || {};
       delete store.pending[month];

@@ -6,10 +6,10 @@
    格内：日期 + 综合指数分档徽标 + 包边色条 + 四个达标点
    （实心绿=达标 / 实心琥珀=未达标 / 空心灰=该维度当日无实测）。
    数据满 60 天后自动出现长周期热力条。 */
-import { bandOf, BAND, CHECKS } from "./constants.js?v=9b687d78";
-import { esc } from "./utils.js?v=9b687d78";
-import { rowChecks } from "./aggregate.js?v=9b687d78";
-import { monthMatrix, weekRangeLabel, addDays, fmtMD, weekStart } from "./dateutil.js?v=9b687d78";
+import { bandOf, BAND, CHECKS } from "./constants.js?v=b8889ec3";
+import { esc } from "./utils.js?v=b8889ec3";
+import { rowChecks } from "./aggregate.js?v=b8889ec3";
+import { monthMatrix, weekRangeLabel, addDays, fmtMD, weekStart } from "./dateutil.js?v=b8889ec3";
 
 var WD = ["一", "二", "三", "四", "五", "六", "日"];
 
@@ -21,19 +21,58 @@ function dotsHtml(row, ix) {
   }).join("") + "</span>";
 }
 
+/* 采集状态 -> 视觉与话术（2026-11-01）。
+ *
+ * 以前只有一种「空心灰」表示无数据，于是**三种完全不同的情况长得一样**：
+ *   采集失败（端点报错）/ 原始数据没落盘（采集没跑）/ 设备没推数（没戴表）。
+ * 把系统故障画成人的行为，是这一版要修的核心问题——归因错了，
+ * 「我最近是不是懈怠了」这个判断从第一眼就跟着错。
+ *
+ * 状态本身由后端下发（row.cs，唯一口径），前端只负责翻译，不重新推断。
+ * 视觉上只分三档（灰 / 斜纹 / 琥珀），因为日历格只有 74px：
+ * 再细的区分写在 title 里，悬停即见，不靠颜色猜。 */
+var CS_TEXT = {
+  failed: "采集失败",
+  missing: "无原始数据（采集未运行）",
+  absent: "无佩戴记录",
+  pending: "今日采集未完成"
+};
+
+function csNote(row) {
+  var cs = row && row.cs;
+  if (!cs || cs === "ok") return "";
+  var t = CS_TEXT[cs] || "";
+  if (cs === "failed" && row.ce && row.ce.length) t += "：" + row.ce.join("、");
+  return t;
+}
+
 function cellHtml(cell, ctx) {
   var row = ctx.byDate[cell.date];
   var inScope = ctx.scopeDates && ctx.scopeDates.indexOf(cell.date) >= 0;
+  /* 索引里没有这一行 = 不在数据跨度内（未来日 / 超出记录范围）。
+     它和「有行但没数」是两回事，但对用户都是「这天没东西可看」，
+     所以视觉上并入无数据，title 说实话。 */
+  var cs = row ? (row.cs || "ok") : "outside";
   var cls = ["cal-cell"];
   if (!cell.inMonth) cls.push("out");
-  if (!row) cls.push("nodata");
+  if (cs !== "ok") cls.push("nodata");
+  if (cs === "failed") cls.push("cs-failed");
+  else if (cs === "missing") cls.push("cs-missing");
+  else if (cs === "pending") cls.push("cs-pending");
   if (cell.date === ctx.today && row) cls.push("today");
   if (inScope) cls.push("in-scope");
   if (cell.date === ctx.anchor) cls.push("anchored");
+  /* 有判读的日给一条底边线（2026-11-01）：判读是「这一天发生过判断」的证据，
+     日历上却完全看不出来——想知道哪天有结论只能一天天点。
+     用底边而不是角标，是因为右上角已经被分数占了、底部又被四个达标点占了。 */
+  if (row && row.has_brief) cls.push("has-brief");
   var band = row ? bandOf(row.score, ctx.ix.baselines) : "none";
   cls.push("b-" + band);
   var style = row ? ' style="--bc:' + BAND[band] + '"' : "";
-  return '<button type="button" class="' + cls.join(" ") + '" data-date="' + cell.date + '"' + style + ">" +
+  var note = csNote(row);
+  var title = cell.date + (note ? " · " + note : "");
+  return '<button type="button" class="' + cls.join(" ") + '" data-date="' + cell.date +
+    '" data-cs="' + cs + '" title="' + esc(title) + '"' + style + ">" +
     '<span class="cal-top"><b class="cal-day">' + cell.day + "</b>" +
     (row && row.score != null ? '<span class="cal-score">' + row.score + "</span>" : "") +
     "</span>" +

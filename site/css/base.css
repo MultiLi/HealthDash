@@ -38,8 +38,39 @@ button { font-family: var(--font); }
 /* 取数走了随包静态副本（热更新端点没接上）——状态点转琥珀，不让旧数据冒充「已同步」 */
 .sync-pill.stale .dot { background: var(--amber); }
 .sync-pill.stale { color: var(--amber); }
+/* 采集管线出过问题（端点报错 / 原始数据没落盘）。
+   与 stale 分开：stale 是「这份文件是旧的」，warn 是「这几天压根没采到」。
+   两者都琥珀，但语义不同，别合并成一个状态。 */
+.sync-pill.warn { color: var(--amber-deep); background: var(--amber-tint); }
+.sync-pill.warn .dot { background: var(--amber); }
 .avatar { width: 36px; height: 36px; border-radius: 18px; background: var(--text); color: #fff; font-size: 15px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
 @media (max-width: 900px) { .sync-pill { display: none; } }
+
+/* ---------- 采集告警条 ----------
+   只在管线出过问题时出现。作用单一：解释**空白格凭什么空白**。
+   没有它，日历上的空日会被读成「那天没戴表/没动」——而真相可能是端点挂了。 */
+.collect-bar { display: flex; align-items: flex-start; gap: 10px; margin: 16px 0 0; padding: 11px 14px; border-radius: 10px; background: var(--amber-tint); border: 1px solid #F3D9B5; font-size: 13px; line-height: 1.55; color: var(--amber-deep); }
+.collect-bar .cb-ico { flex: none; width: 17px; height: 17px; border-radius: 9px; background: var(--amber); color: #fff; font-size: 12px; font-weight: 700; line-height: 17px; text-align: center; margin-top: 1px; }
+.collect-bar .cb-txt b { font-weight: 600; }
+/* 端点名是不可断的长英文串（hrv_daily、readiness_daily、summary_chart），
+   在窄屏上会把整条撑出容器、右侧被裁——而右侧恰好是「不是没戴表」那句结论。
+   允许任意断点，宁可断在词中间也不能丢结论。 */
+.collect-bar .cb-txt { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 620px) { .collect-bar { font-size: 12.5px; padding: 10px 12px; } }
+
+/* ---------- 主观补数提示 ----------
+   与 collect-bar 语义相反：那条是「系统没给到」，这条是「该你答了」。
+   所以用中性/绿调而不用琥珀——提醒不是故障，别让页面天天像在报警。 */
+.nudge-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin-bottom: 18px; padding: 12px 16px; border-radius: var(--radius); background: var(--green-tint); border: 1px solid #CFEFE1; }
+.nudge-bar .nb-main { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; font-size: 13.5px; color: var(--text-2); }
+.nudge-bar .nb-k { font-weight: 600; color: var(--green-deep); }
+.nudge-bar .nb-v b { color: var(--text); font-weight: 600; }
+.nudge-bar .nb-gap { color: var(--text-3); font-size: 12.5px; }
+.nudge-bar .nb-do { display: flex; align-items: center; gap: 8px; }
+.nudge-bar .nb-prompt { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--text-2); background: #fff; border: 1px solid var(--border); border-radius: 7px; padding: 5px 9px; user-select: all; }
+.nudge-bar .nb-copy { border: 1px solid #CFEFE1; background: #fff; color: var(--green-deep); font-size: 12.5px; font-weight: 600; padding: 6px 12px; border-radius: 7px; cursor: pointer; transition: background .15s, color .15s; }
+.nudge-bar .nb-copy:hover { background: #fff; border-color: var(--green); }
+@media (max-width: 620px) { .nudge-bar { padding: 11px 13px; } .nudge-bar .nb-do { width: 100%; } .nudge-bar .nb-prompt { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } }
 
 /* ---------- 视图 Tab ---------- */
 .tabs { display: flex; gap: 8px; }

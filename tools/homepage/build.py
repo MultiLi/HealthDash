@@ -18,7 +18,7 @@ from homepage.recovery import build_recovery
 from homepage.load import build_load
 from homepage.activity import build_activity
 from homepage.scoring import score_day
-from homepage.brief import build_brief_payload
+from homepage.brief import build_brief_payload, brief_head
 from homepage.inbody import build as build_inbody
 
 
@@ -77,6 +77,12 @@ def build():
             "weekday": weekday_cn(d_str),
             "morning": morning,
             "has_brief": d_str in brief_payloads,
+            # 采集元信息**原样透传**（2026-11-01）：indexlayer 判 cs 四态要用
+            # coverage.has_data 与 collect.errors，两者都只存在于 canonical。
+            # 以前这里重建 day 时把它们丢了，于是「为什么没数」的信息在
+            # build() 与 indexlayer 之间蒸发，前端只能看见一个空心灰点。
+            "coverage": canon.get("coverage"),
+            "collect": canon.get("collect"),
             "recovery": build_recovery(canon),
             "load": None if morning else build_load(canon),
             "activity": None if morning else build_activity(canon),
@@ -92,6 +98,10 @@ def build():
                     if not ((day["recovery"] or {}).get("spo2") and "血氧" in g)]
             day["brief"] = {"cross": payload["cross"], "sections": payload["sections"],
                             "gaps": gaps}
+            # 一句话结论：给「判读流水」用的压缩形态。
+            # 判读一天一份，但人真正想知道的是「同一个判断连着出现了几天」——
+            # 那需要把 60 多天排成一行行看，而不是一天一天翻。
+            day["brief_head"] = brief_head(payload)
         days.append(day)
 
     # 汇总层（达标率 KPI / 均值 / 多日趋势行）已由 L2 units 承担（2026-10-25）：

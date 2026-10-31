@@ -160,17 +160,23 @@ def run_case(chrome, url, timeout, fresh_profile=False, profile_dir=None):
             "--virtual-time-budget=15000", "--dump-dom", url,
         ]
         p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        t0 = time.time()
-        while time.time() - t0 < timeout:
-            if p.poll() is not None:
-                return False, p.stdout.read().decode("utf-8", "replace")
-            time.sleep(0.25)
-        p.kill()
+        # ⚠️ 必须用 communicate()，不能「轮询 poll 再 read」。
+        # --dump-dom 的输出走管道，而管道缓冲区只有 ~64KB：页面一旦长到超过它，
+        # Chrome 就阻塞在 write 上永远不退出，看门狗于是把**每一个**用例都判成 HUNG
+        # ——包括不需要点击的基线，看起来像产品冻死，其实是测量工具自锁
+        # （2026-11-01 实证：加了逐日矩阵与判读流水后 DOM 从 55KB 涨到 69KB，
+        #  6 个用例全 HUNG；而同样参数手工跑 curl 式 dump-dom 只花 2 秒）。
+        # communicate() 会边读边等，缓冲区不会写满。
         try:
-            p.wait(timeout=5)
-        except Exception:
-            pass
-        return True, ""
+            out, _ = p.communicate(timeout=timeout)
+            return False, out.decode("utf-8", "replace")
+        except subprocess.TimeoutExpired:
+            p.kill()
+            try:
+                p.communicate(timeout=5)
+            except Exception:
+                pass
+            return True, ""
     finally:
         # 共享 profile 要活到最后一个用例，这里只在「一次性 profile」模式下删
         if fresh_profile:

@@ -6,11 +6,11 @@
 <title>健康主页 · 身体数据</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/base.css?v=9b687d78">
-<link rel="stylesheet" href="css/calendar.css?v=9b687d78">
-<link rel="stylesheet" href="css/page.css?v=9b687d78">
-<link rel="stylesheet" href="css/detail.css?v=9b687d78">
-<link rel="stylesheet" href="css/inbody.css?v=9b687d78">
+<link rel="stylesheet" href="css/base.css?v=b8889ec3">
+<link rel="stylesheet" href="css/calendar.css?v=b8889ec3">
+<link rel="stylesheet" href="css/page.css?v=b8889ec3">
+<link rel="stylesheet" href="css/detail.css?v=b8889ec3">
+<link rel="stylesheet" href="css/inbody.css?v=b8889ec3">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%2310B981'/><path d='M16 26C16 26 5 19.5 5 12.2C5 8.2 8.1 5.5 11.4 5.5C13.3 5.5 15 6.4 16 8C17 6.4 18.7 5.5 20.6 5.5C23.9 5.5 27 8.2 27 12.2C27 19.5 16 26 16 26Z' fill='white'/></svg>">
 </head>
 <body>
@@ -31,6 +31,12 @@
   </header>
 
   <main id="top">
+    <!-- ============ 采集告警条 ============
+         只在「管线出过问题」时出现（端点报错 / 原始数据没落盘）。
+         它解释的是日历上那些空白格：不是你没戴表，是数据没取到。
+         放在时间轴之前，是因为它改变的是「怎么读这张图」的前提。 -->
+    <div class="container"><div class="collect-bar" id="collect-bar" hidden></div></div>
+
     <!-- ============ 时间轴：唯一的观测控件，尺度决定它选中什么 ============ -->
     <section class="section sec-axis">
       <div class="container">
@@ -51,6 +57,9 @@
           </div>
         </div>
         <div id="axis-cal"></div>
+        <!-- 逐日达标矩阵：日历的转置。行=指标、列=天，看的是「这几天是不是
+             好几项一起变差」——8 张卡各自看趋势做不到这件事。 -->
+        <div class="day-matrix" id="day-matrix" hidden></div>
         <p class="axis-note" id="axis-note"></p>
       </div>
     </section>
@@ -58,6 +67,11 @@
     <!-- ============ 当前单元总览（粒度＝全局尺度；两项分数并排，不合成一个） ============ -->
     <section class="section alt sec-unit">
       <div class="container">
+        <!-- ============ 主观补数提示 ============
+             只读提醒，不提供写入（主页是公开站点，开写接口等于给任何人一个往
+             主观日志里写字的洞）。作用单一：把「还缺哪几项」摆到眼前，
+             让开口从「想起来才说」变成一次复制粘贴。 -->
+        <div class="nudge-bar" id="nudge-bar" hidden></div>
         <div class="unit-bar">
           <div class="unit-scope" id="unit-scope"></div>
           <div class="unit-scores" id="unit-score"></div>
@@ -77,7 +91,9 @@
             <p class="section-sub">每一项都是同一个量，只是粒度随尺度变：日看波动，周看节奏，月看走向。序列的每个点就是当前尺度下的一个单元，绿=该单元达标、琥珀=未达标、灰=无判定线，空心点=该单元尚未结束。</p>
           </div>
         </div>
-        <div class="metric-grid" id="metric-grid"></div>
+        <!-- 分组渲染（恢复 / 行为 / 负荷）：外层只是纵向容器，
+             每组的卡片网格由内部 .metric-grid 负责，别在这里再加 grid 布局。 -->
+        <div class="mx-groups" id="metric-grid"></div>
       </div>
     </section>
 
@@ -92,7 +108,22 @@
           </div>
         </div>
         <div class="brief-grid" id="brief-grid"></div>
+        <!-- 当日背景事件：判读结论依赖它们（加班口径、血氧排查、体重口径），
+             结论和依据同屏，三个月后回看才不会觉得判断来得莫名其妙。 -->
+        <div class="day-events" id="day-events" hidden></div>
         <p class="gaps" id="gaps"></p>
+      </div>
+    </section>
+
+    <!-- ============ 判读流水（历史判读，不吃尺度） ============
+         判读一天一份，但人真正想知道的是「同一个判断连着出现了几天」。
+         那需要把 60 多天排成一行行看，一天一天翻是做不到的。 -->
+    <section class="section" id="brief-log-zone" hidden>
+      <div class="container">
+        <details class="brief-log" id="brief-log">
+          <summary class="bl-sum" id="brief-log-sum">判读流水</summary>
+          <ol class="bl-list" id="bl-list"></ol>
+        </details>
       </div>
     </section>
 
@@ -127,6 +158,6 @@
     </div>
   </footer>
 </div>
-<script type="module" src="js/main.js?v=9b687d78"></script>
+<script type="module" src="js/main.js?v=b8889ec3"></script>
 </body>
 </html>

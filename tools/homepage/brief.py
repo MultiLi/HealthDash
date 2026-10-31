@@ -22,3 +22,34 @@ def build_brief_payload(brief):
         "sections": sections,
         "gaps": brief.get("gaps", []),
     }
+
+
+def brief_head(payload, limit=86):
+    """判读的「一句话结论」（2026-11-01 建）。
+
+    用途：判读流水——把 60 多天的结论压成一行行，让人能看出
+    「同一个判断连续出现了几天」，而不是一天一份地翻。
+
+    取 `cross[0]` 的第一句而不是 summary：summary 是给当天看的完整交代
+    （常带档位理由与截断声明），塞进列表会变成一坨；cross 首条才是
+    「这天到底怎么了」的正面结论。
+
+    **超长就截断并加省略号**——列表里宁可话不完整，也不要一行占三行。
+    """
+    cross = payload.get("cross") or []
+    if not cross:
+        return None
+    level = cross[0].get("level") or "NEUTRAL"
+    text = (cross[0].get("text") or "").strip()
+    if not text:
+        return None
+    # 按中文句末断句，取第一句；没有句号就用整段再截断
+    head = text
+    for sep in ("。", "；", ";"):
+        i = text.find(sep)
+        if 0 < i < limit:
+            head = text[:i]
+            break
+    if len(head) > limit:
+        head = head[:limit].rstrip("，、,· ") + "…"
+    return {"head": head, "lv": level}

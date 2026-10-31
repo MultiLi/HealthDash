@@ -21,6 +21,8 @@ import os
 
 from homepage.paths import SCRIPTS
 from homepage.scoring import hrv_state
+from homepage.nudge import nudge_block
+from homepage.events import events_block
 
 import sys as _sys
 if SCRIPTS not in _sys.path:
@@ -33,7 +35,38 @@ def _wd(date_str):
     return datetime.date.fromisoformat(date_str).isoweekday()
 
 
-def day_row(day, rules):
+def collect_state(day, today=None):
+    """该日「数据是为什么没的」——四态唯一口径出口（2026-11-01 建）。
+
+    前端以前只有一个「空心灰点」表示无数据，于是三种完全不同的情况长得一模一样：
+      · `failed`  端点报错（raw 里 sync_errors 有内容）→ **系统侧故障**，该去修管线
+      · `missing` 该日 raw 文件根本不存在            → 采集任务没跑到这一天
+      · `absent`  有 raw、无报错、却无实测            → **设备侧**没推数据（多半没戴表）
+      · `pending` 今天、还没到出数时刻                → 正常，等就行
+    把 `failed` 显示成「没戴表」，是把系统的锅扣在人头上。归因错了，
+    后面所有「我最近是不是懈怠了」的判断全部跟着错。所以这一层必须由后端定，
+    不能让每块 UI 各自猜（并列自 `hrv_state` / `units` 的单一口径纪律）。
+
+    判据顺序即优先级：报错 > 有数 > 无 raw > 今天未到 > 无佩戴。
+    报错排第一是因为「部分维度丢了也和全好长得一样」——10-31 就是 steps 全空、
+    hrv/准备度/曲线三个端点同时报错，若不看 sync_errors 只会判成「没戴表」。
+    """
+    c = day.get("collect") or {}
+    errs = c.get("errors") or {}
+    cov = day.get("coverage") or {}
+    has = cov.get("has_data")
+    if errs:
+        return "failed"
+    if has is True:
+        return "ok"
+    if not c.get("raw", True):
+        return "missing"
+    if today and day.get("date") == today:
+        return "pending"
+    return "absent"
+
+
+def day_row(day, rules, today=None):
     """完整 day 视图 -> 轻量索引行（日历/聚合/趋势的原子单位）。"""
     rec = day.get("recovery") or {}
     load = day.get("load") or {}
@@ -55,6 +88,15 @@ def day_row(day, rules):
         "wd": _wd(day["date"]),
         "morning": bool(day.get("morning")),
         "has_brief": bool(day.get("has_brief")),
+        # 采集状态四态（ok/failed/missing/absent/pending）：日历格、空态文案、
+        # 顶部胶囊三处共用。**不要在前端重新推断**——它需要 sync_errors 与
+        # coverage 两个只有后端才有的字段。
+        "cs": collect_state(day, today),
+        # 失败端点名（仅 cs=failed 时有值）：日历格 title 要能说出「哪个端点挂了」，
+        # 只写「采集失败」等于让人自己去翻 raw。空列表不下发，省体积。
+        "ce": (sorted(((day.get("collect") or {}).get("errors") or {}).keys())
+               or None),
+
         "score": hero.get("score"),
         "band": hero.get("band"),
         # Garmin 准备度：与综合指数并排的第二项分数。
@@ -95,7 +137,7 @@ _UNIT_METRICS = ("sleep_h", "hrv_ms", "rhr_bpm", "steps_daily", "sedentary_min",
                  "stress_avg", "active_kcal", "intensity_min")
 
 
-def units_block(rules):
+def units_block(rules, day_rows=None):
     """L2 单元判定下发（2026-10-25 接入，S2）。
 
     **为什么必须由后端下发**：`delta` 到底是「明显变化」还是「在误差内」，
@@ -106,6 +148,14 @@ def units_block(rules):
     字段压短（v/j/c/n/d/dv/r/vs）是为了首屏体积：七个字段带全名会把
     index.json 从 26KB 推到 200KB+，而这些键在 js 侧只被一个函数读。
 
+    `g`（2026-11-01 加）= 该单元内**采集侧没拿到的天数**（raw 缺失 / 端点报错）。
+    它和 `c`（覆盖率）是两个问题：
+      · `c` 低 = 样本少，均值不稳 → 影响「这个数可不可信」
+      · `g` 高 = 系统没采到 → 影响「这个数为什么缺」
+    以前只有一个覆盖率，于是「采集挂了 12 天」长得和「你自己 12 天没测」一模一样。
+    注意 `g` 只在展示层解释成因，**不改变任何判定**：judge/rate/coverage 仍是
+    L2 的原始口径，避免在这里偷偷重算一遍（那正是「两套口径」的老毛病）。
+
     DB 不可用（没跑过 index.py build）时返回 None，前端按旧逻辑回落并标注。
     """
     try:
@@ -113,11 +163,16 @@ def units_block(rules):
         con = _db.connect()
         rows = list(con.execute(
             "SELECT scale, key, metric, value, judge, judge_rate, coverage, n, "
-            "delta_v, delta_verdict, delta_vs FROM units WHERE metric IN (%s)"
-            % ",".join("?" * len(_UNIT_METRICS)), _UNIT_METRICS))
+            "delta_v, delta_verdict, delta_vs, start, end FROM units "
+            "WHERE metric IN (%s)" % ",".join("?" * len(_UNIT_METRICS)), _UNIT_METRICS))
         con.close()
     except Exception as e:                     # 派生层缺失不阻断主页构建
         return {"_error": str(e)[:120]}
+
+    # 逐日采集故障（failed / missing），按日期索引，供上面按单元区间统计
+    bad_days = set()
+    if day_rows:
+        bad_days = {r["date"] for r in day_rows if r.get("cs") in ("failed", "missing")}
 
     # 后端 metric -> 前端 key（同一份注册表，前端不再自己维护映射）
     fk = {}
@@ -139,6 +194,11 @@ def units_block(rules):
             cell["dv"] = r["delta_verdict"]
         if r["delta_vs"]:
             cell["vs"] = r["delta_vs"]
+        # 采集缺口：区间内有多少天是「系统没取到」而不是「人没给」
+        if bad_days and r["start"] and r["end"]:
+            g = sum(1 for d in bad_days if r["start"] <= d <= r["end"])
+            if g:
+                cell["g"] = g
         out.setdefault(r["scale"], {}).setdefault(r["key"], {})[k] = cell
     return out
 
@@ -155,17 +215,57 @@ def _goals(rules):
     }
 
 
+def collect_block(days, rows):
+    """采集健康度汇总（2026-11-01 建）。给顶部胶囊与告警条用。
+
+    **为什么单独成块而不是让前端数 days[].cs**：胶囊要在一句话里说清
+    「多少天有实测 / 多少天是采集失败」，这是比率判断，不能让每块 UI 各自
+    filter 一遍再四舍五入。汇总口径只有一份。
+    """
+    from collections import Counter
+    c = Counter(r["cs"] for r in rows)
+    errs = []
+    for d in days:
+        e = (d.get("collect") or {}).get("errors") or {}
+        if e:
+            errs.append({"date": d["date"], "keys": sorted(e.keys())})
+    errs.sort(key=lambda x: x["date"], reverse=True)
+    # 连续缺失区间：光说「18 天没原始数据」没用，得说清是哪几段。
+    # 断档常常是连续的（一次同步坏了就是两周），按段报比按天列短得多。
+    runs, cur = [], []
+    for r in rows:
+        if r["cs"] == "missing":
+            cur.append(r["date"])
+        elif cur:
+            runs.append(cur)
+            cur = []
+    if cur:
+        runs.append(cur)
+    ranges = ["%s~%s" % (g[0][5:], g[-1][5:]) if len(g) > 1 else g[0][5:]
+              for g in runs]
+    return {
+        "summary": {"n": len(rows), "ok": c["ok"], "failed": c["failed"],
+                    "missing": c["missing"], "absent": c["absent"],
+                    "pending": c["pending"]},
+        # 只留最近 5 次：告警条是「现在要不要去看一眼」，不是错误归档。
+        "recent_errors": errs[:5],
+        "missing_ranges": ranges,
+    }
+
+
 def build_index(data, rules):
     """完整视图 -> 轻量索引（首屏唯一载荷）。"""
     days = data["days"]
     hp = rules.get("homepage") or {}
+    today = datetime.date.today().isoformat()
+    rows = [day_row(d, rules, today) for d in days]
     return {
         "generated_at": data["generated_at"],
         "source": data["source"],
         "brief_date": data["brief_date"],
         "synced_at": data["synced_at"],
         "default_day": data["default_day"],
-        "today": datetime.date.today().isoformat(),
+        "today": today,
         # goals 是**兼容投影**：数值一律由 metricdefs 解析，本文件不再重写任何
         # metric→规则 的映射（2026-10-25）。前端旧代码仍读 ix.goals，S2 后改读 metric_defs。
         "goals": _goals(rules),
@@ -181,13 +281,28 @@ def build_index(data, rules):
         },
         # L2 单元判定（每个尺度 × 单元 × 指标：值 / 达标 / 覆盖率 / 环比判定）。
         # 前端的环比箭头与达标色从**这里**读，不再自己比大小（2026-10-25）。
-        "units": units_block(rules),
+        # 传 rows 是为了给每格附上「采集缺口 g」——说明覆盖为什么不足，不改判定。
+        "units": units_block(rules, rows),
         "trend_windows": hp.get("trend_windows", [7, 30, 90]),
         "span": {"first": days[0]["date"], "last": days[-1]["date"], "n": len(days)},
+        # 采集健康度：哪里没数、为什么没数。**加这个块的原因很直接**——
+        # 页面原本写着「Garmin 已同步 · 60 个数据日」，而那 60 天里有 22 天
+        # 一个实测值都没有。用「数据日」计数，等于把空壳算成有数据。
+        "collect": collect_block(days, rows),
+        # 判读流水（2026-11-01）：{date: {head, lv}}，一天一句。
+        # 62 天约 6KB，换来的是一眼能看出「睡眠不足」这个结论连了几天——
+        # 单日判读再详细也做不到这件事。
+        "briefs": {d["date"]: d["brief_head"] for d in days if d.get("brief_head")},
+        # 事件流旁路（2026-11-01）：{date: [{t,c,ts}]}。判读的结论依赖这些背景，
+        # 结论和依据必须能同屏出现，否则三个月后回看会觉得判断来得莫名其妙。
+        "events": events_block(),
+        # 主观补数缺口（2026-11-01）：只读提示，不提供写入。
+        # 详见 homepage/nudge.py 的模块注释——公开站点上不开写接口是取舍，不是遗漏。
+        "nudge": nudge_block(today),
         # 事件型数据源随索引下发：它是独立节，不进 days[]、不吃尺度，
         # 体积小（一次扫描 ~1KB），没必要为它再开一个按需端点。
         "inbody": data.get("inbody"),
-        "days": [day_row(d, rules) for d in days],
+        "days": rows,
     }
 
 

@@ -173,6 +173,10 @@ class GarminCN:
                         + "、".join(miss))
 
         out_days = []
+        # 逐日采集元信息：raw 是否存在 + 当次拉取的端点报错。只读落盘元信息，
+        # 不进 data 聚合（那不是业务字段，混进 _DAY_KEYS 会让窗口过滤按它判真值）。
+        raw_state = {iso: ((files[iso] or {}).get("sync_errors") or {}, files[iso] is not None)
+                     for iso in window}
         # 逐日规范化：以 stress_range（含 highStressDuration）为逐日骨架
         seen = set()
         for item in data["stress_range"]:
@@ -180,17 +184,22 @@ class GarminCN:
             if cd and cd in window and cd not in seen:
                 seen.add(cd)
                 out_days.append(self._canonical_day(
-                    cd, data, dailyhr_by_date.get(cd) or {}, vo2_latest))
+                    cd, data, dailyhr_by_date.get(cd) or {}, vo2_latest,
+                    sync_errors=raw_state.get(cd, ({}, False))[0],
+                    raw_present=raw_state.get(cd, ({}, False))[1]))
         for iso in window:                       # stress_range 缺日兜底
             if iso not in seen:
                 out_days.append(self._canonical_day(
-                    iso, data, dailyhr_by_date.get(iso) or {}, vo2_latest))
+                    iso, data, dailyhr_by_date.get(iso) or {}, vo2_latest,
+                    sync_errors=raw_state.get(iso, ({}, False))[0],
+                    raw_present=raw_state.get(iso, ({}, False))[1]))
         return {"date": date, "source": "garmin-cn", "gaps": gaps,
                 "days": sorted(out_days, key=lambda x: x["date"]),
                 "synced_at": (files[date] or {}).get("synced_at") or ""}
 
     # ------------------------------------------------ 规范化 ----
-    def _canonical_day(self, d, data, dailyhr, vo2_latest):
+    def _canonical_day(self, d, data, dailyhr, vo2_latest,
+                       sync_errors=None, raw_present=True):
         day = {"date": d}
         sleep_parent = next((x for x in data["sleep_daily"]
                              if (x.get("dailySleepDTO") or {}).get("calendarDate") == d), {})
@@ -441,6 +450,17 @@ class GarminCN:
         if vo2_latest and vo2_latest.get("calendarDate") == d:
             day["vo2max"] = {"value": vo2_latest.get("vo2MaxValue"),
                              "updated": vo2_latest.get("calendarDate")}
+        # 采集健康度（2026-11-01 建）。**这是「这一天为什么没数」的唯一证据**：
+        #   raw 未落盘 → 采集任务根本没为这天写文件（missing）
+        #   有 raw 但有 sync_errors → 端点报错，数据没拉全（failed）
+        #   有 raw、无报错、却无实测 → 设备没往上推（absent，通常是没戴表）
+        # 三者对用户的意义完全不同：前两个是系统侧、第三个是行为侧。
+        # 以前它们在前端全部塌成同一个空心灰点，于是「采集挂了」被读成「我没戴表」。
+        # 错误明细截断到 160 字：它只用于展示，不是可重放的操作日志。
+        day["collect"] = {
+            "raw": bool(raw_present),
+            "errors": {k: str(v)[:160] for k, v in (sync_errors or {}).items()},
+        }
         return day
 
     @staticmethod
