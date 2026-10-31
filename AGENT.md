@@ -2,7 +2,7 @@
 
 > **本文件是任何 agent 接入本项目的唯一入口。** 读完这一份就能知道：这是什么、你能调什么、你禁止做什么、怎么证明你做对了。
 >
-> 它只写**契约**，不写判读规则（在 skill 里）、不写设计理由（在 `docs/` 里）、不写历史（在 `notes/` 里）。三者的分工见 `docs/README.md`。
+> 它只写**契约**，不写判读规则（在 skill 里）、不写设计理由（在 `docs/` 里）、不写历史（在 `git log` 里）。三者的分工见 `docs/README.md`。
 
 ---
 
@@ -19,7 +19,7 @@
 | 项 | 值 |
 |---|---|
 | 工作区根 | `/Users/tian.li/Documents/Health`（下文记作 `$W`） |
-| 核心代码 | `$W/skills/body-health/scripts`（记作 `$S`）。2026-10-25 H3 已从 `.workbuddy/skills/` 搬到这里；旧路径 `.workbuddy/skills/body-health` 是指向它的符号链接，仍可用但**不要再写进新代码** |
+| 核心代码 | `$W/skills/body-health/scripts`（记作 `$S`）。`.workbuddy/skills/body-health` 是指向它的符号链接（兼容旧命令），**不要再写进新代码** |
 | **路径解析** | `$S/settings.py` 是**唯一入口**：`HEALTH_ROOT` 环境变量 > 向上找锚点（含 `tools/`+`docs/` 的祖先）> 旧布局兜底。**不许再用 `__file__` 往上数层** |
 | 采集通道 | `$W/skills/garmin-connect-cn/scripts`（旧名 `garmin-connect-cn-data__skillhub` 保留为兼容符号链接） |
 | 运行时服务 | `$W/site/server.py`（标准库，单端口） |
@@ -67,9 +67,9 @@
 |---|---|---|
 | 1 | **不许自己算数**。所有数字必须来自 `facts_D.json` 的 `assertions[].evidence` 或 `units[].value` | 你自己算第二次，就会和主页、和昨天的报告不一致。`verify_judgment.py` 会抓，但别指望它总能抓全 |
 | 2 | **不许改总评档位**（红/黄/绿/⚪）。`rollup` 是代码定的 | 降档必须显式写 `downgrade_reason`，否则就是偷偷改判 |
-| 3 | **不许凭报告文本判断数据完整性**。一律读 `data/raw/*.json` 的 `usersummary_daily.wellnessEndTimeLocal` | 关键词搜索必漏。曾有报告自称"覆盖全天"实则截止 23:29 |
+| 3 | **不许凭报告文本判断数据完整性**。一律读 `data/raw/*.json` 的 `usersummary_daily.wellnessEndTimeLocal` | 关键词搜索必漏；「覆盖全天」这种自述与事实无关（`docs/incidents.md` #1） |
 | 4 | **不许二次登录 Garmin**。token 在 `~/.config/garmin-cn/garth`，由 `sync.py` 自己管 | 会触发风控，且多套鉴权路径并存必出事故 |
-| 5 | **不许覆盖终版报告**。`compose.py --write` 只写 `.skeleton.md`；`--as-final` 才碰正式报告且需 `--force` | 2026-10-25 实际发生过一次覆盖，靠会话转录逐字节恢复 |
+| 5 | **不许覆盖终版报告**。`compose.py --write` 只写 `.skeleton.md`；`--as-final` 才碰正式报告且需 `--force` | 终版报告是唯一的健康档案，没有软删除可退 |
 | 6 | **不许因「数据还没同步」就重出报告或催数**。先看 `lastSyncTimestampGMT` | 手表没同步 ≠ 拉数失败。提高拉数频率不会让云端凭空多出数据 |
 
 ---
@@ -108,10 +108,10 @@ site/index.json + site/daily/*.json   前端数据层
 | 1 | 本文件 | 契约与禁令 |
 | 2 | `skills/body-health/SKILL.md` | 判读怎么说、怎么写、什么时候拒判 |
 | 3 | `docs/operations.md` | 具体流程与验证手段 |
-| 4 | `docs/incidents.md` | 20+ 条已经踩过的坑（省你重复踩） |
+| 4 | `docs/incidents.md` | 每条都是「现象 + 根因 + 现在的防线」，省你重复踩 |
 | 5 | `docs/architecture.md` | 只在你要改代码时读 |
 
-**不要一上来读全部 `notes/`**：那里是历史推导，读完只会让你对旧结论产生依赖。
+**不要一上来读全部 `notes/`**：那里是领域知识与个人基线，读完只会让你对旧结论产生依赖；判读只以 `facts_D.json` 为准。
 
 ---
 
@@ -156,19 +156,20 @@ python3 tools/probe_interactions.py      # 8 用例（需真浏览器，不在 c
 | 幂等 | 任何步骤重复跑必须产出相同结果（`slot.py`、`collect.py`、`build` 都已保证） |
 | 冲突 | `rules.json` 改动前先跑 `backtest.py snapshot`，改完跑 `diff`，把改判清单附在提交里 |
 | 独占 | `slot.py mark`、`push_data.py`、发布动作是**独占操作**，同一时刻只允许一个 agent 执行。**worktree 隔离不了它们** |
-| **部署** | **改了 `site/` 下任何文件，收尾必须跑 `python3 tools/deploy.py`。** 它输出 `republish` 就必须重新发布应用，然后 `--mark-app-deployed` 登记；输出 `hot_update` 会自动推送数据；`noop` 才代表线上已同步。**不许「git push 完就算完」**——2026-10-31 那轮重构（删 cloud.js、改 main.js/store.js）就是这么积压的：本地构建过、冒烟过、git 推了，线上打开还是旧版，而且没人发现 |
-| 记账 | 做实质工作后在 `.workbuddy/memory/[日期].md` 追加一条；那是本地日志，不入库 |
+| **部署** | **改了 `site/` 下任何文件，收尾必须跑 `python3 tools/deploy.py`。** 它输出 `republish` 就必须重新发布应用，然后 `--mark-app-deployed` 登记；输出 `hot_update` 会自动推送数据；`noop` 才代表线上已同步。**git push ≠ 上线**——两者的差集不会自己显形，只能靠这条命令显式核对 |
+| **历史** | **不写变更记录。** 文件只写当前真相，谁在哪天改了什么由 `git log` 承载。commit message 写 why，不写「update」。删东西的 commit 要说明「删了什么、为什么可以删、结论在哪」。唯一例外是 `docs/decisions.md` 的否决项与 `docs/incidents.md` 的防线——那是 git 查不到的信息。判据见 `docs/README.md` §2 |
+| 记账 | 会话草稿（未定的事、待办、个人偏好）写 `.workbuddy/memory/[日期].md`，**不写已完成的工程历史**；后者属于 commit |
 
 ---
 
-## 9. 当前已知的宿主耦合（迁移中）
+## 9. 当前已知的宿主耦合
 
 诚实标注，避免你在错误的假设上工作：
 
 | 事实 | 影响 | 状态 |
 |---|---|---|
-| ~~核心代码住在宿主私有目录~~ | **H1 + H3 已于 2026-10-25 完成**：路径解析集中到 `settings.py`，代码搬到 `$W/skills/`，旧路径留符号链接兼容。引擎不再依赖任何宿主的目录约定 | ✅ 已解除 |
-| 5 个定时班次的 prompt 在 WorkBuddy 自动化配置里，不在仓库 | 换调度器需人肉重写；且 prompt 里的路径若写死旧目录，搬迁后会失效 | 待 H2 落盘到 `skills/*/automations/` |
-| 判读规则与架构约束、事故复盘混在同一份 SKILL.md | 判读 agent 要吞 644 行 | 待 H4 拆分为 prompt / docs / incidents |
+| 定时班次的 prompt 在 WorkBuddy 自动化配置里，不在仓库 | 换调度器需人肉重写；prompt 里的路径若写死旧目录会失效 | 待落盘到 `skills/*/automations/` |
+| 判读规则与架构约束、事故复盘混在同一份 SKILL.md | 判读 agent 要吞整份 | 待拆分为 prompt / docs / incidents |
+| 发布参数（appId、启动命令）在 `tools/deploy.json`，不入库 | 换机器要重新配 | 设计如此：它含凭据 |
 
-迁移方案与顺序见 `docs/architecture.md` 第 6 节、`docs/decisions.md` 的「待定」。
+目标形态见 `docs/architecture.md` §4.4，待定项见 `docs/decisions.md` 第二部分。

@@ -5,12 +5,7 @@
 
 ## 为什么全部数据都放这里
 
-2026-10-31 之前，数据散在六七个位置：`reports/`、`daily_log.jsonl`、
-`notes/events.jsonl`、`data/raw/`、`data/inbody/`、`data/state/health.db`、
-`site/.data/`。防泄露只能靠 `.gitignore` 逐条列举，**漏一条就是个人健康数据
-公开在 GitHub 上**——这件事已经真实发生过一次。
-
-现在只有一条规则：**有身体数据的东西，必须在 `data/` 下**。
+只有一条规则：**有身体数据的东西，必须在 `data/` 下**。
 新增数据目录不需要改 `.gitignore`，天然被排除。
 
 ## 结构
@@ -26,6 +21,7 @@ data/
   logs/events.jsonl     健康事件自由输入归档（症状/作息/情绪/检查）
   state/slots.json      定时任务续跑账本（目标日与欠账的唯一依据）
   tests/golden.json     金标用例（含真实历史数值，故不入库）
+  archive/              已退役文档与会话流水的历史原件（清理归档，只查不改）
   profile.json          个人档案：年龄/性别/最大心率/静息心率
 ```
 
