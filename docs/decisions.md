@@ -32,14 +32,14 @@
 | D-20 | 2026-10-31 | **写入走文件、查询走库**：JSONL 与报告 md 是真相，`daily_log`/`events`/`reports` 三张表只是镜像 | 全部内容塞进 SQLite | 跨日查询要 SQL（「近 90 天体重」「历次体检」「红灯分布」），但报告正文进 BLOB 会让 `git diff`、编辑器排版、人工核对全部失效。判据是「谁来读」：人读的留文件，聚合统计走库 |
 | D-21 | 2026-10-31 | **个人档案不进 `rules.json`**，改放 `data/profile.json`，仓库只留 `profile.example.json` | 继续把 age/sex/max_hr/rhr 写在口径文件里 | `rules.json` 是引擎读的口径、要能公开；个人档案是数据、不能公开。两者混在一起，导致「让 rules.json 入库」和「不泄露个人基线」无法同时成立 |
 | D-22 | 2026-10-31 | **云服务副本整条移除**（`cloud.js` / vendor SDK / `cloud.json` / 一致性校验） | 保留但默认关闭 | 全项目搜不到任何写入方（`health_days`/`health_shards` 零引用），是一套死配置，却把 `publishableKey` 公开在了仓库里。留着它只会让「数据到底存在哪」这个问题继续含糊 |
-| D-23 | 2026-10-31 | **接受 GitHub 旧 commit 残留，不做删库或联系 Support** | 删库重建 / 联系 GitHub Support 清理不可达对象 | 强推后当前 HEAD 已 404，但旧 commit 仍可经 API 读到（21 行 9 月早期健康事件）。Sir 判断：仓库无 star/fork、无外部链接指向具体 SHA、残留内容是三个月前的零散记录，**风险可接受**。注意这是「已知并接受」而非「已解决」——留档是为了让下一个 agent 不再把它当新问题重新提一遍。事实描述见 `docs/incidents.md` 第 24 条 |
+| D-23 | 2026-11-01 | **处置 GitHub 旧 commit 残留：转 private，不删库、不联系 Support** | 删库重建 / 联系 GitHub Support 清理不可达对象 / 放着不管 | 强推后当前 HEAD 已 404，但旧 commit 仍可经 API 读到（21 行 9 月早期健康事件）。处置分两步：① 10-31 23:59 Sir 判断残留本身可接受（仓库无 star/fork、无外部链接指向具体 SHA、内容是三个月前的零散记录）；② **11-01 00:01 Sir 把仓库转 private**，实测匿名 `api.github.com/repos/...` 与 `contents/notes/events.jsonl?ref=<旧SHA>` 均由 200 变 404，SSH 推送正常。**结论：残留对象还在，但已无法匿名读取，暴露面随可见性一起消失**，因此不再清理。留档是为了让下一个 agent 不再把它当新问题提一遍，也不要再提议删库。注意：**转 private 不等于不需要 `.gitignore` 与 `guard_no_data.py`**——权限、协作者、将来若有需要转公开，任一条都会让旧问题重新成立。事实与验证见 `docs/incidents.md` 第 24 条 |
 
 ### 已推翻的决策
 
 | # | 原决策 | 推翻原因 |
 |---|---|---|
 | **D-09** | `MEMORY.md` 与 `personal_action_notes.md` 入库 | **2026-10-31 推翻**：这两个文件含体重、体成分、身体诉求等真实数值，「结论已沉淀」不等于「可以公开」。现整体不入库，判读细节点搬到 `notes/judgment-discipline.md`（同样不入库）。见 D-19 |
-| **D-10** | 仓库是私有，但 `.gitignore` 按公开标准写 | **已失守**：仓库实际是 **public**（`MultiLi/HealthDash`），且按公开标准写的规则也漏了——`MEMORY.md`、`notes/` 下多份基线文档、14 张带数值的截图都推了上去。教训不是"规则写得不够严"，而是**规则这种形式本身不可靠**。见 `docs/incidents.md` 第 24 条 |
+| **D-10** | 仓库是私有，但 `.gitignore` 按公开标准写 | **已失守，随后部分恢复**：仓库实际是 **public**（`MultiLi/HealthDash`），且按公开标准写的规则也漏了——`MEMORY.md`、`notes/` 下多份基线文档、14 张带数值的截图都推了上去。**2026-11-01 00:01 已转回 private**，但 D-10 这条决策本身立错了：它把「私有」当成了「规则可以松」的理由。真正的结论是**规则这种形式不可靠，目录结构才可靠**（见 D-19）。私有与否只决定暴露面，不决定是否需要边界。见 `docs/incidents.md` 第 24 条 |
 
 ---
 
