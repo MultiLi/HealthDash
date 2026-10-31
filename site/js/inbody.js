@@ -10,7 +10,7 @@
  *   ① 体重**由什么构成**（去脂 + 脂肪的堆叠条），而不是一个孤零零的 90.2；
  *   ② 每个数**相对参考区间站在哪**（区间条 + 越界量），而不是只给颜色。
  */
-import { esc, $ } from "./utils.js?v=f71a47a9";
+import { esc, $ } from "./utils.js?v=9b687d78";
 
 function n(v, d) {
   if (v == null || isNaN(v)) return "–";

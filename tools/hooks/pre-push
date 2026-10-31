@@ -1,0 +1,35 @@
+#!/bin/sh
+# 推送前检查：改了前端代码却没发布，提醒一句。
+#
+# 为什么需要（2026-10-31 的教训）：那次重构（删 cloud.js、改 main.js/store.js）
+# 本地构建过了、冒烟过了、git 也推了，**线上打开还是昨晚那版**——因为「改代码」
+# 和「上线」是两个动作，中间靠人记得。这个钩子就是那个「记得」。
+#
+# 它**不阻断推送**：发布是外部动作，可能失败、可能要人确认，不该卡住 git。
+# 只负责把「你还有一件事没做」说清楚。
+#
+# 安装：cp tools/hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+# 卸载：rm .git/hooks/pre-push
+
+cd "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || exit 0
+[ -f tools/deploy.py ] || exit 0
+command -v python3 >/dev/null 2>&1 || exit 0
+
+OUT=$(NO_PROXY='*' no_proxy='*' python3 tools/deploy.py --check 2>/dev/null)
+
+case "$OUT" in
+  *republish*)
+    echo ""
+    echo "┌────────────────────────────────────────────────────────────┐"
+    echo "│  ⚠️  前端代码有变更，但还没发布到线上。                     │"
+    echo "├────────────────────────────────────────────────────────────┤"
+    echo "│  数据变了 → 热更新，秒级：                                 │"
+    echo "│      python3 tools/deploy.py                               │"
+    echo "│  代码变了 → 必须重新发布应用（热更新改不了 js/css）：       │"
+    echo "│      在 WorkBuddy 里发布，然后登记：                        │"
+    echo "│      python3 tools/deploy.py --mark-app-deployed           │"
+    echo "└────────────────────────────────────────────────────────────┘"
+    echo ""
+    ;;
+esac
+exit 0

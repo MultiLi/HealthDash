@@ -67,30 +67,79 @@ python3 tools/push_data.py --check        # exit 0 = 一致
 
 ---
 
-## 三、代码链路（只有改前端时才需要）
+## 三、部署：数据热更新 vs 应用发布
 
-**关键区分**：
+**这是两条完全不同的路，走错一条就等于没上线。**
 
-| 改了什么 | 要做什么 |
-|---|---|
-| 数据（一次判读、`rules.json`、raw） | 只需 `build_homepage_data.py --push`，**不需要重新发布** |
-| 前端代码（`site/js/`、`site/css/`、`index.html`、`server.py`） | **必须重新发布**，且参数不可省 |
+| 改了什么 | 后果 | 代价 |
+|---|---|---|
+| 只有数据（`data/`：raw、报告、`rules.json`、判读结果） | **热更新**：一个 POST，秒级，几乎无感 | 无 |
+| 前端代码（`site/js/`、`site/css/`、`index.html`、`server.py`） | **必须重新发布应用** | 有失败面、要等缓存预热 |
 
-重新发布的必带参数（漏一个就静默退化）：
+### 3.1 一条命令判断该走哪条
+
+```bash
+python3 tools/deploy.py          # 检查 + 需要热更新就自动推（日常用这个）
+python3 tools/deploy.py --check  # 只看，不动任何东西
+```
+
+| 输出 | 含义 | 该做什么 |
+|---|---|---|
+| `noop` | 代码与数据都与上次上线一致 | 什么都不用做 |
+| `hot_update` | 只有数据变了 | 默认模式已自动推；`--check` 时手动跑一次 |
+| `republish` | 前端代码变了 | **必须重新发布应用**，然后 `--mark-app-deployed` |
+
+退出码：`0` 无需动作 / 已完成，`2` **需要重新发布**，`3` 热更新失败。
+（定时任务与钩子读退出码，别改语义。）
+
+### 3.2 判据怎么算的（别改成「看文件修改时间」）
+
+两个指纹，存在 `data/state/deploy.lock.json`：
+
+- **代码指纹**：`site/js/*.js`、`site/css/*.css`、`index.html` 的内容哈希，
+  **剥掉 `?v=` 与 `?b=` 两种构建注入的指纹**之后再算。
+- **数据指纹**：复用 `assetver.data_token()`（`index.json` + 月度分片内容）。
+
+⚠️ **不能直接用 `assetver.asset_version()` 当判据**：它只剥 `?v=`、不剥 `?b=`，
+而 `data.js` 里嵌着 `index.json?b=<token>`。数据每晚重算、token 就变、`data.js`
+内容跟着变，那个指纹**天天都不一样**——拿它判断「代码改了没」会每天误报一次
+「该重新发布了」。这是本模块唯一一个容易踩的坑，改代码时别把 `_STAMP` 那条正则删了。
+
+### 3.3 重新发布的必带参数
 
 ```
+directory=/Users/tian.li/Documents/Health/site
 language=python
 startCmd="python3 server.py"
 installCmd=""
 appId=wbapp_3G1QX7kZjmy7RNbU9gBdT5
-updateExistingApp=true
 ```
 
-**漏掉 `language=python` 会退回纯静态：页面看起来正常，但热更新失效，数据冻在打包那一刻，且没有任何报错。**
+- **漏掉 `language=python` 会退回纯静态**：页面看起来正常，但热更新失效，
+  数据冻在打包那一刻，**且没有任何报错**。
+- 传同一个 `appId` 就是覆盖同一个应用，**链接不变**——不需要（也没有）
+  `updateExistingApp` 这类参数了，发布工具按 `appId` 复用。
+- `server.py` 必须读 `PORT` 环境变量并 bind `0.0.0.0`（已满足，见 `server.py:455`）。
 
-地址的唯一来源是 `tools/deploy.json`（线上 `https://health-daily-86790.app.workbuddy.host/`）。
+地址唯一来源 `tools/deploy.json`（线上 `https://health-daily-86790.app.workbuddy.host/`）。
 
-**为什么"换数据"不需要重新上线**：`site/server.py` 提供同源可写端点，数据落服务端 `.data/`。更新 = 一个 `POST /api/push`（带 `X-Push-Token`）。前端取数走 `js/data.js`：端点优先，失败回落随包静态副本并标琥珀。
+### 3.4 为什么数据不用重新上线
+
+`site/server.py` 提供同源可写端点，数据落服务端 `.data/`，更新 = 一个 `POST /api/push`
+（带 `X-Push-Token`）。前端取数走 `js/data.js`：**端点优先，失败回落随包静态副本并标琥珀**——
+所以推送失败不会白屏，只是回到打包时的数据。
+
+### 3.5 三道触发点（靠机制，不靠记性）
+
+| # | 触发点 | 做什么 |
+|---|---|---|
+| 1 | **改完代码当次** | agent 收尾必跑 `deploy.py`，`republish` 就发布 + 登记（`AGENT.md` §8 硬约束） |
+| 2 | **git push 时** | `.git/hooks/pre-push` 发现 `republish` 打印警告，**不阻断推送**。重装：`cp tools/hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push` |
+| 3 | **每天班次** | 14:00 / 02:00 各跑一次 `deploy.py`，发现积压就在消息里说明 |
+
+> **为什么第 1 道最重要**：2026-10-31 那轮重构（删 `cloud.js`、改 `main.js`/`store.js`）
+> 本地构建过了、冒烟 94/94 过了、git 也推了，**线上打开还是昨晚那版，而且没人发现**——
+> 因为「改代码」和「上线」是两个动作，中间全靠人记得。只有 2 和 3 的话，最坏要等一天才生效。
 
 ---
 

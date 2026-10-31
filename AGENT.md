@@ -45,6 +45,8 @@
 | 判读自检 | `python3 $S/verify_judgment.py --date D` | 五项校验结果 | 无 |
 | 记完成 | `python3 $S/slot.py mark done --data-cutoff HH:MM` | `data/state/slots.json` | **不可逆**，会阻止重出 |
 | 主页构建 | `python3 tools/build_homepage_data.py` | `site/index.json` + `site/daily/` | 覆盖产物 |
+| **部署编排** | `python3 tools/deploy.py`（= 检查 + 需要就热更新）/ `--check` 只看 | 输出 `noop`/`hot_update`/`republish`；exit 2 = 需要重新发布 | 改了线上数据（热更新时） |
+| 发布后登记 | `python3 tools/deploy.py --mark-app-deployed` | 更新上线游标 | 只写本地游标 |
 | 主页推送 | `python3 tools/push_data.py` | 线上 `.data/` | 改线上数据 |
 | 推送核验 | `python3 tools/push_data.py --check` | exit 0 = 线上本地逐文件一致 | 无 |
 | 加密备份 | `python3 tools/backup_health.py --list`（只列）/ `--out <目录>`（打包） | `health_backup_<时间戳>.tar.gz.enc` | 写外部目录；口令走交互或 `HEALTH_BACKUP_PASS` |
@@ -143,6 +145,7 @@ python3 tools/probe_interactions.py      # 8 用例
 | 幂等 | 任何步骤重复跑必须产出相同结果（`slot.py`、`collect.py`、`build` 都已保证） |
 | 冲突 | `rules.json` 改动前先跑 `backtest.py snapshot`，改完跑 `diff`，把改判清单附在提交里 |
 | 独占 | `slot.py mark`、`push_data.py`、发布动作是**独占操作**，同一时刻只允许一个 agent 执行 |
+| **部署** | **改了 `site/` 下任何文件，收尾必须跑 `python3 tools/deploy.py`。** 它输出 `republish` 就必须重新发布应用，然后 `--mark-app-deployed` 登记；输出 `hot_update` 会自动推送数据；`noop` 才代表线上已同步。**不许「git push 完就算完」**——2026-10-31 那轮重构（删 cloud.js、改 main.js/store.js）就是这么积压的：本地构建过、冒烟过、git 推了，线上打开还是旧版，而且没人发现 |
 | 记账 | 做实质工作后在 `.workbuddy/memory/[日期].md` 追加一条；那是本地日志，不入库 |
 
 ---
