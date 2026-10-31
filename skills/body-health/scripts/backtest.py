@@ -32,12 +32,16 @@ import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
-from settings import ROOT as _WORKSPACE  # noqa: E402  路径唯一解析点（settings.py）
+from settings import (  # noqa: E402  路径唯一解析点（settings.py）
+    GOLDEN, REPORTS_DIR,
+)
 
 import db                                                    # noqa: E402
 
-OUT_DIR = os.environ.get("HEALTH_BACKTEST_DIR") or os.path.join(_WORKSPACE, "reports", "backtest")
-GOLDEN = os.path.join(_WORKSPACE, "tests", "golden.json")
+# 2026-11-01：金标用例与回测产物都是数据，跟着 data/ 单根走。
+# 此前写死 ROOT/tests 与 ROOT/reports——数据搬家就断，且它们含真实病史数值，
+# 不该留在代码目录里（那会被 .gitignore 逐条追着漏）。
+OUT_DIR = os.environ.get("HEALTH_BACKTEST_DIR") or os.path.join(REPORTS_DIR, "backtest")
 LATEST = os.path.join(OUT_DIR, "latest.json")
 
 

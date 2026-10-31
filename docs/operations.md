@@ -166,18 +166,25 @@ python3 $S/fact_pack.py --date D --days 4 --merge-judgment
 |---|---|---|---|
 | `data/raw/*.json` | 无法判读任何历史日 | ✅ 大部分能 | `sync.py --date D --days 1 --force` 按日重拉。**但如果 Garmin 云端已清理该日数据就永久丢失** |
 | `data/inbody/` | 体成分面板空 | ✅ 能 | `sync_inbody.py` 全量分页重拉（账号里都有） |
-| `data/state/health.db` | 无影响 | ✅ 能 | `index.py build`，约 2 秒 |
+| `data/db/health.db` | 无影响 | ✅ 能 | `index.py build`，约 2 秒 |
 | `data/state/slots.json` | 账本丢失，可能重复派发已完成的日子 | ⚠️ 不能精确重建 | 会按落盘产物自愈（报告在就判 done），但需人工核对一遍 |
 | `site/index.json` `site/daily/` | 主页无数据 | ✅ 能 | `build_homepage_data.py` |
 | `site/.data/` | 服务端回了打包时的旧副本 | ✅ 能 | 重新 `push_data.py` |
 | `site/.push_token` | 无法推数据 | ✅ 能 | 重新生成并同步到 `push_data.py` |
-| `reports/*.md` `*.json` | **历史判读全丢，主页失去所有判读层** | ❌ **不能** | **必须独立备份。** LLM 叙述不可复现，重跑只能得到骨架版 |
-| `daily_log.jsonl` | 主观数据（体重等）全丢 | ❌ **不能** | **必须独立备份** |
-| `notes/events.jsonl` | 健康事件归档全丢 | ❌ **不能** | **必须独立备份** |
+| `data/reports/*.md` `*.json` | **历史判读全丢，主页失去所有判读层** | ❌ **不能** | **必须独立备份。** LLM 叙述不可复现，重跑只能得到骨架版 |
+| `data/logs/daily_log.jsonl` | 主观数据（体重等）全丢 | ❌ **不能** | **必须独立备份** |
+| `data/logs/events.jsonl` | 健康事件归档全丢 | ❌ **不能** | **必须独立备份** |
+| `data/tests/golden.json` | 口径回归失去锚点，改阈值时不知道偏了多少 | ❌ **不能** | 只能人工按 `docs/incidents.md` 逐条重建，成本极高 → **纳入备份** |
+| `data/profile.json` | 引擎回落到示例档案，**Z2 区间 / 心率判读全用错数** | ⚠️ 手填 | 照 `references/profile.example.json` 重填七项，5 分钟 |
 
 ### 三个必须独立备份的东西
 
-`reports/`、`daily_log.jsonl`、`notes/events.jsonl` —— **它们不在 git 里，且无法用代码重建。**
+`data/reports/`、`data/logs/daily_log.jsonl`、`data/logs/events.jsonl` —— **它们不在 git 里，且无法用代码重建。**
+
+**2026-11-01 起整个 `data/` 都不在 git 里**（`.gitignore` 一行 `data/*` 封死），
+所以「不在 git 里」不再是这三样的特征，而是全部数据的共同状态。
+真正要区分的是**能不能重建**：`db/` `raw/`（大部分）能重拉重建，
+而 `reports/` `logs/` `tests/golden.json` 不能——**备份优先级按这张表来，不是按目录大小。**
 
 git 管代码与口径，这三样管「实际发生了什么」。
 

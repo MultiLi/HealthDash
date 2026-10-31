@@ -37,6 +37,15 @@ def main():
     # 发布走 CDN，URL 不变就会一直回旧副本：把「内容变了」翻译成「URL 变了」（见 assetver）
     ver = stamp_all(SITE)
 
+    # 主观日志与判读产物镜像进 health.db（2026-11-01）。
+    # 放在这里而不是采集脚本里：报告是随构建才重算的，库要跟着构建走才不会落后于文件。
+    # 失败不阻断构建——呈现层不依赖库，库只是查询镜像。
+    try:
+        subprocess.run([sys.executable, os.path.join(HERE, "sync_local_store.py")],
+                       check=False, stdout=subprocess.DEVNULL)
+    except Exception:
+        pass
+
     idx_path = os.path.join(SITE, "index.json")
     print("written:", idx_path, "| days:", len(idx["days"]),
           "| default:", idx["default_day"], "| span:", idx["span"]["n"])

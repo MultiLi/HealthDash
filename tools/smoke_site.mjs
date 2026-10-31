@@ -209,65 +209,10 @@ for (const scale of ["roll7", "roll28", "roll90"]) {
   ok(/近 \d+ 天/.test(nodes.get("axis-note").textContent), `[${scale}] 时间轴说明点明窗口长度`);
 }
 
-console.log("\n== 云服务（读侧镜像 + 一致性校验） ==");
-ok(!!(ix.cloud && ix.cloud.endpoint && ix.cloud.publishableKey),
-  "index.json 下发了云服务 publicConfig（endpoint/publishableKey 不硬编码在代码里）",
-  ix.cloud ? ix.cloud.endpoint : "缺失");
-/* 真的把 vendor 的 IIFE 加载进全局，验证「初始化契约」而不只是文件存在。
-   indirect eval 才会写到全局作用域（直接 eval 的 var 只在局部）。 */
-const sdkPath = path.join(SITE, "vendor", "workbuddy-cloud.global.js");
-const sdkSrc = fs.readFileSync(sdkPath, "utf8");
-(0, eval)(sdkSrc);
-ok(!!globalThis.WorkBuddyCloud && !!WorkBuddyCloud.createWorkBuddyCloud,
-  "vendor 的 IIFE 暴露全局 WorkBuddyCloud（Form B）", sdkSrc.length + " 字节");
-/* SDK 在初始化时校验运行时能力（fetch 必须存在）——前面测取数链路时把 fetch 删掉了，
-   这里临时装回一个桩，只为验证初始化契约，不发真请求。 */
-globalThis.fetch = function () {
-  return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) });
-};
-const probeClient = WorkBuddyCloud.createWorkBuddyCloud({
-  endpoint: ix.cloud.endpoint,
-  oauthRelayBaseUrl: ix.cloud.oauthRelayBaseUrl,
-  publishableKey: ix.cloud.publishableKey
-});
-ok(!!probeClient.database && typeof probeClient.database.from === "function",
-  "用 publicConfig 初始化成功，database 模块可用（与 cloud.js 的参数一致）");
-ok(["auth", "database", "storage", "llm"].every((m) => !!probeClient[m]),
-  "四个模块都挂在同一个客户端上（一次初始化，不用二次 createClient）");
-delete globalThis.fetch;
-
-const cloudMod = await import(mod("js/cloud.js"));
-ok(cloudMod.statusText({ status: "off" }) === " · 云端未配置", "未配置时如实标注，不写成已同步");
-ok(cloudMod.statusText({ status: "unavailable" }) === " · 云端不可用", "读取失败标不可用");
-
-/* 用真实索引行构造一份「云端快照」，验证比对逻辑（不联网） */
-const cloudRows = ix.days.slice(-7).map((r) => Object.assign({}, r));
-const snapSame = { rows: cloudRows, generated_at: ix.generated_at };
-let cs = cloudMod.compare(ix, snapSame);
-ok(cs.status === "in-sync" && cs.n === 7, "云端与本地逐字段一致 → in-sync", JSON.stringify(cs));
-ok(/云端 7 天一致/.test(cloudMod.statusText(cs)), "一致时给出天数");
-
-/* jsonb 会重排键顺序：整串比会假阳性，所以按字段比 */
-const reordered = cloudRows.map((r) => {
-  const o = {};
-  Object.keys(r).reverse().forEach((k) => { o[k] = r[k]; });
-  return o;
-});
-cs = cloudMod.compare(ix, { rows: reordered });
-ok(cs.status === "in-sync", "键顺序不同不算不一致（jsonb 会重排）");
-
-const tampered = cloudRows.map((r) => Object.assign({}, r));
-tampered[tampered.length - 1].hrv = 999;
-cs = cloudMod.compare(ix, { rows: tampered });
-ok(cs.status === "mismatch" && cs.n_diff === 1, "字段被改 → mismatch 且定位到日期",
-  JSON.stringify(cs.diffs));
-ok(/云端 1 天不一致/.test(cloudMod.statusText(cs)), "不一致时说清天数");
-
-cs = cloudMod.compare(ix, { rows: cloudRows.concat([{ date: "2026-10-30", hrv: 60 }]) });
-ok(cs.status === "ahead" && cs.cloud_only.length === 1, "云端多出的日期单独标 ahead");
-
-cs = cloudMod.compare(ix, null);
-ok(cs.status === "off", "没有云端快照时不假装校验过");
+/* 2026-11-01：云服务副本整条链路已移除（数据只存本地 data/ 单根）。
+   这里原本有 20+ 项测试：publicConfig 下发、vendor IIFE 初始化、比对逻辑
+   （in-sync / mismatch / ahead）。全部随功能下线——留着一组测不存在能力的用例，
+   只会让冒烟失败变成噪音，掩盖真正的回归。 */
 
 console.log("\n== 卡内细分渲染器（喂完整分片） ==");
 const closedLast = store.closed[store.closed.length - 1].date;

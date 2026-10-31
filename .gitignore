@@ -1,76 +1,60 @@
 # ═══════════════════════════════════════════════════════════════════════
 # HealthDash · 版本控制边界
 #
+# 2026-11-01 重构：从「逐条列举」改为「结构封死」。
+#
+# 旧版是一条一条排：data/raw/、data/inbody/、reports/、daily_log.jsonl、
+# notes/events.jsonl、site/daily/ … 每加一个数据位置就要记得加一行。
+# 结果是：漏加一行 = 个人健康数据公开在 GitHub 上（已实际发生，见 docs/incidents.md）。
+#
+# 新规则只有一条，靠目录结构保证，不靠人记性：
+#   全部个人数据住在 data/ 下 —— 整个目录排除；其余入库的只有代码与文档。
+#
 # 判定一条路径该不该入库，只问一个问题：
-#   「删掉它，另一台机器能不能从零重建？」
-#     能   → 它只是缓存，ignore
-#     不能 → 它是真相或知识，入库
-#
-# 四类不入库：
-#   ① 采集原始      data/raw/ data/inbody/         —— 可重拉，且含个人数据
-#   ② 派生与运行态   *.db reports/ site/index.json  —— 可由代码重建
-#   ③ 宿主状态      .workbuddy 下的应用注册表、每日日志、自动化记忆
-#   ④ 凭据与个人原文  .push_token daily_log.jsonl notes/events.jsonl
-#
-# 为什么「宿主状态」要单列：
-#   它不是项目状态，是某个 agent 平台的运行记录。换框架、换机器、多个
-#   agent 并行时它必然冲突，且没有重建价值——有长期价值的结论已经沉淀
-#   到 MEMORY.md 与 docs/。留日志在仓库里只制造 diff 噪音。
-#
-# 为什么 raw 不入库（docs/architecture.md 公理 1）：
-#   真相只有两个——data/raw/*（采集快照）与 references/rules.json（口径）。
-#   其余全是派生层，必须可丢弃、可重建。340KB/天 × 3 年塞进 git，代价是
-#   每次 clone 都在搬运二进制式 JSON，而它本该由采集链路与独立备份负责。
-#
-# 要改成「数据也入库」，删掉对应几行即可，但先想清楚体积与隐私边界。
-#
-# 注：本文件在 GitHub 生成的 Python 模板基础上裁剪——模板里 `/site` 一行
-#   （mkdocs 产物）会把本项目的**前端源码目录**整个忽略，属模板误伤，
-#   已移除。改本文件时别把它加回来。
+#   「它里面有我的身体数据吗？」
+#     有 → 它必须在 data/ 下；不在 data/ 下的，本身就是设计错误
 # ═══════════════════════════════════════════════════════════════════════
 
 
-# ── ① 采集原始（含个人健康数据，永不入库）──────────────────────────────
-data/raw/
-data/inbody/
+# ── ① 数据单根（一行封死：raw / inbody / db / reports / logs / tests）────
+# 用 data/* 而不是 data/，是为了让 data/README.md 能入库（结构说明不是数据）。
+data/*
+!data/README.md
 
-# ── ② 派生与运行态（删掉可重建，命令见 docs/operations.md）─────────────
-data/state/*.db
-data/state/*.db-wal
-data/state/*.db-shm
-data/state/slots.json
-reports/
+# ── ② 发布产物：派生数据，但发布契约要求留在 site/ ──────────────────────
+# 它们是 data/ 的渲染副本，删掉可由 build_homepage_data.py 重建。
+# 不挪进 data/ 的原因：server.py 与前端从固定路径取，挪了要改部署参数。
 site/index.json
 site/daily/
 site/.data/
+site/_probe_*.html
 
-# ── ③ 宿主状态（某个 agent 平台的运行记录，不进项目历史）────────────────
-# 每日工作日志：append-only，天天变，diff 噪音大于价值
-.workbuddy/memory/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].md
-# 自动化班次的执行记忆：宿主运行日志；结论应沉淀到 docs/ 或 MEMORY.md
-.workbuddy/memory/automations/
-# 应用注册表：纯宿主状态（appId 与地址的唯一来源是 tools/deploy.json）
+# ── ③ 凭据与令牌 ────────────────────────────────────────────────────────
+# deploy.json 是发布参数的唯一来源（含线上地址与 appId），本机保存即可
+tools/deploy.json
+site/.push_token
+site/_push_token
+.wbapp_*.genie
+
+# ── ④ 宿主状态（某个 agent 平台的运行记录，不是项目状态）────────────────
+# 每日健康日志、自动化执行记忆、应用注册表——换机器或多 agent 并行时必冲突
+.workbuddy/memory/
 .workbuddy/applications.yaml
-# 技能市场的安装元数据：宿主靠它识别技能，但不属于项目源码。
-# 本地必须有、仓库不该有——它现在住在 skills/ 下（H3 已搬离 .workbuddy/）。
+# 技能市场的安装元数据：宿主靠它识别技能，但不属于项目源码
 skills/**/_meta.json
 skills/**/_skillhub_meta.json
 skills/**/_icon.png
-# 兼容符号链接本身**要入库**（clone 后旧路径仍可用）：
-#   .workbuddy/skills/body-health -> ../../skills/body-health
-#   .workbuddy/skills/garmin-connect-cn-data__skillhub -> ../../skills/garmin-connect-cn
-# 发布句柄
-.wbapp_*.genie
 
-# ── ④ 凭据与个人原文（私有仓库也不入库）────────────────────────────────
-site/.push_token
-daily_log.jsonl
-notes/events.jsonl
-
-# ── 前端源码在 site/js、site/css、site/server.py：**要入库** ────────────
-
-# ── 本地调试产物 ────────────────────────────────────────────────────────
-site/_probe_*.html
+# ── ⑤ 个人档案与个人笔记 ────────────────────────────────────────────────
+# rules.json 只放通用阈值（要能公开）；年龄/性别/最大心率/静息心率在
+# data/profile.json，随 data/ 一起排除。仓库里只留 profile.example.json 模板。
+#
+# MEMORY.md 与 notes/ 是**个人**推导与身体档案，含真实数值，整体不入库。
+# 保留 notes/backlog.md：它是工程欠账清单，不带身体数据。
+# 这两条曾经是「untracked 但未被忽略」——一次 git add -A 就会重演本次泄露。
+MEMORY.md
+notes/*
+!notes/backlog.md
 
 # ── Python ──────────────────────────────────────────────────────────────
 __pycache__/

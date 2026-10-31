@@ -64,14 +64,27 @@ def path(*parts):
     return os.path.join(ROOT, *parts)
 
 
-# —— 常用位置（新代码一律从这里取；老代码可以继续自己拼，但根必须用 ROOT）——
-RAW_DIR = os.environ.get("HEALTH_RAW_DIR") or path("data", "raw")
-INBODY_DIR = os.environ.get("HEALTH_INBODY_DIR") or path("data", "inbody")
-STATE_DIR = os.environ.get("HEALTH_STATE_DIR") or path("data", "state")
-REPORTS_DIR = os.environ.get("HEALTH_REPORTS_DIR") or path("reports")
-DAILY_LOG = path("daily_log.jsonl")
-EVENTS_LOG = path("notes", "events.jsonl")
-GOLDEN = path("tests", "golden.json")
+# —— 数据单根（2026-11-01 立）——
+# 全部个人数据住在 data/ 下，代码目录只留代码。目的不是"整齐"：
+# 数据曾经散在 reports/、daily_log.jsonl、notes/events.jsonl、site/.data/
+# 六七个位置，防泄露只能靠 .gitignore 逐条列举，漏一条就是公开泄露。
+# 现在 .gitignore 只需 `data/` 一行，**新增任何数据目录天然不入库**。
+#
+# site/ 下的构建产物（index.json / daily / .data）是唯一例外：那是发布契约，
+# 服务端与前端从固定路径取，挪了要改部署参数。它们仍是派生数据，已 ignore。
+DATA_ROOT = os.environ.get("HEALTH_DATA_DIR") or path("data")
+
+RAW_DIR = os.environ.get("HEALTH_RAW_DIR") or os.path.join(DATA_ROOT, "raw")
+INBODY_DIR = os.environ.get("HEALTH_INBODY_DIR") or os.path.join(DATA_ROOT, "inbody")
+DB_DIR = os.environ.get("HEALTH_DB_DIR") or os.path.join(DATA_ROOT, "db")
+DB_PATH = os.environ.get("HEALTH_DB") or os.path.join(DB_DIR, "health.db")
+STATE_DIR = os.environ.get("HEALTH_STATE_DIR") or os.path.join(DATA_ROOT, "state")
+REPORTS_DIR = os.environ.get("HEALTH_REPORTS_DIR") or os.path.join(DATA_ROOT, "reports")
+LOGS_DIR = os.environ.get("HEALTH_LOGS_DIR") or os.path.join(DATA_ROOT, "logs")
+DAILY_LOG = os.path.join(LOGS_DIR, "daily_log.jsonl")
+EVENTS_LOG = os.path.join(LOGS_DIR, "events.jsonl")
+PROFILE = os.path.join(DATA_ROOT, "profile.json")
+GOLDEN = os.path.join(DATA_ROOT, "tests", "golden.json")
 SITE_DIR = path("site")
 TOOLS_DIR = path("tools")
 
@@ -104,9 +117,13 @@ def describe():
     """自检用：把解析结果打印出来，搬迁后第一件事就是看它。"""
     return {
         "root": ROOT,
+        "data_root": DATA_ROOT,
         "references": REFERENCES_DIR,
         "raw": RAW_DIR,
+        "db": DB_PATH,
         "reports": REPORTS_DIR,
+        "logs": LOGS_DIR,
+        "profile": PROFILE,
         "anchors_ok": _looks_like_root(ROOT),
         "from_env": bool(os.environ.get("HEALTH_ROOT")),
     }

@@ -56,7 +56,7 @@ tools/                   构建、推送、冒烟、交互探针
 site/                    前端（原生 ES module，无构建）+ 同源可写服务
 tests/                   golden.json 金标用例
 data/                    采集原始 + 物化数据库（都不入库）
-reports/                 报告产物（不入库）
+data/reports/                 报告产物（不入库）
 .workbuddy/skills/       ← 两个指向 skills/ 的符号链接（兼容旧路径，勿删）
 ```
 
@@ -64,7 +64,7 @@ reports/                 报告产物（不入库）
 
 ## 三条最容易踩的边界
 
-1. **`data/raw/` 与 `reports/` 不入库**，`site/index.json` 也不入库。判据：删掉它能不能重建。
+1. **`data/raw/` 与 `data/reports/` 不入库**，`site/index.json` 也不入库。判据：删掉它能不能重建。
 2. **只有改前端代码才需要重新发布**，「换数据」只需一次 POST。发布必须带 `language=python`，漏了就静默退回纯静态。
 3. **改 `rules.json` 前先 `backtest.py snapshot`**，改完 `diff`，把改判清单附在提交里。
 

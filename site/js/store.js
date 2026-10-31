@@ -17,6 +17,5 @@ export var store = {
   anchor: null,
   month: null,      // 日历当前显示的月份，与 anchor 解耦（允许只翻月不选日）
   dataFrom: null,   // "endpoint" | "bundled"：本次取数走的是热更新端点还是随包静态副本
-  cloud: null,      // 云端一致性校验结果：{status, n, n_diff, ...}；null = 还没查过
   lastEndpointError: null
 };

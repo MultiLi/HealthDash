@@ -1,13 +1,5 @@
 {
- "_comment": "判读规则与用户档案，与代码解耦。改这里即可调整判读口径，无需改 daily_brief.py。字段改动向后兼容：脚本对缺失键有默认值。",
- "profile": {
-  "age": 33,
-  "sex": "male",
-  "max_hr": 182,
-  "rhr_7d_avg": 53,
-  "activity_pattern": "walking-dominant",
-  "home_tz_offset_hours": 8
- },
+ "_comment": "判读规则与阈值，与代码解耦。改这里即可调整判读口径，无需改 daily_brief.py。字段改动向后兼容：脚本对缺失键有默认值。⚠️ 个人档案（age/sex/max_hr/rhr）不在本文件——它在 data/profile.json，本文件要能公开，不得写入任何个人实测值。",
  "sleep": {
   "min_healthy_duration_min": 420,
   "deep_pct_optimal": [
@@ -388,7 +380,7 @@
      "change": "low",
      "trend": "low"
     },
-    "note": "所有减脂目标路径的分母。它一漂，目标体重全跟着错。所以『目标 85.9kg』的可信度上限 = FFM 的可信度。",
+    "note": "所有减脂目标路径的分母。它一漂，目标体重全跟着错。所以「目标体重」的可信度上限 = FFM 的可信度。",
     "cross": [
      "weight_kg：Δ体重 − ΔFFM ≈ Δ脂肪（误差累积，只给方向不给数值）"
     ]

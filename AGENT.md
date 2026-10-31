@@ -40,8 +40,8 @@
 | 物化 | `python3 $S/index.py build` | `health.db`（obs/units/assertions） | 可重建 |
 | 自检 | `python3 $S/index.py verify` | 11 项一致性检查 | 无 |
 | 路径自检 | `python3 $S/settings.py` | 打印 root / references / raw / reports 的解析结果 | 无 |
-| 事实包 | `python3 $S/fact_pack.py --date D --days 4` | `reports/facts_D.json` | 覆盖该文件 |
-| 报告骨架 | `python3 $S/compose.py --date D` | `reports/body_brief_D.skeleton.md` | **只写 skeleton** |
+| 事实包 | `python3 $S/fact_pack.py --date D --days 4` | `data/reports/facts_D.json` | 覆盖该文件 |
+| 报告骨架 | `python3 $S/compose.py --date D` | `data/reports/body_brief_D.skeleton.md` | **只写 skeleton** |
 | 判读自检 | `python3 $S/verify_judgment.py --date D` | 五项校验结果 | 无 |
 | 记完成 | `python3 $S/slot.py mark done --data-cutoff HH:MM` | `data/state/slots.json` | **不可逆**，会阻止重出 |
 | 主页构建 | `python3 tools/build_homepage_data.py` | `site/index.json` + `site/daily/` | 覆盖产物 |
@@ -77,18 +77,22 @@
 整条链路是**文件契约**，不是函数调用。你只需知道每个环节读写哪个文件。
 
 ```
-data/raw/<YYYY-MM-DD>.json          采集快照（不可变，只在缺失或截断时重拉）
+data/raw/<YYYY-MM-DD>.json            采集快照（不可变，只在缺失或截断时重拉）
   ↓ index.py build
-data/state/health.db                 obs → units → assertions（可删除重建）
+data/db/health.db                     obs → units → assertions（可删除重建）
   ↓ fact_pack.py --date D
-reports/facts_D.json                 ★ 判读唯一合法输入（含 assertions / units / scales / gaps）
+data/reports/facts_D.json             ★ 判读唯一合法输入（assertions / units / scales / gaps）
   ↓ 你（判读）
-reports/judgment_D.json              判读结论（结构校验见 verify_judgment.py）
-  ↓ build_homepage_data.py
-site/index.json + site/daily/*.json  前端数据层
+data/reports/judgment_D.json          判读结论（结构校验见 verify_judgment.py）
+  ↓ build_homepage_data.py（同一进程内顺带把主观日志与报告镜像进库）
+site/index.json + site/daily/*.json   前端数据层
   ↓ push_data.py
-线上 .data/                          热更新，不需要重新发布
+线上 .data/                           热更新，不需要重新发布
 ```
+
+**全部个人数据都在 `data/` 下，这个目录整体不入库。** 你要读写的数据只能是
+`data/` 下的路径；如果发现数据出现在别处（`reports/`、`notes/events.jsonl` 这类
+旧位置），说明有人在按旧布局操作，应当纠正而不是照做。
 
 **你可以读**：`facts_D.json`、`slot.py resolve` 的输出、`docs/incidents.md`、对应的 skill 说明。
 **你不该读**：`data/raw/*`（除完整性判断）、`hr_series`、`hrvReadings`——给了你就会忍不住自己算。

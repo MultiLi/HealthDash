@@ -5,7 +5,7 @@
 实测值经 rules.json 阈值推导，**禁止常数短路**。「有值就给固定分」等于该维度
 不进指数、只是把均值虚高。
 
-事故复盘（09-11）：评分给 HRV 43 打了 95 分，composite 88「良好」，与同日报告
+事故复盘（09-11）：评分给偏低的 HRV 打了高分，composite 显示「良好」，与同日报告
 🟡 黄直接矛盾。两个缺陷叠加：
   ① 键名错位——完整日路径传的是 canonical hrv（last_night_avg / baseline_low /
      baseline_high），评分函数却按视图形状读 value / low / high，实测值恒为 None；

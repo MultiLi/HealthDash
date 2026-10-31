@@ -22,15 +22,35 @@ from homepage.brief import build_brief_payload
 from homepage.inbody import build as build_inbody
 
 
-def _in_progress(d_str, today, now_hour):
+def _in_progress(d_str, today, now_hour, coverage=None):
     """该日是否仍在进行中（数据不完整，不得计入汇总、不得出结论性展示）。
 
     2026-09-12 修：原判据 `d_str > brief_date` 在「当天报告已生成」时失效
     （brief_date 已等于今天），于是只有 1636 步的当天被当成完整日算进
-    「近 11 个完整日」的达标率与日均，把口径整体拉偏。改为按本地时钟判定：
-    当天 23:00 前即为进行中——与「报告 23:30 才出终版」的采集纪律同一口径。
+    「近 11 个完整日」的达标率与日均，把口径整体拉偏。
+
+    2026-11-01 二次修：中间版本用 `now_hour < 23` 判，**23 点以后就把当天当完整日**。
+    实测 10-31 23:46 时当天 `totalSteps` 与 `wellnessEndTimeLocal` 全为 null（手表根本
+    没同步），却被算进「近 N 个完整日」的达标率与日均——是 2026-09-12 那个 bug 的原样复现，
+    只是触发条件从「报告已生成」换成了「时钟过了 23 点」。冒烟里 7 条卡内细分同时渲染为空，
+    就是这个错误判定的下游症状。
+
+    现在的判据按**数据覆盖度**，时钟只做兜底：
+      · 当天一个字节都没落云（has_data=False）→ 一定进行中，与几点无关
+      · 当天数据覆盖到 1440（次日 00:00）→ 数据其实已经完整，可以计入
+      · 覆盖度拿不到（老数据 / 适配器缺键）→ 退回时钟，保持历史行为
+    注意：历史截断日（如 10-30 只到 14:25）**不走这里**——它不是「进行中」，
+    是「截断」，由 data_gate 与报告的截断口径处理。两者不能混为一谈。
     """
-    return d_str == today and now_hour < 23
+    if d_str != today:
+        return False
+    cov = coverage or {}
+    if cov.get("has_data") is False:
+        return True
+    cutoff = cov.get("cutoff_min")
+    if cutoff is not None:
+        return cutoff < 1440
+    return now_hour < 23
 
 
 def build():
@@ -50,7 +70,7 @@ def build():
     days = []
     for d_str in dates:
         canon = canon_map[d_str]
-        morning = _in_progress(d_str, today, now.hour)
+        morning = _in_progress(d_str, today, now.hour, canon.get("coverage"))
         day = {
             "date": d_str,
             "label": "%s/%s" % (d_str[5:7], d_str[8:10]),

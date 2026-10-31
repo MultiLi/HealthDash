@@ -1,0 +1,9 @@
+{
+ "_comment": "个人档案模板。真实值在 data/profile.json（不入库）。首次部署：复制本文件为 data/profile.json 并填真实值。",
+ "age": 30,
+ "sex": "male",
+ "max_hr": 190,
+ "rhr_7d_avg": 60,
+ "activity_pattern": "walking-dominant",
+ "home_tz_offset_hours": 8
+}

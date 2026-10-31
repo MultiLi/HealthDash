@@ -28,26 +28,6 @@ if SCRIPTS not in _sys.path:
 import metricdefs  # noqa: E402  ← 指标定义的唯一权威解析器（scripts/metricdefs.py）
 
 
-CLOUD_CFG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "cloud.json")
-
-
-def cloud_config():
-    """云服务 publicConfig（tools/cloud.json）→ index.json 的 cloud 节点。
-
-    为什么随数据下发而不是写在前端代码里：endpoint 必须与发布域一致（服务端做精确
-    Origin 校验），换域名时改一处即可；前端从数据里读，就不会出现「代码里钉着一个
-    过期域名」这种只有线上才炸的故障。缺失时返回 None，前端自动降级为「云端未配置」。
-    """
-    import json as _json
-    try:
-        with open(CLOUD_CFG, encoding="utf-8") as f:
-            d = _json.load(f)
-    except Exception:
-        return None
-    return {k: d[k] for k in ("endpoint", "publishableKey", "oauthRelayBaseUrl",
-                              "tables", "sync_window_days") if k in d}
-
-
 def _wd(date_str):
     """ISO 周内序号：1=周一 … 7=周日（日历网格按周一起始）。"""
     return datetime.date.fromisoformat(date_str).isoweekday()
@@ -202,8 +182,6 @@ def build_index(data, rules):
         # L2 单元判定（每个尺度 × 单元 × 指标：值 / 达标 / 覆盖率 / 环比判定）。
         # 前端的环比箭头与达标色从**这里**读，不再自己比大小（2026-10-25）。
         "units": units_block(rules),
-        # 云服务配置（只含 publicConfig 的公开字段；resourceId 不前端可见也无需）
-        "cloud": cloud_config(),
         "trend_windows": hp.get("trend_windows", [7, 30, 90]),
         "span": {"first": days[0]["date"], "last": days[-1]["date"], "n": len(days)},
         # 事件型数据源随索引下发：它是独立节，不进 days[]、不吃尺度，

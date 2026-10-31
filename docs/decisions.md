@@ -60,7 +60,7 @@
 
 ### D6 · 三个不可重建物的备份 —— ✅ 脚本已落地，口令方案待定
 
-- **已做**：`tools/backup_health.py`。打包 `reports/` + `daily_log.jsonl` + `notes/events.jsonl`，openssl aes-256-cbc + PBKDF2（20 万次迭代）加密，明文压缩包立即删除。已实测「加密 → 解密 → 解压 → 内容核对」全通过，错口令被拒。
+- **已做**：`tools/backup_health.py`。打包 `data/reports/` + `data/logs/daily_log.jsonl` + `data/logs/events.jsonl`，openssl aes-256-cbc + PBKDF2（20 万次迭代）加密，明文压缩包立即删除。已实测「加密 → 解密 → 解压 → 内容核对」全通过，错口令被拒。
 - **纪律**：默认输出与项目同盘，只防误删；要抗硬件故障必须 `--out` 到外部盘。**云存储只能当副本之一**——云服务可用性绑定订阅状态（官方：`credits_exhausted` 时读写全失败），唯一备份不能放在会因欠费锁定的地方。
 - **仍待定**：① 口令存放。目前靠环境变量或交互输入，没进 macOS Keychain，因此**还不能挂定时任务**。要自动备份必须先定口令的托管方式。② 备份频率与保留份数（现在脚本只提示目录里已有几份，不自动清理）。
 - **为什么不让 agent 代跑第一次**：口令不该经过我。第一份备份请 Sir 自己执行 `python3 tools/backup_health.py`，口令由他设定。

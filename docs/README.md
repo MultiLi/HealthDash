@@ -35,32 +35,33 @@ docs/
   incidents.md             ★ 事故库：判读陷阱的实证记录，每条带日期与数字
   decisions.md             决策记录：已定 / 待定，含否决选项与理由
 
-notes/                     历史记录与领域知识原始档案。不作为"当前架构"的权威来源。
+notes/                     历史记录与领域知识原始档案。**整体不入库**（含真实身体数值）。
   architecture_v4.md       2026-10-25 的架构推导过程与 S1/S2 落地记录（历史，不再更新）
   architecture_review_2026-10-25.md  工程分层与宿主解耦的审视（历史）
   confidence_model.md      ★ 噪声门槛（mdc）的推导与实测值
   gait_cadence_baseline.md ★ 步频基线（领域知识）
   leg_circumference_method_map.md   围度测量方法（领域知识）
   inbody_baseline_2026-10-18.md     体成分基线（领域知识）
-  backlog.md               欠账清单（滚动更新，不是历史记录）
-  frontend-audit-2026-09-16/        一次性界面审计截图（证据，不再增补）
+  backlog.md               欠账清单（滚动更新）—— **唯一入库的 notes 文件**
 
 references/                口径数值与指标定义（代码读它，不是文档）
-  rules.json               阈值、个人档案、confidence 噪声门槛
+  rules.json               阈值与 confidence 噪声门槛（**只放通用口径，不含个人档案**）
+  profile.example.json     个人档案模板（真实值在 data/profile.json，不入库）
   metrics.json             指标注册表（语义、聚合、达标方向）
   lexicon.json             呈现词表（断言 id 的中文名）
   exercise_science.md      运动学判据
 
 skills/                    能力包（2026-10-25 H3 起在根目录；代码读它，不是文档）
   body-health/scripts/     引擎：采集/物化/判读编排/调度；settings.py 是路径唯一入口
-  body-health/references/  口径（rules / metrics / lexicon）
+  body-health/references/  口径（rules / metrics / lexicon / profile 模板）
   body-health/SKILL.md     判读说明（面向 agent）
   garmin-connect-cn/       采集通道与鉴权
 
-tools/                     构建、推送、冒烟、交互探针
+tools/                     构建、推送、冒烟、交互探针、数据守卫、加密备份
 site/                      前端（原生 ES module，无构建）+ 同源可写服务
-tests/                     golden.json 金标用例
-data/  reports/            采集原始与报告产物（都不入库）
+
+data/                      ★ 唯一数据根，整体不入库（结构见 data/README.md）
+  raw/ inbody/ db/ reports/ logs/ state/ tests/ profile.json
 .workbuddy/skills/         ← 两个指向 skills/ 的符号链接（兼容旧路径，勿删）
 ```
 
@@ -91,7 +92,7 @@ data/  reports/            采集原始与报告产物（都不入库）
 ## 四、四个反模式（都是已经发生过或险些发生的）
 
 1. **把事故写进 SKILL.md**
-   SKILL.md 是给 agent 的执行说明。事故复盘写进去，agent 每晚要吞 644 行，其中 65% 与「今天怎么判」无关。事故的正确形态是 `docs/incidents.md` 里一条带日期的记录 + 一条进了 `tests/golden.json` 的断言。
+   SKILL.md 是给 agent 的执行说明。事故复盘写进去，agent 每晚要吞 644 行，其中 65% 与「今天怎么判」无关。事故的正确形态是 `docs/incidents.md` 里一条带日期的记录 + 一条进了 `data/tests/golden.json` 的断言。
 
 2. **把 prompt 当文档写**
    「解释为什么这样做」和「命令 agent 这样做」是两种文体。混写的结果是 agent 读到大量背景后开始自由发挥。判读 prompt 里只留祈使句和拒判条件。
@@ -112,8 +113,8 @@ data/  reports/            采集原始与报告产物（都不入库）
 | `.workbuddy/memory/personal_action_notes.md` | ✅ | 动作/功能类主诉的判据沉淀 | 同上 |
 | `.workbuddy/memory/[日期].md` | ❌ ignored | 每日工作流水 | 每次做完实质性工作追加 |
 | `.workbuddy/memory/automations/*/memory.md` | ❌ ignored | 定时班次的执行记录 | 各自动化自己写 |
-| `notes/events.jsonl` | ❌ ignored | 个人健康原文（症状/作息/饮食） | 会话中即时归档 |
-| `daily_log.jsonl` | ❌ ignored | 主观标量（体重等） | 晨间补数 |
+| `data/logs/events.jsonl` | ❌ ignored | 个人健康原文（症状/作息/饮食） | 会话中即时归档 |
+| `data/logs/daily_log.jsonl` | ❌ ignored | 主观标量（体重等） | 晨间补数 |
 
 **为什么日志不入库**：append-only 文件天天变，diff 噪音会淹没真正的代码变更；多 agent 并行时同一文件必冲突。有长期价值的判断已经写进 `docs/` 或 `MEMORY.md`，日志只是过程。
 

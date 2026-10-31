@@ -190,7 +190,7 @@ hourly_avg = {h: round(mean(v)) for h, v in hours.items()}
 hourly_max = {h: max(v) for h, v in hours.items()}
 ```
 
-### 判读标准（用户 RHR 53 / maxHR 182）
+### 判读标准（个人 RHR / maxHR 见 `data/profile.json`，此处不写死数值）
 
 - 逐时心率 avg≥100 且 max≥150 的整块小时窗 = **真实运动**；
   avg 60–90 且 max<120 = 日常/情绪波动。用它区分"运动"和"脑力紧绷"，别猜。
@@ -284,8 +284,8 @@ query 风格重试**——报告页必然要显示步数，那就一定有可用
 |---|---|---|
 | `usersummary-service/usersummary/daily?calendarDate=` | 步数、距离、活动/基础/总卡路里、上下楼层、活动秒/高强度秒/**久坐秒**、中/高强度分钟 + 目标、静息/最低/最高心率、7 日均 RHR、平均/峰值压力、stressQualifier、清醒呼吸率、BB 充放电与起睡电量、BB 事件列表 | 活动量、久坐、能量消耗、恢复三角 —— 全部可直接实测 |
 | `wellness-service/wellness/dailySummaryChart?date=` | 96×15 分钟格：steps、pushes、primaryActivityLevel（sedentary/active/sleeping/generic） | 连续久坐时长、活动时段分布，无需心率反推 |
-| `userprofile-service/userprofile/personal-information` | 身高、体重、出生日期、年龄、时区、VO2 Max | 用户档案自动同步（实测 182 cm / 87 kg / 33 岁 / VO2 Max 39） |
-| `.../personal-information/weight` | **体重样本序列**（含 bmi/bodyFat/muscleMass/visceralFat 字段，非体脂秤时为 null） | 体重趋势，实测样本：2025-11-06 90 kg → 2026-09-04 87 kg |
+| `userprofile-service/userprofile/personal-information` | 身高、体重、出生日期、年龄、时区、VO2 Max | 用户档案自动同步（实测五项均有值，具体数值落到 `data/profile.json`） |
+| `.../personal-information/weight` | **体重样本序列**（含 bmi/bodyFat/muscleMass/visceralFat 字段，非体脂秤时为 null） | 体重趋势，样本序列实测可用（数值见 `data/logs/` 与 `data/inbody/`） |
 | `usersummary-service/usersummary/hydration/daily/{date}` | 饮水量、目标、出汗损失 | 补水依从性（本人未记录，valueInML 为 null） |
 | `wellness-service/wellness/bodyBattery/reports/daily?startDate=&endDate=` | charged/drained + 全天曲线 | 替代基本为空的 `bb_events` |
 | `sleep-service/sleep/dailySleepData?date=`（响应新增字段） | `avgOvernightHrv`、`breathingDisruptionData`、`restlessMomentsCount`、`avgSkinTempDeviationC`、`skinTempDataExists`、`bodyBatteryChange` | **睡眠呼吸紊乱代理**（呼吸暂停筛查线索）、皮肤温度偏差、夜间不安次数 |

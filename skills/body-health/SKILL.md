@@ -28,7 +28,7 @@ description: >
                                              （field-level：该日覆盖到哪一分钟；只算不判）
 数据源适配层  scripts/adapters/<source>.py   ← 离线读盘 → 规范化 schema（契约见 adapters/__init__.py）
                                              （解析、时区锚定、coverage 归一化全在这层，零网络）
-事实包层      scripts/fact_pack.py           ← 只算不判：全部计算事实 → reports/facts_D.json
+事实包层      scripts/fact_pack.py           ← 只算不判：全部计算事实 → data/reports/facts_D.json
                                              （连续短睡/电量净值/Z2/运动窗/主观与 events 上下文）
               scripts/refresh_recent.py      ← 重算最近 N 天事实包并回并各自判读（趋势窗一致性）
 判读层        晚间自动化 agent                ← 按本文件「判读框架」对事实包做定性判读，写报告
@@ -48,7 +48,7 @@ sync 层失败时判读用已落盘数据继续并把缺失日记入 gaps，绝�
 - daily_brief.py 的规则判读降级为 legacy 备用（不再进入晚间主流程）。
 
 **报告产出纪律（2026-09-06 立，2026-10-18 修订）**：每日报告一天一份，只由晚间作业产出。
-任何调试、验证、演示一律 `--out /tmp`，禁止覆盖 reports/；禁止在作业之外"顺手"生成报告。
+任何调试、验证、演示一律 `--out /tmp`，禁止覆盖 data/reports/；禁止在作业之外"顺手"生成报告。
 2026-10-18 起，晚间作业从「23:30 一次」改为**多班次幂等重试**（见下节），
 但「一天一份」与「只由作业产出」两条不变。
 **2026-10-31 再精简为单班 02:00**（Sir 定「下午、凌晨两点各一次」：14:00 只采集、02:00 出终版）——
@@ -319,9 +319,9 @@ python3 <本技能目录>/scripts/index.py verify    # 11 项一致性自检，e
 # 2b. 事实包（只算不判：计算事实 + assertions 快照 + 多尺度 scales + canonical 契约）
 uv run --python 3.11 python \
   <本技能目录>/scripts/fact_pack.py [--date YYYY-MM-DD] [--days 4]
-#    产物：reports/facts_D.json（事实，agent 判读输入）
-#          reports/body_brief_D.json（canonical 契约，主页消费；judgment 字段由判读方合并）
-#    合并判读：fact_pack.py --date D --merge-judgment reports/judgment_D.json
+#    产物：data/reports/facts_D.json（事实，agent 判读输入）
+#          data/reports/body_brief_D.json（canonical 契约，主页消费；judgment 字段由判读方合并）
+#    合并判读：fact_pack.py --date D --merge-judgment data/reports/judgment_D.json
 #    趋势窗刷新（补跑历史日后必跑）：python3 <本技能目录>/scripts/refresh_recent.py --days 4
 
 # 3. legacy：脚本规则判读（已退出晚间主流程，仅调试/回溯用；测试一律 --out /tmp）
@@ -446,7 +446,7 @@ observations 是**多源问题的答案层**。报告里凡涉及「某指标现
 ## 主观补充数据（客观指标的校准锚）
 
 客观指标无法自我校准——HRV 低但人感觉很好，和有气无力，是两回事。用户手工记录的主观数据
-存放在 **`/Users/tian.li/Documents/Health/daily_log.jsonl`**（一行一天，JSON）。分析时先读它，
+存放在 **`/Users/tian.li/Documents/Health/data/logs/daily_log.jsonl`**（一行一天，JSON）。分析时先读它，
 与 canonical 逐日数据按日期左连接；缺就声明缺口，不要编。
 
 字段（`null` = 未填）：
@@ -575,7 +575,7 @@ uv 会现场装 Rust 工具链（`~/Library/Caches/puccinialin`）编译它—�
 **判读纪律（BIA 的固有误差，别当成实测真值）**1. **只在「最近一次扫描 ≤30 天」时把体成分写进结论**；超过 30 天只作历史参考并显式标注距今多少天。
    体成分是慢变量，但不能拿三个月前的数支持今天的判断。
 2. **口径与晨起体重分开记账**：`latest.json` 的 `weight_kg` 是体测仪读数（含衣着、时段、进食影响），
-   与 `daily_log.jsonl` 的晨起空腹体重是**两个口径，禁止互相替换或求平均**。
+   与 `data/logs/daily_log.jsonl` 的晨起空腹体重是**两个口径，禁止互相替换或求平均**。
 3. **跨设备/跨时段的两条扫描不可直接比较**。可比的前提：同型号设备 + 同一时段（推荐晨起空腹、
    排便后、未进食未训练）+ 相近水分状态。换健身房设备 = 新基线，不叠加趋势。
 4. **生物电阻抗受水合状态影响大**：运动后、饮酒后、高钠餐后、女性经期前后的 PBF 可摆动 1–3 个百分点，

@@ -167,10 +167,42 @@ GitHub 生成的 Python 模板含 `/site` 一行（mkdocs 产物目录），把�
 
 见第 4 条。单独列出是因为它的爆炸半径最大：**单日数据问题会把整批 fact_pack 全部打挂**，报错位置离根因很远。
 
+### 24. 个人健康数据被推到公开仓库（2026-11-01 发现）
+
+`github.com/MultiLi/HealthDash` 是 **public** 仓库，且已推送。里面含：
+`MEMORY.md`（体重、体成分、体脂率、骨骼肌）、`notes/inbody_baseline_2026-10-18.md`、
+`notes/frontend-audit-2026-09-16/` 14 张**带真实数值的页面截图**、
+`.workbuddy/memory/` 全部每日健康日志与自动化执行记忆、
+以及 git 历史里的 `notes/events.jsonl`（21 行健康事件原文：体重、加班作息、情绪）。
+
+**根因不是 `.gitignore` 写漏了一行，是结构问题**：数据散在 7 个位置
+（`reports/`、`daily_log.jsonl`、`notes/events.jsonl`、`data/raw/`、`data/inbody/`、
+`data/state/health.db`、`site/.data/`），每处都要单独加一条 ignore 规则。
+规则越多越容易漏，而漏一次的代价是**数据已经在公网上，撤不回来**。
+更隐蔽的是：文件后来被 ignore 了，**但已跟踪的文件不会自动退出索引**，
+`git add -A` 会把「untracked 但未被忽略」的 `MEMORY.md` 再送进去一次。
+
+**防线（三道，缺一不可）**：
+1. **结构**：全部个人数据收进 `data/` 单根，`.gitignore` 一行 `data/*` 封死。
+   新增数据目录不需要改规则，天然不入库。
+2. **内容扫描**：`tools/guard_no_data.py` 扫已跟踪文件的**内容**（不限路径），
+   命中「体重 + 具体公斤数」「体脂率 + 百分比」「HRV + 具体毫秒数」这类实测值
+   即报错并 exit 1。这条规则连本文档也管——写事故复盘时引用真实数字会被它拦下，
+   只能写成中性描述。
+   `.gitignore` 只能拦你想到的位置，内容扫描才能发现"换个文件名又漏了"。
+3. **归档**：`data/` 整体不备份到 git，改由 `tools/backup_health.py` 加密备份。
+
+**历史清理的诚实结论**：用 `filter-branch` 重写全部 16 个提交并强推之后，
+当前 HEAD 里的敏感路径已 404，**但旧 commit 仍可通过 API 读到**
+（`contents/notes/events.jsonl?ref=<旧SHA>` 返回 200 与完整 21 行）。
+GitHub 会保留不可达对象，强推改变不了这一点。要彻底消除只有两条路：
+联系 GitHub Support 请求清理不可达对象，或删库重建。**「强推过了」不等于「清干净了」，
+这个区别必须记住。**
+
 ---
 
 ## 增补规则
 
 - 新事故**必须带日期和实证数字**，否则无法在 `golden.json` 里复现。
-- 如果一条事故可以写成断言，就写成断言进 `tests/golden.json`，然后在本文留一行指针。
+- 如果一条事故可以写成断言，就写成断言进 `data/tests/golden.json`，然后在本文留一行指针。
 - 不要在这里写「应该注意」这类无法验证的劝告——那种东西写完就没人看了。

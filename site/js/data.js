@@ -9,8 +9,8 @@
  * 兜底不是「降级糊弄」：它是同一份构建产物的两个位置，内容同源，只是新鲜度不同。
  * 走了哪条路记在 store.dataFrom，顶部同步胶囊会显式标注——不允许静默用旧数据。
  */
-import { store } from "./store.js?v=7b20e1ba";
-import { monthKey } from "./dateutil.js?v=7b20e1ba";
+import { store } from "./store.js?v=2f374a58";
+import { monthKey } from "./dateutil.js?v=2f374a58";
 
 function getJSON(url) {
   return fetch(url, { cache: "no-store" }).then(function (r) {
@@ -35,7 +35,7 @@ function pick(apiUrl, staticUrl) {
 
 /* 首屏唯一载荷：逐日轻量索引 */
 export function loadIndex() {
-  return pick("api/data/index", "index.json?b=17c226f8");
+  return pick("api/data/index", "index.json?b=1382333e");
 }
 
 /* 月度详情分片的按需加载与缓存：只有在真的要展开某天时才拉当月分片 */
@@ -43,7 +43,7 @@ export function ensureShard(dateStr) {
   var month = monthKey(dateStr);
   if (store.shards[month]) return Promise.resolve(store.shards[month]);
   if (store.pending[month]) return store.pending[month];
-  store.pending[month] = pick("api/data/daily/" + month, "daily/" + month + ".json?b=17c226f8")
+  store.pending[month] = pick("api/data/daily/" + month, "daily/" + month + ".json?b=1382333e")
     .then(function (j) {
       store.shards[month] = j.days || {};
       delete store.pending[month];

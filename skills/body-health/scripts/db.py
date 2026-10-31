@@ -23,11 +23,11 @@ import os
 import sqlite3
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-from settings import ROOT as _WORKSPACE  # noqa: E402  路径唯一解析点（settings.py）
-DB_PATH = os.environ.get("HEALTH_DB") or os.path.join(
-    _WORKSPACE, "data", "state", "health.db")
+from settings import DB_PATH, PROFILE  # noqa: E402  路径唯一解析点（settings.py）
 RULES_PATH = os.path.join(_HERE, "..", "references", "rules.json")
 METRICS_PATH = os.path.join(_HERE, "..", "references", "metrics.json")
+#: 档案模板（入库，示例值）。真实值在 data/profile.json（不入库）。
+_PROFILE_EXAMPLE = os.path.join(_HERE, "..", "references", "profile.example.json")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS obs (
@@ -109,6 +109,59 @@ CREATE TABLE IF NOT EXISTS obs_day_gate (
   steps      INTEGER,
   note       TEXT
 );
+
+-- ── 主观层与产物层（2026-11-01 入库）──────────────────────────────────
+-- 这三张表是**镜像**，不是写入真相：daily_log.jsonl 与 events.jsonl 仍是
+-- 追加式原始日志（一行一天 / 一行一事件，人可读、可 diff、可手工改），
+-- 报告正文仍在 data/reports/ 的 md/json 文件里。
+-- 入库的理由只有一个：**跨日查询**。「近 90 天体重」「历次体检发现了什么」
+-- 「红黄绿分布」在原形态下要读几十个文件，在 SQL 里是一行。
+-- 因此：写入仍走文件，查询走这里，同步由 tools/sync_local_store.py 负责。
+CREATE TABLE IF NOT EXISTS daily_log (
+  date          TEXT PRIMARY KEY,
+  recorded_at   TEXT,
+  energy        INTEGER,
+  soreness      INTEGER,
+  sleep_quality REAL,
+  weight_kg     REAL,                   -- 晨起空腹，唯一正式体重字段
+  bp_sys        INTEGER,
+  bp_dia        INTEGER,
+  alcohol_cups  REAL,
+  caffeine_last TEXT,
+  phone_down_plan TEXT,
+  overtime      INTEGER,
+  note          TEXT,
+  extra         TEXT                    -- 其余字段 JSON（含废弃的 weight_extra_*）
+);
+CREATE INDEX IF NOT EXISTS daily_log_weight ON daily_log(weight_kg);
+
+CREATE TABLE IF NOT EXISTS events (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts      TEXT NOT NULL,
+  date    TEXT NOT NULL,
+  type    TEXT,                         -- symptom / sleep / diet / mood / checkup / life_event / note / context
+  content TEXT NOT NULL,
+  source  TEXT,
+  UNIQUE(ts, content)
+);
+CREATE INDEX IF NOT EXISTS events_date ON events(date);
+CREATE INDEX IF NOT EXISTS events_type ON events(type);
+
+CREATE TABLE IF NOT EXISTS reports (
+  date         TEXT NOT NULL,
+  kind         TEXT NOT NULL DEFAULT 'body_brief',
+  rule_level   TEXT,                    -- 规则档：按 rules.json 算出的档位
+  judge_level  TEXT,                    -- 判读档：允许因数据缺口降档，两者不一致时要能查出来
+  summary      TEXT,                    -- 结论首段（正文全文在 md 里）
+  n_findings   INTEGER,
+  n_cross      INTEGER,
+  has_judgment INTEGER,                 -- 0 = 当天报告已生成但判读未回填
+  data_hash    TEXT, rules_hash TEXT, engine_ver TEXT,
+  synced_at    TEXT,
+  md_path      TEXT, json_path TEXT,
+  PRIMARY KEY (date, kind)
+);
+CREATE INDEX IF NOT EXISTS reports_level ON reports(judge_level);
 
 CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT);
 """
@@ -216,8 +269,41 @@ def upsert_assertions(con, rows):
 
 # ------------------------------------------------------------------ 读
 def load_rules():
+    """读口径。个人档案（age/sex/max_hr/rhr）**不在 rules.json 里**——那份要能公开。
+
+    合并规则：rules.json（通用口径，入库） + data/profile.json（个人值，不入库）。
+    档案缺失时退回 profile.example.json 并打警告，让「忘了建档案」变成可见的错，
+    而不是静默用错 max_hr 去算 Z2 区间。
+    """
     with open(RULES_PATH, encoding="utf-8") as fh:
-        return json.load(fh)
+        rules = json.load(fh)
+    prof = _load_profile()
+    if prof:
+        rules["profile"] = prof
+    return rules
+
+
+_PROFILE_CACHE = {}
+
+
+def _load_profile():
+    """个人档案：data/profile.json 优先，缺失则退回模板并警告（只警告一次）。"""
+    for path, is_example in ((PROFILE, False), (_PROFILE_EXAMPLE, True)):
+        if not path or not os.path.isfile(path):
+            continue
+        try:
+            with open(path, encoding="utf-8") as fh:
+                prof = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        prof = {k: v for k, v in prof.items() if not k.startswith("_")}
+        if is_example and not _PROFILE_CACHE.get("warned"):
+            import sys
+            print("! 未找到 data/profile.json，暂用 profile.example.json 的示例值。"
+                  "Z2 / 最大心率 / 静息心率相关判读会用错数。", file=sys.stderr)
+            _PROFILE_CACHE["warned"] = True
+        return prof
+    return {}
 
 
 def load_metrics():

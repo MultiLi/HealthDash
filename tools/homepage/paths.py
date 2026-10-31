@@ -12,8 +12,6 @@ import os
 
 # tools/homepage/paths.py -> tools -> 项目根
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-REPORTS = os.path.join(ROOT, "reports")
-RAW = os.path.join(ROOT, "data", "raw")
 SITE = os.path.join(ROOT, "site")
 
 import sys  # noqa: E402
@@ -55,10 +53,17 @@ from adapters.gtime import (  # noqa: E402,F401
 
 # —— 阈值唯一来源：rules.json（判读与展示阈值都改那里）——
 # 走 settings.REFERENCES_DIR：口径跟着 skill 目录走，不跟着工作区走。
-from settings import REFERENCES_DIR  # noqa: E402,F401
+# 数据位置同理走 settings：2026-11-01 起全部数据在 data/ 单根下，
+# 呈现层不再自己拼 ROOT/reports（那是旧布局，搬家即断）。
+from settings import REFERENCES_DIR, RAW_DIR as RAW, REPORTS_DIR as REPORTS  # noqa: E402,F401
 RULES_PATH = os.path.join(REFERENCES_DIR, "rules.json")
 
 
 def load_rules():
-    with open(RULES_PATH, encoding="utf-8") as f:
-        return json.load(f)
+    """口径 = rules.json + data/profile.json（个人档案已从 rules.json 拆出）。
+
+    复用引擎的 db.load_rules，避免呈现层自己拼一份合并逻辑——那正是
+    「同一知识住两处」的典型形态，改一处漂一处。
+    """
+    from db import load_rules as _engine_load_rules
+    return _engine_load_rules()

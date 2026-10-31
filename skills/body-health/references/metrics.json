@@ -54,7 +54,7 @@
     "device",
     "conditions.fasted"
    ],
-   "note": "所有减脂目标路径的分母。它一漂，「目标 85.9kg」整个跟着错。"
+   "note": "所有减脂目标路径的分母。它一漂，目标体重整个跟着错。"
   },
   "skeletal_muscle_kg": {
    "label": "骨骼肌量",

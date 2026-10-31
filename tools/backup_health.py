@@ -53,13 +53,19 @@ def _find_scripts():
 
 
 sys.path.insert(0, _find_scripts())
-from settings import REPORTS_DIR, ROOT  # noqa: E402  路径唯一解析点
+from settings import (  # noqa: E402  路径唯一解析点
+    DAILY_LOG, EVENTS_LOG, GOLDEN, REPORTS_DIR,
+)
 
-# 需要备份的三样：不存在就是缺失，脚本必须报出来而不是静默跳过
+# 需要备份的几样：不存在就是缺失，脚本必须报出来而不是静默跳过。
+# 2026-11-01：全部改走 settings 常量。此前 daily_log / events 是
+# ROOT 下硬编码拼接，数据搬进 data/ 后它们会「静默地报缺失」——
+# 而备份脚本静默失效，比不备份更危险。
 TARGETS = [
     ("reports", REPORTS_DIR, "判读产物（md + json）"),
-    ("daily_log", os.path.join(ROOT, "daily_log.jsonl"), "主观标量（体重等）"),
-    ("events", os.path.join(ROOT, "notes", "events.jsonl"), "健康事件原文"),
+    ("daily_log", DAILY_LOG, "主观标量（体重等）"),
+    ("events", EVENTS_LOG, "健康事件原文"),
+    ("golden", GOLDEN, "金标用例（口径回归锚点）"),
 ]
 
 DEFAULT_OUT = os.path.expanduser("~/Documents/HealthBackups")

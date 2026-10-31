@@ -28,18 +28,53 @@ L4  compose        模板骨架（必产）+ LLM 叙述（可选、可校验） 
 L5  surface        主页 / 日报告 / 周期查询 / 对话                     展示
 ```
 
-| 层 | 输入 | 输出 | 谁写 | 可复现 |
+| 层 | 输入 | 输出 | 落盘位置 | 可复现 |
 |---|---|---|---|---|
-| L0 | Garmin / InBody API | 日快照、扫描文件 | 采集脚本 | 逐字节 |
-| L1 | L0 + 适配器 | `obs` 表 | `adapters` + `index.py` | 逐字节 |
-| L2 | L1 + rules | `units` 表 | `units.py` | 逐字节 |
-| L3 | L2 + rules | `assertions` 表 | `assertions.py` | 逐字节 |
-| L4 | **只读 L3** | 报告 md / judgment json | `compose.py` + LLM | 骨架逐字节，叙述不确定 |
-| L5 | L2/L3/L4 | 页面、回答 | 前端 / agent | — |
+| L0 | Garmin / InBody API | 日快照、扫描文件 | `data/raw/` `data/inbody/raw/` | 逐字节 |
+| L1 | L0 + 适配器 | `obs` 表 | `data/db/health.db` | 逐字节 |
+| L2 | L1 + rules | `units` 表 | 同上 | 逐字节 |
+| L3 | L2 + rules | `assertions` 表 | 同上 | 逐字节 |
+| L4 | **只读 L3** | 报告 md / judgment json | `data/reports/` | 骨架逐字节，叙述不确定 |
+| L5 | L2/L3/L4 | 页面、回答 | `site/`（发布产物） | — |
 
-**L3 是心脏**。它把「今天 HRV 38，基线 57–80，差 −19 > mdc_single 15，所以是正式破位」从散文变成一条可查询记录。没有它，「过去 90 天红灯出现在哪些维度」只能靠重读 90 份报告。
+### 2.1 数据单根（2026-11-01 立）
 
-三个核心对象的字段定义与设计取舍见 `notes/architecture_v4.md` §3。
+**全部个人数据住在 `data/` 下，代码目录不含数据。** 这一条是硬约束，不是风格偏好：
+
+```
+data/
+  raw/  inbody/  db/  reports/  logs/  state/  tests/  profile.json
+```
+
+之所以要强制，是因为数据原先散在 7 个位置（`reports/`、`daily_log.jsonl`、
+`notes/events.jsonl`、`data/raw/`、`data/inbody/`、`data/state/health.db`、
+`site/.data/`），防泄露只能靠 `.gitignore` 逐条列举，**漏一条就把个人健康数据
+推到了公开仓库上**（`docs/incidents.md` 第 24 条）。
+
+现在 `.gitignore` 只有一行 `data/*`，新增任何数据子目录天然不入库——
+边界由**目录结构**保证，不再依赖谁记得改规则。
+
+**唯一例外**：`site/index.json`、`site/daily/`、`site/.data/` 留在 `site/` 下，
+因为它们是发布契约（`server.py` 与前端从固定路径取），挪了要改部署参数。
+它们仍是派生数据，已 ignore。
+
+### 2.2 文件 vs 数据库的分工
+
+| 形态 | 放什么 | 为什么 |
+|---|---|---|
+| **文件** | `raw/` 快照、报告 `md`、`logs/*.jsonl` | 原始证据与人类可读产物：可 diff、可手工改、可逐字节核对 |
+| **SQLite** | `obs` `units` `assertions` + `daily_log` `events` `reports` 镜像 | 跨日查询：`GROUP BY` 一行解决的事，别写脚本遍历几十个文件 |
+
+后三张表是**镜像**，不是写入真相。`data/logs/*.jsonl` 仍是追加式原始日志，
+报告正文仍在 `data/reports/*.md`。写入走文件，查询走库，
+由 `tools/sync_local_store.py` 单向同步（幂等，可随时重建）。
+
+这条分工的判据是**「谁来读」**：人读的留在文件，聚合统计走 SQL。
+把报告正文塞进 `BLOB` 会让 `git diff` 和编辑器排版全部失效，那是负优化。
+
+**L3 是心脏**。它把「今天 HRV 低于基线带下沿、偏移超过 mdc_single，所以是正式破位」从散文变成一条可查询记录。没有它，「过去 90 天红灯出现在哪些维度」只能靠重读 90 份报告。
+
+三个核心对象的字段定义与设计取舍见 `notes/architecture_v4.md` §3（该文件是本地私有笔记，含真实数值，**不入库**）。
 
 ---
 
@@ -168,7 +203,7 @@ docs/        项目文档（人读）
 | **H2** | 5 个班次 prompt 落进 `skills/*/automations/`，宿主配置只留「读该文件」 | 低 | 手动触发一次 10:00 班比对行为 |
 | **H3** | ✅ **2026-10-25 完成**：`skills/` 搬到根目录（`.workbuddy/skills/body-health` 与 `garmin-connect-cn-data__skillhub` 留符号链接兼容）；garmin 目录去掉 `__skillhub` 平台痕迹改名为 `garmin-connect-cn`，`sync.py` 改由 `settings.garmin_scripts_dir()` 发现；`.gitignore` 的平台元数据规则随之改到 `skills/` 下 | 中 | 搬迁后 22 模块导入 / verify 11 / golden 12/12 / smoke 113 / build / compose / check_inbody / slot resolve 全过；**旧路径命令逐条实测仍可用** |
 | **H4** | 拆 SKILL.md：prompt / 架构 / 事故 / 手册 四份 | 中，会改判读行为 | 连出 3 天与旧版逐条比 findings |
-| **H5** | `reports/` 按机器件 / 人件分目录 | 中 | 跑补跑流程验单一终版 |
+| **H5** | `data/reports/` 按机器件 / 人件分目录 | 中 | 跑补跑流程验单一终版 |
 | **H6** | `make verify` + CI + 脱敏 fixture + 发布动作脚本化 | 低 | CI 绿 + 一次真实发布 |
 
 H1 与 H3 已完成，H4 之前不再有机械性阻塞。**H2 是唯一带外部依赖的一步**：prompt 住在 WorkBuddy 自动化配置里，仓库只能写规范，实际配置要人工同步。
@@ -182,7 +217,7 @@ H1 与 H3 已完成，H4 之前不再有机械性阻塞。**H2 是唯一带外�
 | 三重指纹 | 每个 unit / assertion / 报告带 `data_hash`（观测集）、`rules_hash`、`engine_ver` |
 | 结论过期 | 任一指纹变化 → 该产物标 `stale`，下次读到时重算并留日志 |
 | 回测 | `backtest.py snapshot` 存基线，`diff` 输出新旧断言集差异，**改阈值前必跑** |
-| 金标用例 | 12 个已定案日期（09-11 HRV 事故、10-22 同向偏软、10-24 单腿过门槛、10-08 久坐伪影…）写入 `tests/golden.json`，断言必须逐条复现 |
+| 金标用例 | 12 个已定案日期（09-11 HRV 事故、10-22 同向偏软、10-24 单腿过门槛、10-08 久坐伪影…）写入 `data/tests/golden.json`，断言必须逐条复现 |
 | 单一取值 | 取「某指标某单元的值」只走 L2；取「变没变」只走 `delta.verdict`；取「现在是多少」只走 observations |
 
 金标用例是这套架构能不能长期活着的关键——没有它，口径改一次、历史结论就没人知道偏了多少。
