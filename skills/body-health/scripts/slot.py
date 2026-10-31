@@ -43,12 +43,15 @@ import sys
 import tempfile
 
 _HERE = os.path.dirname(os.path.abspath(__file__))              # body-health/scripts
-from settings import ROOT as _WORKSPACE  # noqa: E402  路径唯一解析点（settings.py）
-REPORTS = os.environ.get("HEALTH_REPORTS_DIR") or os.path.join(_WORKSPACE, "reports")
+import settings as _settings  # noqa: E402  路径唯一解析点（settings.py）
+_WORKSPACE = _settings.ROOT
+# 2026-10-31 数据迁入 data/ 后报告在 <ws>/data/reports；旧 <ws>/reports 已废弃。
+# 这里若不跟着迁，账本会把每一份已存在的报告判成 artifacts_missing，并给出旧路径的 merge_cmd。
+REPORTS = os.environ.get("HEALTH_REPORTS_DIR") or _settings.REPORTS_DIR
 STATE_DIR = (os.environ.get("HEALTH_STATE_DIR")
-             or os.path.join(_WORKSPACE, "data", "state"))
+             or _settings.STATE_DIR)
 LEDGER = os.path.join(STATE_DIR, "slots.json")
-SUBJ_LOG = os.path.join(_WORKSPACE, "daily_log.jsonl")
+SUBJ_LOG = _settings.DAILY_LOG
 
 SYNC = os.path.join(_HERE, "sync.py")
 FACT = os.path.join(_HERE, "fact_pack.py")

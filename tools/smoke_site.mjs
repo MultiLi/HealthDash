@@ -292,11 +292,24 @@ for (const scale of ["roll7", "roll28", "roll90"]) {
    只会让冒烟失败变成噪音，掩盖真正的回归。 */
 
 console.log("\n== 卡内细分渲染器（喂完整分片） ==");
-const day = store.shards[closedLast.slice(0, 7)][closedLast];
+/* 用前必须自己准备分片：store.shards 是缓存不是保证。锚点月在别处被顺带加载过
+   才能碰巧跑通；换月第一天（ix.default_day 落进新月份）顺带加载就消失。
+   本节已删 fetch（取数链路节末尾），ensureShard 走不通，所以直接从磁盘读
+   分片塞进缓存——构造输入，不依赖偶然状态。 */
+const detailMonth = closedLast.slice(0, 7);
+const detailShardPath = path.join(SITE, "daily", detailMonth + ".json");
+const detailShard = fs.existsSync(detailShardPath)
+  ? JSON.parse(fs.readFileSync(detailShardPath, "utf8")) : null;
+const day = (detailShard && (detailShard.days || detailShard)[closedLast]) || null;
+if (!day) {
+  console.log(`  – 跳过：${detailMonth}.json 里没有 ${closedLast}（closedLast 挑选失败，先查 isEmptyRow 判据）`);
+} else {
+  store.shards[detailMonth] = detailShard.days || detailShard;
 for (const key of Object.keys(DETAILS)) {
   let out = "", err = "";
   try { out = DETAILS[key](day); } catch (e) { err = e.message; }
   ok(!err && out.length > 0, `细分 ${key}`, err || out.length + " 字符");
+}
 }
 
 console.log("\n== 准备度：进总览与综合指数并排，不再寄生判读区 ==");
@@ -453,8 +466,13 @@ ok(!ix.days.filter((r) => r.cs !== "failed").some((r) => r.ce),
 /* 日历：状态必须落到 DOM，不能只停在数据层 */
 store.scale = "month";
 store.anchor = closedLast.slice(0, 8) + "15";
+/* store.month 也要跟到代表日所在月：它停在 default_day 的月份（396 行设的），
+   换月 1 号两者就分家——日历画 11 月，csSum 却是 61 天全跨度，
+   missing/failed 全在 10 月，断言必挂。渲染哪个月，断言就必须限定哪个月。 */
+store.month = closedLast.slice(0, 7);
 renderPage();
 const calHtml = html("axis-cal");
+store.month = ix.default_day.slice(0, 7);
 ok(/data-cs="ok"/.test(calHtml), "日历格带 data-cs 状态");
 if (csSum.failed > 0) {
   ok(/cal-cell[^"]*cs-failed/.test(calHtml), "采集失败日渲染 cs-failed 类");

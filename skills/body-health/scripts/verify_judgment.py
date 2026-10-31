@@ -34,12 +34,13 @@ import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
-from settings import ROOT as _WORKSPACE  # noqa: E402  路径唯一解析点（settings.py）
+import settings as _settings  # noqa: E402  路径唯一解析点（settings.py）
 
 import db                                                    # noqa: E402
 import assertions as asrt                                    # noqa: E402
 
-REPORTS = os.environ.get("HEALTH_REPORTS_DIR") or os.path.join(_WORKSPACE, "reports")
+# 2026-10-31 数据迁入 data/ 后报告在 data/reports；旧 <ws>/reports 已废弃
+REPORTS = os.environ.get("HEALTH_REPORTS_DIR") or _settings.REPORTS_DIR
 FORBIDDEN = ("v1", "v2", "v3", "修正版", "草稿作废", "变更对照", "较上版")
 LEVEL_WORD = {"BAD": "红", "WARN": "黄", "GOOD": "绿", "NEUTRAL": "不可判读"}
 LEVEL_FROM_WORD = {"红": "BAD", "黄": "WARN", "绿": "GOOD", "不可判读": "NEUTRAL",
