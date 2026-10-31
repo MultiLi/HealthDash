@@ -181,7 +181,7 @@ python3 $S/fact_pack.py --date D --days 4 --merge-judgment
 
 `data/reports/`、`data/logs/daily_log.jsonl`、`data/logs/events.jsonl` —— **它们不在 git 里，且无法用代码重建。**
 
-**2026-11-01 起整个 `data/` 都不在 git 里**（`.gitignore` 一行 `data/*` 封死），
+**2026-10-31 起整个 `data/` 都不在 git 里**（`.gitignore` 一行 `data/*` 封死），
 所以「不在 git 里」不再是这三样的特征，而是全部数据的共同状态。
 真正要区分的是**能不能重建**：`db/` `raw/`（大部分）能重拉重建，
 而 `reports/` `logs/` `tests/golden.json` 不能——**备份优先级按这张表来，不是按目录大小。**

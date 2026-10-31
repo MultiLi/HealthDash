@@ -5,7 +5,7 @@
 
 ## 为什么全部数据都放这里
 
-2026-11-01 之前，数据散在六七个位置：`reports/`、`daily_log.jsonl`、
+2026-10-31 之前，数据散在六七个位置：`reports/`、`daily_log.jsonl`、
 `notes/events.jsonl`、`data/raw/`、`data/inbody/`、`data/state/health.db`、
 `site/.data/`。防泄露只能靠 `.gitignore` 逐条列举，**漏一条就是个人健康数据
 公开在 GitHub 上**——这件事已经真实发生过一次。

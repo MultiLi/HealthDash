@@ -53,7 +53,7 @@ from adapters.gtime import (  # noqa: E402,F401
 
 # —— 阈值唯一来源：rules.json（判读与展示阈值都改那里）——
 # 走 settings.REFERENCES_DIR：口径跟着 skill 目录走，不跟着工作区走。
-# 数据位置同理走 settings：2026-11-01 起全部数据在 data/ 单根下，
+# 数据位置同理走 settings：2026-10-31 起全部数据在 data/ 单根下，
 # 呈现层不再自己拼 ROOT/reports（那是旧布局，搬家即断）。
 from settings import REFERENCES_DIR, RAW_DIR as RAW, REPORTS_DIR as REPORTS  # noqa: E402,F401
 RULES_PATH = os.path.join(REFERENCES_DIR, "rules.json")

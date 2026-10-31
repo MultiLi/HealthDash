@@ -38,7 +38,7 @@ from settings import (  # noqa: E402  路径唯一解析点（settings.py）
 
 import db                                                    # noqa: E402
 
-# 2026-11-01：金标用例与回测产物都是数据，跟着 data/ 单根走。
+# 2026-10-31：金标用例与回测产物都是数据，跟着 data/ 单根走。
 # 此前写死 ROOT/tests 与 ROOT/reports——数据搬家就断，且它们含真实病史数值，
 # 不该留在代码目录里（那会被 .gitignore 逐条追着漏）。
 OUT_DIR = os.environ.get("HEALTH_BACKTEST_DIR") or os.path.join(REPORTS_DIR, "backtest")

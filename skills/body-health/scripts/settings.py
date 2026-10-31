@@ -64,7 +64,7 @@ def path(*parts):
     return os.path.join(ROOT, *parts)
 
 
-# —— 数据单根（2026-11-01 立）——
+# —— 数据单根（2026-10-31 立）——
 # 全部个人数据住在 data/ 下，代码目录只留代码。目的不是"整齐"：
 # 数据曾经散在 reports/、daily_log.jsonl、notes/events.jsonl、site/.data/
 # 六七个位置，防泄露只能靠 .gitignore 逐条列举，漏一条就是公开泄露。

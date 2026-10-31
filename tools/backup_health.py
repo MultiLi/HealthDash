@@ -58,7 +58,7 @@ from settings import (  # noqa: E402  路径唯一解析点
 )
 
 # 需要备份的几样：不存在就是缺失，脚本必须报出来而不是静默跳过。
-# 2026-11-01：全部改走 settings 常量。此前 daily_log / events 是
+# 2026-10-31：全部改走 settings 常量。此前 daily_log / events 是
 # ROOT 下硬编码拼接，数据搬进 data/ 后它们会「静默地报缺失」——
 # 而备份脚本静默失效，比不备份更危险。
 TARGETS = [

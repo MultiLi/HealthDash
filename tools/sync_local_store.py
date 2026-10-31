@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """把主观日志与判读产物镜像进 health.db。
 
-**为什么要有这一步**（2026-11-01）：
+**为什么要有这一步**（2026-10-31）：
 `obs / units / assertions` 早就入库了，但另外三样一直留在文件里——
 `daily_log.jsonl`（主观标量）、`events.jsonl`（健康事件）、`data/reports/*.json`
 （判读产物）。单看每一天都没问题，一旦要**跨日查询**就立刻退化：
@@ -86,7 +86,7 @@ def sync_daily_log(con, dry=False):
     for r in rows:
         rec = {c: r.get(c) for c in DAILY_COLS}
         rest = {k: v for k, v in r.items() if k not in DAILY_COLS}
-        # 体重列的归一（2026-11-01）：早期行把晨起体重记在废弃字段
+        # 体重列的归一（2026-10-31）：早期行把晨起体重记在废弃字段
         # weight_extra_morning_kg 里，正式列 weight_kg 为空。两者语义相同
         #（都是晨起空腹），所以在库内合并到正式列，同时原字段保留在 extra 里可溯源。
         # 不这么做，「近 90 天体重」在 SQL 里永远是空集。
