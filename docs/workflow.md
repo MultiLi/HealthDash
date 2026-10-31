@@ -24,7 +24,7 @@
 
 | 分支 | 谁能推 | 说明 |
 |---|---|---|
-| `main` | 只能靠 PR 合并 | 已配分支保护：必须 PR、`check` 必须绿、禁强推、禁删 |
+| `main` | **约定**只能靠 PR 合并 | ⚠️ **远端没有强制**（免费账号限制，见下）。`check` 必须绿、禁强推、禁删——这些目前靠本地钩子和你自己的遵守，不靠 GitHub 拦 |
 | `feat/*` `fix/*` `ci/*` `docs/*` | 自由推 | 一个功能一个分支，用完即删 |
 
 分支名前缀不带也行，`wt.py` 会补成 `feat/`。
@@ -35,6 +35,30 @@
    配置：`GH_TOKEN=... ./tools/ci/setup_branch_protection.sh`，或照脚本末尾的网页步骤手点。
 2. **本地**：`tools/hooks/pre-push`。拦得住手滑，拦不住 `--no-verify`。
    安装：`cp tools/hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push`
+
+### ⚠️ 计划限制：免费账号 + 私有仓库 = 没有远端保护
+
+这不是配置问题，是产品边界。GitHub 官方两页文档（About protected branches / About rulesets）
+的「Who can use this feature」写着同一句话：
+
+> 私有仓库的分支保护与 Rulesets 需要 **GitHub Pro、Team 或 Enterprise**；
+> Free 计划只在**公开**仓库可用。
+
+2026-11-01 实际确认：本仓库所在账号是个人账号（`MultiLi`，type=User），
+在 Settings → Rules 里创建 ruleset 会被提示「won't be enforced until you upgrade
+to GitHub Team or Enterprise」。**经典分支保护同样不可用**，换入口解决不了。
+
+可选路径（按代价排序）：
+
+| 路径 | 代价 | 效果 |
+|---|---|---|
+| 升级 **GitHub Pro** | $4/月（个人账号，不是 Team） | 经典保护 + Rulesets 全部可用 |
+| 只留本地 hook | $0 | 拦得住手滑，拦不住 `--no-verify`、别的机器、网页直接编辑 |
+| 换 GitLab | 迁移成本 | Free 计划**所有 tier** 都有 protected branches |
+| 仓库转公开 | 数据暴露风险 | 免费获得完整保护，但本仓有过泄露前科，不可接受 |
+
+**在升级之前，「不许直推 main」只是约定，不是强制。** 写在这里，是为了让每一个
+agent 知道：`git push origin main` 在远端不会失败——所以更不能推。
 
 引导期（保护还没生效时）确实需要直推 main，用 `ALLOW_MAIN_PUSH=1 git push origin main`。
 这个开关是留给「修 CI 自身、仓库初始配置」的，不是日常通道。

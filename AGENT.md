@@ -150,7 +150,7 @@ python3 tools/probe_interactions.py      # 8 用例（需真浏览器，不在 c
 | 约定 | 内容 |
 |---|---|
 | 边界 | 一个 agent 只做一件事：采集 / 物化 / 判读 / 呈现 / 问答。不要跨 |
-| **分支** | **main 只接受 PR 合并，不许直推。** 一个功能一个分支一个 worktree：`python3 tools/ci/wt.py new feat/xxx`。改动前看 `docs/workflow.md` |
+| **分支** | **main 只接受 PR 合并，不许直推。** 远端没有强制（免费账号限制，见 `docs/workflow.md` §2）——就是说 GitHub **不会**拦你，所以更不能推。一个功能一个分支一个 worktree：`python3 tools/ci/wt.py new feat/xxx` |
 | **隔离** | 两个 agent 并行时，各用各的 worktree。**data/ 是共享的唯一一份**（符号链接），`site/index.json` 各存各的（复制）——详见 `docs/workflow.md` §3 |
 | 通信 | 只通过上表里的文件。不要直接调另一个 agent 的内部函数 |
 | 幂等 | 任何步骤重复跑必须产出相同结果（`slot.py`、`collect.py`、`build` 都已保证） |
