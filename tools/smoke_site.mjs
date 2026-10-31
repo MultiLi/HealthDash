@@ -116,6 +116,38 @@ store.scale = "month";
 const shardMonth = store.anchor.slice(0, 7);
 store.shards[shardMonth] = JSON.parse(fs.readFileSync(path.join(SITE, "daily", shardMonth + ".json"), "utf8")).days;
 
+/* ---------------- 测试锚点：动态挑，不写死日期 ----------------
+   这些断言验证的是**规则**（「无数据日要给空态」「单点轨迹不画」），
+   不是**某一天的运气**。凡依赖真实数据状态的锚点，一律从当前数据里挑；
+   挑不到就明确跳过（打印 `– 跳过`），而不是让整个测试变红。
+
+   为什么改成这样（2026-10-31 复盘）：10-25 曾被当作「覆盖不足的典型」写死在
+   三处断言里，而该日 raw 后来被重采补全成 complete（7729 步 / 截止次日 00:00），
+   于是三条断言同时失效——看起来像产品坏了，其实只是那一天不再是那样。
+   同理，拿 `ix.today` 当锚点也不安全：当天可能整日无数据（手表没同步），
+   而无数据日按设计不渲染四项达标。 */
+const closedLast = store.closed[store.closed.length - 1].date;
+const anchorMonth = ix.default_day.slice(0, 7);
+const inAnchorMonth = (d) => d.slice(0, 7) === anchorMonth;
+
+/* 无数据日 = 索引里**有这一行**，但没有任何实测值。
+   注意不是「索引里没有这一天」——主页跨度含断档空白格，缺采集的日子照样有行。 */
+const isEmptyRow = (r) => r.steps == null && r.sleep_h == null &&
+  r.hrv == null && r.score == null;
+const emptyDays = ix.days.filter((r) => inAnchorMonth(r.date) && isEmptyRow(r))
+  .map((r) => r.date);
+/* 必须排除今天：今天标「进行中」，过去的空日标「无采集记录」——两种文案，
+   本节验的是后者。原判据会挑到今天，然后断言"不标进行中"必然失败。 */
+const noDataDate = emptyDays.filter((d) => d !== ix.today).pop() || null;
+
+/* 有多点准备度轨迹的日子（晨起之后又因运动重算过）。
+   单点轨迹与主值重复，readinessTrail 按设计返回空串 → 整行隐藏（detail.js:184）。 */
+const shardDays = store.shards[shardMonth] || {};
+const trailDay = Object.keys(shardDays).sort().filter((d) => {
+  const rd = ((shardDays[d] || {}).recovery || {}).readiness;
+  return rd && (rd.series || []).length >= 2;
+}).pop() || null;
+
 console.log("== 数据层 ==");
 ok(store.rows.length > 0, "索引行非空", store.rows.length + " 行");
 ok(store.closed.length > 0, "完整日非空", store.closed.length + " 天");
@@ -138,6 +170,9 @@ ok(s12.length === 12 && s12[11].key === uWeek.key && s12[0].key < s12[11].key, "
 console.log("\n== 三尺度渲染（同一视图，换粒度） ==");
 for (const scale of ["day", "week", "month"]) {
   store.scale = scale;
+  /* 日尺度锚在最后一个完整日：ix.today 可能整日无数据（手表没同步），
+     而无数据日按设计不渲染四项达标，用它当锚点测不出任何东西。 */
+  store.anchor = scale === "day" ? closedLast : ix.today;
   renderPage();
   const cal = html("axis-cal");
   const grid = html("metric-grid");
@@ -183,12 +218,26 @@ const cW = unitCell(ix, "week", "2026-W43", mSteps);
 ok(cW && cW.dv === "suppressed", "步数周环比被判 suppressed（6 天样本分不开 6400 与 10294）",
   JSON.stringify(cW));
 
-store.scale = "day"; store.anchor = "2026-10-25"; renderPage();
-const gridToday = html("metric-grid");
-ok(/覆盖 4[0-9]% · 不给结论|不给结论/.test(gridToday),
-  "覆盖不足的当日卡明确「不给结论」，而不是给个看起来很确定的数字");
-ok(!/class="uc"/.test(html("unit-checks")) || /uc-na/.test(html("unit-checks")),
-  "四项达标里进行中的当天显示「–」而不是 0/0");
+/* 覆盖不足的文案分支：**不依赖真实数据里有没有截断日**。
+   日尺度单元的 c 是「有值天数 / 应有天数」，完整日恒为 1.0，并不反映当天
+   wellnessEndTime 的 cutoff——所以现实里可能整月都不出现 c < 1，靠「挑一天」
+   来测这条永远不可靠（这正是原先写死 10-25 失效的原因）。
+   改成在索引副本上把一个单元改成 na + c=0.5，直接验证渲染分支。 */
+const ixPatched = JSON.parse(JSON.stringify(ix));
+const patchCell = (((ixPatched.units || {}).day || {})[closedLast] || {}).sleep_h;
+if (!patchCell) {
+  console.log("  – 跳过：索引里没有可改造的日单元");
+} else {
+  patchCell.j = "na";
+  patchCell.c = 0.5;
+  const bakIx = store.ix;
+  store.ix = ixPatched;
+  store.scale = "day"; store.anchor = closedLast; renderPage();
+  ok(/覆盖 50% · 不给结论/.test(html("metric-grid")),
+    "覆盖不足的当日卡明说「覆盖 50% · 不给结论」，不给看起来确定的数字");
+  store.ix = bakIx;
+  renderPage();
+}
 
 store.scale = "month"; store.anchor = ix.today; renderPage();
 ok(hidden("brief-zone"), "月尺度判读区仍隐藏");
@@ -215,7 +264,6 @@ for (const scale of ["roll7", "roll28", "roll90"]) {
    只会让冒烟失败变成噪音，掩盖真正的回归。 */
 
 console.log("\n== 卡内细分渲染器（喂完整分片） ==");
-const closedLast = store.closed[store.closed.length - 1].date;
 const day = store.shards[closedLast.slice(0, 7)][closedLast];
 for (const key of Object.keys(DETAILS)) {
   let out = "", err = "";
@@ -256,8 +304,17 @@ const rsDay = html("unit-score");
 ok(count(rsDay, /class="uscore"/g) === 2, "总览两项分数并排（综合指数 / 准备度）");
 ok(rsDay.includes("综合指数") && rsDay.includes("Garmin 准备度"), "两项各自具名，未合并");
 ok(rsDay.includes("晨起"), "日尺度准备度标「晨起」");
-ok(html("unit-ready-trail").length > 0 && !hidden("unit-ready-trail"),
-  "日尺度给出准备度日内重算轨迹");
+/* 日内重算轨迹只存在于「晨起之后又被重算过」的日子——单点轨迹与主值重复，
+   readinessTrail 返回空串、整行隐藏，那是设计（detail.js:184）而不是缺陷。
+   所以不能随便挑一个完整日就要求它有轨迹，那取决于那天有没有运动后重算。 */
+if (!trailDay) {
+  console.log("  – 跳过：锚点月内没有多点准备度轨迹的日子（该行按设计隐藏）");
+} else {
+  store.anchor = trailDay; renderPage();
+  ok(html("unit-ready-trail").length > 0 && !hidden("unit-ready-trail"),
+    "多点轨迹的日子给出日内重算轨迹", trailDay);
+  store.anchor = closedLast; renderPage();
+}
 ok(!nodes.has("readiness-banner"), "判读区不再承载准备度横幅（元素已不存在）");
 ok(!html("brief-grid").includes("readiness-banner"), "判读正文里也没有准备度横幅");
 
@@ -272,11 +329,15 @@ store.scale = "month"; renderPage();
 ok(hidden("brief-zone"), "月尺度判读区仍隐藏");
 
 console.log("\n== 进行中的当天（是部分指标缺，不是整行作废） ==");
-// 进行中的当天 = 索引里 date === ix.today 的那一行。深夜构建时当天可能尚无任何数据
-// （手表未同步 / 晨间任务未跑），最后一行就是完整日——此时不能按「最后一行＝进行中」断言。
+// 进行中的当天 = 索引里 date === ix.today 的那一行。「进行中」这个标记只挂在今天，
+// 所以锚点不能换成别的日子（换过去就没有"进行中"文案可验了）。
+// 但今天可能整日无数据（手表没同步）——那是另一种空态，本段测不了，明确跳过。
 const liveRow = store.rows.filter((r) => r.date === ix.today)[0];
 if (!liveRow) {
   console.log(`  – 跳过：ix.today=${ix.today} 无数据行，最后一行 ${store.rows[store.rows.length - 1].date} 是完整日`);
+} else if (isEmptyRow(liveRow)) {
+  console.log(`  – 跳过：ix.today=${ix.today} 整日无数据（手表未同步）。` +
+    "本段验的是「部分指标缺 ≠ 整行作废」，整日缺是另一种空态，走下面的「无数据日」用例");
 } else {
   store.scale = "day";
   store.anchor = liveRow.date;
@@ -306,28 +367,27 @@ store.month = ix.default_day.slice(0, 7);
    本节**全部是同步断言**：真回归时渲染根本填不上内容，断言先失败，
    随后同步 process.exit 立刻结束进程，测试不会跟着一起挂死。 */
 console.log("\n== 无数据日：明确空态，绝不自旋 ==");
-const anchorMonth = ix.default_day.slice(0, 7);
+/* 判据是「索引里有这一行、但值全空」，不是「索引里没有这一天」——
+   主页跨度含断档空白格，缺采集的日子照样在索引里占一行。原判据
+   （`monthDays.filter(d => !withRow.has(d))`）在新数据下永远找不到目标，
+   而且会把 undefined 传给 renderPage，直接崩在 monthLabel 上。 */
 const withRow = new Set(ix.days.map((r) => r.date));
-const monthDays = (() => {
-  const [y, m] = anchorMonth.split("-").map(Number);
-  const n = new Date(y, m, 0).getDate();
-  return Array.from({ length: n }, (_, i) => `${anchorMonth}-${String(i + 1).padStart(2, "0")}`);
-})();
-const noDataDate = monthDays.filter((d) => !withRow.has(d))[0];
-ok(!!noDataDate, "锚点月内存在无数据的一天", noDataDate || "（该月已填满）");
-
-store.scale = "day";
-store.anchor = noDataDate;
-store.month = anchorMonth;
-renderPage();
-ok(text("brief-sub").includes("没有采集记录"),
-  "无数据日给同步空态（是空态，不是「加载中」转圈）",
-  text("brief-sub").trim());
-ok(html("brief-grid").includes("缺数据不等于没做到"), "空态文案守住「缺数据 ≠ 没做到」");
-ok(html("unit-scope").includes("无采集记录"), "过去的空日标「无采集记录」",
-  html("unit-scope").replace(/<[^>]+>/g, " ").trim());
-ok(!html("unit-scope").includes("进行中"), "过去的空日不标「进行中」（那是今天的说法）");
-ok(!hidden("brief-zone"), "日尺度下判读区仍显示（只是内容是空态）");
+if (!noDataDate) {
+  console.log("  – 跳过：锚点月内没有「有行但无实测值」的日子");
+} else {
+  store.scale = "day";
+  store.anchor = noDataDate;
+  store.month = anchorMonth;
+  renderPage();
+  ok(text("brief-sub").includes("没有采集记录"),
+    "无数据日给同步空态（是空态，不是「加载中」转圈）",
+    noDataDate + " · " + text("brief-sub").trim());
+  ok(html("brief-grid").includes("缺数据不等于没做到"), "空态文案守住「缺数据 ≠ 没做到」");
+  ok(html("unit-scope").includes("无采集记录"), "过去的空日标「无采集记录」",
+    html("unit-scope").replace(/<[^>]+>/g, " ").trim());
+  ok(!html("unit-scope").includes("进行中"), "过去的空日不标「进行中」（那是今天的说法）");
+  ok(!hidden("brief-zone"), "日尺度下判读区仍显示（只是内容是空态）");
+}
 
 /* 没有记录的「今天」——这才是唯一该说「进行中」的情形 */
 if (!withRow.has(ix.today)) {
