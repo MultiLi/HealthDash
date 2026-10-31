@@ -17,6 +17,9 @@
 | C12 | **CI 覆盖不到前端与判读** | `smoke` 与 `golden` 都依赖 `data/` 或 `site/index.json`，两者不入库 → CI 里必然 SKIP。`tools/ci/check.py` 已把 SKIP 单列并挂 notice，但**「没验」这件事本身没消失**。解法只有一条：造一份**脱敏 fixture** 顶替真实 `index.json`，让 `smoke_site.mjs` 支持从指定路径读。难点在 fixture 而不在代码——它得覆盖四态采集、补数条、判读可达、达标矩阵几条分支，否则只是「跑通了但测不到东西」 |
 | C13 | **`main` 上 smoke 每月 1 号必崩** | `store.anchor = ix.today \|\| ix.default_day`，1 号时 `ix.today` 落在当月，而当月分片 `site/daily/YYYY-MM.json` 还不存在 → `ENOENT`。**病根不是测试坏了，是测试替身把 `main.js` 的判定简化掉了**——真实逻辑是「今天有行才用今天」。修法两处：锚点复刻真实判定；读分片前 `existsSync` |
 | C14 | **金标锚点日会被采集回补吃掉** | 已两次实见：10-25 被回补成 complete（C10/C11 换锚 10-30），10-30 又被 14:00 班回补 → `data.day.partial` 断言消失。**病根：partial 日是暂态，拿它当永久锚点必失效**。解法方向：锚点只选「有原因不会回补」的日子（如未佩戴空日），或 golden 支持 fixture 固定态 |
+| B8 | 是否抽 `healthd/` 独立包 | 引擎代码是否再抽成可 `pip install` 的独立包。只在这台机器跑就不抽（`skills/body-health/scripts/` 即最终位置）；要上 NAS / 换机器 / 让别人复现才值得。**这一条决定后面 80% 的工作量** |
+| B9 | smoke 两处口径型假警报 | 23:30 后跑「进行中当天」固定误报 2 项。倾向：CI 里跳过进行中当天——断言不该依赖运行时刻 |
+| B10 | 备份口令与频率 | `tools/backup_health.py` 已有。待定：① 口令进 macOS Keychain 才能挂定时（口令不该经过 agent，第一份备份 Sir 自己执行）；② 备份频率与保留份数；③ 云存储只能当副本之一，唯一备份不能放在会因欠费锁定的地方 |
 
 ## 二、观察中（不是欠账，是已知外部缺口）
 
@@ -28,4 +31,4 @@
 
 - **`verify_judgment` 升级为硬门槛**：现在是提示级数字溯源（历史报告会引用 facts 窗口外的数值）。
 - **`daily_brief` 物理拆分**（抽出 `calc.py`）：零行为收益、有回归风险，不做。
-- **剩余迁移步骤**见 `docs/architecture.md` §6；**待拍事项**见 `docs/decisions.md` 第二部分。
+- **剩余迁移步骤**见 `docs/architecture.md` §6；**明确不做的事**见 `docs/architecture.md` §8。

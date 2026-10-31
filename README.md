@@ -72,4 +72,4 @@ data/                    ★ 唯一数据根，整体不入库（结构见 data/
 
 全链路跑通：采集 → 物化三层 → 断言 → 判读 → 主页。门禁一条命令：`python3 tools/ci/check.py`。
 
-**欠账**见 [`notes/backlog.md`](notes/backlog.md)；**待拍事项**见 [`docs/decisions.md`](docs/decisions.md) 第二部分；**剩余迁移步骤**见 [`docs/architecture.md`](docs/architecture.md) §6。
+**欠账与待拍事项**见 [`notes/backlog.md`](notes/backlog.md)；**明确不做的事**见 [`docs/architecture.md`](docs/architecture.md) §8；**剩余迁移步骤**见同文件 §6。
