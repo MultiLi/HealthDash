@@ -168,14 +168,45 @@ git add -A && git commit -m 'feat: ...' && git push -u origin feat/xxx
 
 # 5. 开 PR（网页或 gh pr create --fill），等 check 绿
 
-# 6. 合并后清理
-cd <主仓库> && python3 tools/ci/wt.py rm feat/xxx
+# 6. 合并后：清掉 worktree，把主工作区拉回最新 main
+python3 tools/ci/wt.py rm feat/xxx
+python3 tools/ci/wt.py sync        # 主工作区快进到 origin/main
 
-# 7. 如果改了 site/：发布是独立的动作，别忘
-python3 tools/deploy.py            # republish → 重新发布应用 → --mark-app-deployed
+# 7. 如果改了 site/：重建产物 + 判断该怎么上线
+python3 tools/build_homepage_data.py
+python3 tools/deploy.py            # 输出 republish → 重新发布应用 → --mark-app-deployed
+
+# 8. 发布后核验（唯一能证明「真的上线了」的动作）
+python3 tools/deploy.py --check --verify-live
 ```
 
+第 6 步的 `sync` 不能省。PR 合并只更新远端，主工作区还停在合并前的 commit 上；
+不拉回来的话，下一次改动就从旧基线起步，越拖越难合——而 `git log` 看起来一切正常，
+没人会发现自己落后了。
+
 第 7 步最容易漏。`git push` 不等于上线——2026-10-31 那轮重构就是这么积压的。
+
+**而 `deploy.py --check` 本身也可能骗人**（2026-11-01 修）。它原来拿「本地前后两次指纹」
+当判据：只能发现「我改了」，发现不了「我改了、但从来没上线」。只要工作区里躺着一批
+未发布的改动，游标就会把本地状态误记成线上状态，之后无论怎么改都报 noop。
+实证：`--check` 说「代码与数据都与上次上线一致」，而线上 `main.js?v=f094d208`、
+本地 `a3b1db98`，js 根本没推。
+
+修法是给游标加一个 `code_verified`：
+
+| 谁写 | 写什么 | 为什么 |
+|---|---|---|
+| `init`（首次建基线） | `false` | 那时只知道本地什么样，不知道线上 |
+| `--mark-app-deployed` | `true` | 一次真实发布成功，是唯一可信证据 |
+| `plan()` 见到 `false` | 拉线上比对 | 一致就自愈成 `true`，不一致就报 `republish` |
+
+日常不需要额外动作。只有排查「到底上线没有」时用强制核验：
+
+```bash
+python3 tools/deploy.py --check --verify-live   # 无视游标，直接问线上
+```
+
+它会把两个版本号并排打出来，一致/不一致一眼可见。**这是唯一不依赖游标说谎的判据。**
 
 ---
 
