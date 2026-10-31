@@ -157,7 +157,7 @@ python3 tools/probe_interactions.py      # 8 用例（需真浏览器，不在 c
 | 冲突 | `rules.json` 改动前先跑 `backtest.py snapshot`，改完跑 `diff`，把改判清单附在提交里 |
 | 独占 | `slot.py mark`、`push_data.py`、发布动作是**独占操作**，同一时刻只允许一个 agent 执行。**worktree 隔离不了它们** |
 | **部署** | **改了 `site/` 下任何文件，收尾必须跑 `python3 tools/deploy.py`。** 它输出 `republish` 就必须重新发布应用，然后 `--mark-app-deployed` 登记；输出 `hot_update` 会自动推送数据；`noop` 才代表线上已同步。**git push ≠ 上线**——两者的差集不会自己显形，只能靠这条命令显式核对 |
-| **历史** | **不写变更记录。** 文件只写当前真相，谁在哪天改了什么由 `git log` 承载。commit message 写 why，不写「update」。删东西的 commit 要说明「删了什么、为什么可以删、结论在哪」。唯一例外是 `docs/decisions.md` 的否决项与 `docs/incidents.md` 的防线——那是 git 查不到的信息。判据见 `docs/README.md` §2 |
+| **历史** | **不写变更记录。** 文件只写当前真相，谁在哪天改了什么由 `git log` 承载。commit message 写 why，不写「update」。删东西的 commit 要说明「删了什么、为什么可以删、结论在哪」。唯一例外是 `docs/architecture.md` §八「明确不做」（否决项）与 `docs/incidents.md` 的防线——那是 git 查不到的信息。判据见 `docs/README.md` §2 |
 | 记账 | 会话草稿（未定的事、待办、个人偏好）写 `.workbuddy/memory/[日期].md`，**不写已完成的工程历史**；后者属于 commit |
 
 ---
@@ -172,4 +172,4 @@ python3 tools/probe_interactions.py      # 8 用例（需真浏览器，不在 c
 | 判读规则与架构约束、事故复盘混在同一份 SKILL.md | 判读 agent 要吞整份 | 待拆分为 prompt / docs / incidents |
 | 发布参数（appId、启动命令）在 `tools/deploy.json`，不入库 | 换机器要重新配 | 设计如此：它含凭据 |
 
-目标形态见 `docs/architecture.md` §4.4，待定项见 `docs/decisions.md` 第二部分。
+目标形态见 `docs/architecture.md` §4.4，待定项见 `notes/backlog.md`。
