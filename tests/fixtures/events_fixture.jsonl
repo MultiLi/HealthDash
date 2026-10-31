@@ -1,0 +1,9 @@
+{"ts":"2026-10-01T08:30:00+08:00","date":"2026-10-01","type":"note","content":"口径备注：合成 fixture 事件，用于 CI 校验解析器，不含任何真实个人数据","source":"manual","id":"01FIX0000000000000000000A01"}
+{"ts":"2026-10-01T12:00:00+08:00","date":"2026-10-01","type":"context","content":"合成事件：当天为工作日、久坐为主","source":"conversation","confidence":"medium","id":"01FIX0000000000000000000A02"}
+{"ts":"2026-10-01T21:10:00+08:00","date":"2026-10-01","type":"diet","content":"合成事件：晚间有咖啡因摄入记录","source":"conversation","id":"01FIX0000000000000000000A03"}
+{"ts":"2026-10-02T07:45:00+08:00","date":"2026-10-02","type":"symptom","content":"合成事件：晨起自述头部不适，当日恢复","source":"conversation","confidence":"high","payload":{"region":"head","duration_h":2},"id":"01FIX0000000000000000000A04"}
+{"ts":"2026-10-02T08:00:00+08:00","date":"2026-10-02","type":"measurement","content":"合成事件：一次性体重测量入档（数值在 payload）","source":"manual","payload":{"weight_kg":0.0,"note":"fixture 置零，防泄露"},"id":"01FIX0000000000000000000A05"}
+{"ts":"2026-10-02T23:00:00+08:00","date":"2026-10-02","type":"note","content":"合成事件：依据设备日汇总推断当日活动量低于周中位（推断依据随事件落档）","source":"data_inference","id":"01FIX0000000000000000000A06"}
+{"ts":"2026-10-02T23:30:00+08:00","date":"2026-10-02","type":"note","content":"合成事件：更正本日 context 记录——当天实为休息日；旧条目作废","source":"conversation","supersedes":"01FIX0000000000000000000A02","id":"01FIX0000000000000000000A07"}
+{"ts":"2026-10-03T09:00:00+08:00","date":"2026-10-03","type":"checkup","content":"legacy 合成事件：无 id 的存量格式（校验器应记 warning 不报错）","source":"conversation"}
+{"ts":"2026-10-03T22:00:00+08:00","date":"2026-10-03","type":"activity","content":"合成事件：傍晚步行活动，来自设备判定","source":"device","id":"01FIX0000000000000000000A08"}

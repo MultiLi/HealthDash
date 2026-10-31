@@ -171,9 +171,9 @@ L1 断言 id 按维度命名：`sleep` / `activity` / `autonomic` / `load` / `st
 
 **规则**：新代码一律 `from settings import ROOT / RAW_DIR / REPORTS_DIR ...`，不许再用 `__file__` 往上数。
 
-### 4.3 仍未解除的两条
+### 4.3 仍未解除的一条
 
-1. **编排在宿主里**：5 个定时班次的 prompt 存在 WorkBuddy 自动化配置，不在仓库。仓库里只有执行记忆。⚠️ 搬迁后若 prompt 里写死了旧目录名，会失效——需要人工核对（见 H2）。
+1. **判读规则与工程文档混装**：`skills/body-health/SKILL.md` 644 行里，判读 prompt 约 35%、架构约束 20%、事故复盘 30%、操作手册 15%。（班次 prompt 已于 2026-11-01 入库 `automations/`，宿主配置只剩薄加载器，见 §4.4。）
 2. **判读规则与工程文档混装**：`skills/body-health/SKILL.md` 644 行里，判读 prompt 约 35%、架构约束 20%、事故复盘 30%、操作手册 15%。
 
 ### 4.4 目标形态（剩余部分）
@@ -235,12 +235,11 @@ docs/        项目文档（人读）
 
 | 步 | 动作 | 风险 | 验证 |
 |---|---|---|---|
-| **H2** | 班次 prompt 落进 `skills/*/automations/`，宿主配置只留「读该文件」 | 低 | 手动触发一次班次比对行为 |
 | **H4** | 拆 SKILL.md：prompt / 架构 / 事故 / 手册 四份 | 中，会改判读行为 | 连出 3 天与旧版逐条比 findings |
 | **H5** | `data/reports/` 按机器件 / 人件分目录 | 中 | 跑补跑流程验单一终版 |
 | **H6** | `make verify` + CI + 脱敏 fixture + 发布动作脚本化 | 低 | CI 绿 + 一次真实发布 |
 
-**H2 是唯一带外部依赖的一步**：prompt 住在 WorkBuddy 自动化配置里，仓库只能写规范，实际配置要人工同步。
+> 班次 prompt 入库（原 H2）已完成：两班指令源在 `skills/body-health/automations/`，宿主自动化只剩「读该文件并执行」的薄加载器，改文件即生效，宿主配置不再需要人工同步。
 
 ---
 
