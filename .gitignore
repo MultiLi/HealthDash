@@ -36,6 +36,12 @@ site/.push_token
 site/_push_token
 .wbapp_*.genie
 
+# ── ③.5 并行开发副本（git worktree）──────────────────────────────────────
+# 一个 feature 一个 worktree，避免两个 agent 在同一个工作区互相踩。
+# 它们本身是代码副本，不是数据；数据通过符号链接指回主仓库（见 tools/ci/wt.py）。
+# 必须在这里排除：worktree 里有一份完整的源码树，一旦被跟踪，提交会把整棵树打包进去。
+.worktrees/
+
 # ── ④ 宿主状态（某个 agent 平台的运行记录，不是项目状态）────────────────
 # 每日健康日志、自动化执行记忆、应用注册表——换机器或多 agent 并行时必冲突
 .workbuddy/memory/

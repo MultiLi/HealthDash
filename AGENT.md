@@ -117,19 +117,28 @@ site/index.json + site/daily/*.json   前端数据层
 
 ## 7. 怎么证明你做对了
 
-跑完一轮，这三条必须同时成立：
+**先跑这一条**（本地和 CI 跑的是同一份，覆盖下面的大部分）：
+
+```bash
+python3 tools/ci/check.py
+```
+
+它依次验：数据守卫 / Python 语法与 3.9 下限 / JS 语法 / 路径锚点 / 数据边界结构 /
+前端冒烟 / 判读金标。exit 0 才继续。**它报 SKIP 不等于通过**——SKIP 是「这项没验」。
+
+跑完一轮判读，这三条必须同时成立：
 
 ```bash
 python3 $S/verify_judgment.py --date D   # 总评一致 / findings 覆盖 / 数字溯源 / 禁用词
-python3 $S/backtest.py golden            # 12 条历史锚点必须 12/12
+python3 $S/backtest.py golden            # 12 条历史锚点必须 12/12（check.py 已含）
 python3 $S/index.py verify               # 11 项一致性自检 exit 0
 ```
 
 改过前端再加：
 
 ```bash
-node tools/smoke_site.mjs                # 113 项
-python3 tools/probe_interactions.py      # 8 用例
+node tools/smoke_site.mjs                # 已含在 check.py 里
+python3 tools/probe_interactions.py      # 8 用例（需真浏览器，不在 check.py 里）
 ```
 
 **任何一项红了，先分清是真错还是锚点失效**（见 `docs/operations.md` 的「冒烟测试的锚点纪律」）。不要为了让测试变绿去改期望值——但也别把「测试锚定了一个已经变化的日子」当成产品缺陷。判据：这条断言跑的是规则，还是某一天的运气？
@@ -141,10 +150,12 @@ python3 tools/probe_interactions.py      # 8 用例
 | 约定 | 内容 |
 |---|---|
 | 边界 | 一个 agent 只做一件事：采集 / 物化 / 判读 / 呈现 / 问答。不要跨 |
+| **分支** | **main 只接受 PR 合并，不许直推。** 一个功能一个分支一个 worktree：`python3 tools/ci/wt.py new feat/xxx`。改动前看 `docs/workflow.md` |
+| **隔离** | 两个 agent 并行时，各用各的 worktree。**data/ 是共享的唯一一份**（符号链接），`site/index.json` 各存各的（复制）——详见 `docs/workflow.md` §3 |
 | 通信 | 只通过上表里的文件。不要直接调另一个 agent 的内部函数 |
 | 幂等 | 任何步骤重复跑必须产出相同结果（`slot.py`、`collect.py`、`build` 都已保证） |
 | 冲突 | `rules.json` 改动前先跑 `backtest.py snapshot`，改完跑 `diff`，把改判清单附在提交里 |
-| 独占 | `slot.py mark`、`push_data.py`、发布动作是**独占操作**，同一时刻只允许一个 agent 执行 |
+| 独占 | `slot.py mark`、`push_data.py`、发布动作是**独占操作**，同一时刻只允许一个 agent 执行。**worktree 隔离不了它们** |
 | **部署** | **改了 `site/` 下任何文件，收尾必须跑 `python3 tools/deploy.py`。** 它输出 `republish` 就必须重新发布应用，然后 `--mark-app-deployed` 登记；输出 `hot_update` 会自动推送数据；`noop` 才代表线上已同步。**不许「git push 完就算完」**——2026-10-31 那轮重构（删 cloud.js、改 main.js/store.js）就是这么积压的：本地构建过、冒烟过、git 推了，线上打开还是旧版，而且没人发现 |
 | 记账 | 做实质工作后在 `.workbuddy/memory/[日期].md` 追加一条；那是本地日志，不入库 |
 

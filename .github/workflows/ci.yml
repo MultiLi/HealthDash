@@ -1,0 +1,57 @@
+name: ci
+
+# 什么时候跑：
+#   · 推到任何非 main 分支（feature 分支上的每次提交都验）
+#   · 提 PR 到 main（合并前的门禁）
+#   · 手动触发（在 Actions 页面点 Run workflow）
+#
+# **不在 main 上跑 push**：main 只接受 PR 合并，PR 已经验过一遍。
+# 再对 main 跑一次除了多烧额度没有额外信息。
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# 只读权限。CI 不写仓库、不发版、不碰线上——它只回答「这堆代码有没有问题」。
+# 发布是另一条链路（tools/deploy.py + 应用发布），不在 CI 里做。
+permissions:
+  contents: read
+
+# 同一个分支连续推三次，只需要最后一次的结果，前两次白烧额度直接取消。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # 版本要跟 pyproject.toml 的 requires-python 对齐。
+      # 用 3.12 而不是 3.13：3.9 下限由 check.py 的 ast feature_version 单独验，
+      # 这里没必要每次都用最新版——最新版最不代表用户环境。
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # 单一入口。本地跑的是同一条命令，所以本地绿 = CI 绿。
+      # 结果同时写进 Actions 的 Summary 页（人看）和 stdout（日志）。
+      - name: 运行检查
+        run: python3 tools/ci/check.py --summary-file "$GITHUB_STEP_SUMMARY"
+
+      # 依赖 data/ 的检查在 CI 里必然跳过。把这件事写在 job 的 notice 里，
+      # 避免「CI 全绿」被误读成「数据链路也验过了」。
+      # 用 always()：检查失败时才更需要知道「失败不包含数据层」。
+      - name: 声明未覆盖范围
+        if: always()
+        run: |
+          echo "::notice title=CI 未覆盖::依赖 data/ 的检查（smoke、golden）在 CI 里跳过，因为数据不入库。这两项只在有数据的机器上跑。"

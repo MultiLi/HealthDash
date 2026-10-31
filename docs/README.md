@@ -31,6 +31,7 @@ docs/
   README.md                本文件：地图与划分规范
   architecture.md          ★ 当前架构的唯一权威描述（分层、真相源、边界）
   operations.md            ★ 运维手册：每天/每周要做什么、怎么验证
+  workflow.md              ★ 开发流程：分支模型、worktree 隔离、PR 门禁（改代码前先读）
   frontend.md              前端与主页参考（原 tools/HOMEPAGE_NOTES.md）
   incidents.md             ★ 事故库：判读陷阱的实证记录，每条带日期与数字
   decisions.md             决策记录：已定 / 待定，含否决选项与理由
@@ -75,6 +76,7 @@ data/                      ★ 唯一数据根，整体不入库（结构见 dat
 |---|---|---|
 | 「这个模块为什么拆成两层」 | `docs/architecture.md` | SKILL.md（那是给 agent 的执行说明） |
 | 「怎么跑一次补数」 | `docs/operations.md` | README（README 只放入口链接） |
+| 「改代码怎么开分支、怎么跑门禁」 | `docs/workflow.md` | AGENT.md（那里只放禁令，不放步骤） |
 | 「10-08 久坐 22h 是分母伪影」 | `docs/incidents.md` | 每日日志（没人会回头翻） |
 | 「今天修了什么、被什么坑到」 | `.workbuddy/memory/[日期].md` | docs/（那不是流水账） |
 | 「agent 调用时必须先 resolve 目标日」 | `AGENT.md` 或对应 skill | docs/（协作者不需要知道执行细节） |
