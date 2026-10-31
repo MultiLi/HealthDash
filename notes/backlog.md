@@ -14,7 +14,7 @@
 | B5 | `events.jsonl` 进库 | 自由文本事件目前只进 facts（`events_recent`）；进库需要先定结构（时间/类型/标签） |
 | B6 | 体成分结论变断言 | InBody 观测已进 `obs`，但闸门 verdict 未转断言；金标用例里没有体成分锚点 |
 | B7 | 主观数据参与判定 | `daily_log` 的 obs 未进断言。主观断档时间长，样本不足以定规则 |
-| C12 | **CI 覆盖不到前端与判读** | `smoke` 与 `golden` 都依赖 `data/` 或 `site/index.json`，两者不入库 → CI 里必然 SKIP。`tools/ci/check.py` 已把 SKIP 单列并挂 notice，但**「没验」这件事本身没消失**。解法只有一条：造一份**脱敏 fixture** 顶替真实 `index.json`，让 `smoke_site.mjs` 支持从指定路径读。难点在 fixture 而不在代码——它得覆盖四态采集、补数条、判读可达、达标矩阵几条分支，否则只是「跑通了但测不到东西」。2026-11-01 侦察补充：fixture 必须同时满足 smoke 的写死锚点（`2026-09-*` 系列日期、`2026-W43` 单元判定、`2026-09` 月度准备度同源断言）、`site/daily/<月>.json` 分片（含 readiness.series≥2 的轨迹日）、`units`/`collect`/`briefs`/`events`/`nudge` 全套结构。**建议形态：提交生成脚本而非生成产物**——数值由代码算出，个人数值永不入 git；smoke 用环境变量（如 `SMOKE_INDEX`）注入 fixture 路径。这是独立战役，勿与别的改动混做 |
+| C12 | **CI 覆盖不到判读（golden）** | smoke 半边已解决（2026-11-01）：`tests/fixtures/make_smoke_fixture.py` 现场合成脱敏数据、复用真实 `build_index` 生成索引与分片，`smoke_site.mjs` 用 `SMOKE_DATA_DIR` 注入，CI 里 134 项断言真跑。**golden 半边否决合成 fixture**：金标的价值在钉住「真实发生过的日子」的判读翻转；合成数据的金标是引擎输出 vs 引擎输出的循环自证，只防崩溃不防判读漂移，反而制造虚假信心。判读正确性继续由本机 `check.py`（golden 11/11）覆盖，CI 里保持 SKIP 并明示缺口 |
 | C13 | **`main` 上 smoke 每月 1 号必崩** | `store.anchor = ix.today \|\| ix.default_day`，1 号时 `ix.today` 落在当月，而当月分片 `site/daily/YYYY-MM.json` 还不存在 → `ENOENT`。**病根不是测试坏了，是测试替身把 `main.js` 的判定简化掉了**——真实逻辑是「今天有行才用今天」。修法两处：锚点复刻真实判定；读分片前 `existsSync` |
 | C14 | **金标锚点日会被采集回补吃掉** | 已两次实见：10-25 被回补成 complete（C10/C11 换锚 10-30），10-30 又被 14:00 班回补 → `data.day.partial` 断言消失。**病根：partial 日是暂态，拿它当永久锚点必失效**。解法方向：锚点只选「有原因不会回补」的日子（如未佩戴空日），或 golden 支持 fixture 固定态 |
 | B8 | 是否抽 `healthd/` 独立包 | 引擎代码是否再抽成可 `pip install` 的独立包。只在这台机器跑就不抽（`skills/body-health/scripts/` 即最终位置）；要上 NAS / 换机器 / 让别人复现才值得。**这一条决定后面 80% 的工作量** |

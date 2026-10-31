@@ -13,6 +13,11 @@ import fs from "node:fs";
 import path from "node:path";
 
 const SITE = path.join(path.dirname(new URL(import.meta.url).pathname), "..", "site");
+/* 数据层目录默认随包（site/）。CI 跑脱敏 fixture 时用 SMOKE_DATA_DIR 指向
+   临时目录（tests/fixtures/make_smoke_fixture.py 现场合成），页面代码与 js
+   模块仍从 site/ 读——注入点只覆盖「数据文件」，不覆盖「发布产物」。 */
+const DATA_DIR = process.env.SMOKE_DATA_DIR
+  ? path.resolve(process.env.SMOKE_DATA_DIR) : SITE;
 
 /* ---------------- 最小 DOM 桩 ---------------- */
 const nodes = new Map();
@@ -110,7 +115,7 @@ delete store.shards["2026-08"];
 delete store.pending["2026-08"];
 delete globalThis.fetch;
 
-const ix = JSON.parse(fs.readFileSync(path.join(SITE, "index.json"), "utf8"));
+const ix = JSON.parse(fs.readFileSync(path.join(DATA_DIR, "index.json"), "utf8"));
 store.ix = ix;
 store.rows = ix.days.slice();
 store.closed = ix.days.filter((r) => !r.morning);
@@ -123,7 +128,7 @@ store.anchor = store.byDate[ix.today] ? ix.today : (ix.default_day || ix.days[ix
 store.month = store.anchor.slice(0, 7);
 store.scale = "month";
 const shardMonth = store.anchor.slice(0, 7);
-const shardPath = path.join(SITE, "daily", shardMonth + ".json");
+const shardPath = path.join(DATA_DIR, "daily", shardMonth + ".json");
 store.shards[shardMonth] = fs.existsSync(shardPath)
   ? JSON.parse(fs.readFileSync(shardPath, "utf8")).days
   : {};
@@ -297,7 +302,7 @@ console.log("\n== 卡内细分渲染器（喂完整分片） ==");
    本节已删 fetch（取数链路节末尾），ensureShard 走不通，所以直接从磁盘读
    分片塞进缓存——构造输入，不依赖偶然状态。 */
 const detailMonth = closedLast.slice(0, 7);
-const detailShardPath = path.join(SITE, "daily", detailMonth + ".json");
+const detailShardPath = path.join(DATA_DIR, "daily", detailMonth + ".json");
 const detailShard = fs.existsSync(detailShardPath)
   ? JSON.parse(fs.readFileSync(detailShardPath, "utf8")) : null;
 const day = (detailShard && (detailShard.days || detailShard)[closedLast]) || null;

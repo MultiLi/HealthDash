@@ -58,12 +58,14 @@ IN_CI = os.environ.get("CI") == "true"
 SKIP_DIRS = {".git", ".worktrees", "__pycache__", "node_modules", ".venv", "venv", ".data"}
 
 
-def sh(cmd, cwd=None, timeout=180):
+def sh(cmd, cwd=None, timeout=180, extra_env=None):
     """跑一条命令，返回 (rc, out)。rc=None 表示超时。"""
     try:
+        env = dict(os.environ, NO_PROXY="*", no_proxy="*")
+        if extra_env:
+            env.update({k: v for k, v in extra_env.items() if v})
         p = subprocess.run(
-            cmd, cwd=cwd or ROOT, capture_output=True, text=True, timeout=timeout,
-            env=dict(os.environ, NO_PROXY="*", no_proxy="*"),
+            cmd, cwd=cwd or ROOT, capture_output=True, text=True, timeout=timeout, env=env,
         )
         return p.returncode, (p.stdout or "") + (p.stderr or "")
     except subprocess.TimeoutExpired:
@@ -217,13 +219,24 @@ def check_structure():
 
 
 def check_smoke():
-    """前端冒烟：需要 site/index.json（不入库）。"""
+    """前端冒烟。优先真实数据（site/index.json）；没有就现场合成脱敏 fixture
+    （tests/fixtures/make_smoke_fixture.py，roadmap P0③）——CI 里从 SKIP 变成真跑。
+    两条路径跑的是同一份断言，差别只在数据来源。"""
     index = os.path.join(ROOT, "site", "index.json")
+    import tempfile
+    fixture_dir = None
     if not os.path.isfile(index):
-        return "skip", "缺少 site/index.json（数据不入库，CI 里必然没有）"
+        gen = os.path.join(ROOT, "tests", "fixtures", "make_smoke_fixture.py")
+        if not os.path.isfile(gen):
+            return "skip", "缺 site/index.json 且无 fixture 生成器（数据不入库，CI 里必然没有）"
+        fixture_dir = tempfile.mkdtemp(prefix="smoke-fixture-")
+        rc, out = sh([sys.executable, gen, fixture_dir], timeout=120)
+        if rc != 0:
+            return "fail", "fixture 生成失败：\n    %s\n    修法：本地跑 python3 tests/fixtures/make_smoke_fixture.py /tmp/x 复现" % out.strip()[:200]
     if not os.path.isfile(os.path.join(ROOT, "tools", "smoke_site.mjs")):
         return "skip", "找不到 tools/smoke_site.mjs"
-    rc, out = sh(["node", "tools/smoke_site.mjs"], timeout=120)
+    rc, out = sh(["node", "tools/smoke_site.mjs"], timeout=120,
+                 extra_env={"SMOKE_DATA_DIR": fixture_dir} if fixture_dir else None)
     if rc == 127:
         return "skip", "环境没有 node"
     if rc == 0:
@@ -238,8 +251,9 @@ def check_smoke():
         bad = [err[:150]] if err else ["进程异常退出，没有任何断言输出"]
     m = re.search(r"(\d+)\s*通过\s*/\s*(\d+)\s*失败", out)
     tally = "（%s 通过 / %s 失败）" % (m.group(1), m.group(2)) if m else ""
-    return "fail", "%s\n    %s\n    修法：先分清是真错还是锚点失效（docs/operations.md「冒烟测试的锚点纪律」）" % (
-        "；".join(bad[:3]), tally.strip())
+    src = "fixture" if fixture_dir else "真实数据"
+    return "fail", "[%s] %s\n    %s\n    修法：先分清是真错还是锚点失效（docs/operations.md「冒烟测试的锚点纪律」）" % (
+        src, "；".join(bad[:3]), tally.strip())
 
 
 def check_golden():
