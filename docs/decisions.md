@@ -32,6 +32,7 @@
 | D-20 | 2026-10-31 | **写入走文件、查询走库**：JSONL 与报告 md 是真相，`daily_log`/`events`/`reports` 三张表只是镜像 | 全部内容塞进 SQLite | 跨日查询要 SQL（「近 90 天体重」「历次体检」「红灯分布」），但报告正文进 BLOB 会让 `git diff`、编辑器排版、人工核对全部失效。判据是「谁来读」：人读的留文件，聚合统计走库 |
 | D-21 | 2026-10-31 | **个人档案不进 `rules.json`**，改放 `data/profile.json`，仓库只留 `profile.example.json` | 继续把 age/sex/max_hr/rhr 写在口径文件里 | `rules.json` 是引擎读的口径、要能公开；个人档案是数据、不能公开。两者混在一起，导致「让 rules.json 入库」和「不泄露个人基线」无法同时成立 |
 | D-22 | 2026-10-31 | **云服务副本整条移除**（`cloud.js` / vendor SDK / `cloud.json` / 一致性校验） | 保留但默认关闭 | 全项目搜不到任何写入方（`health_days`/`health_shards` 零引用），是一套死配置，却把 `publishableKey` 公开在了仓库里。留着它只会让「数据到底存在哪」这个问题继续含糊 |
+| D-23 | 2026-10-31 | **接受 GitHub 旧 commit 残留，不做删库或联系 Support** | 删库重建 / 联系 GitHub Support 清理不可达对象 | 强推后当前 HEAD 已 404，但旧 commit 仍可经 API 读到（21 行 9 月早期健康事件）。Sir 判断：仓库无 star/fork、无外部链接指向具体 SHA、残留内容是三个月前的零散记录，**风险可接受**。注意这是「已知并接受」而非「已解决」——留档是为了让下一个 agent 不再把它当新问题重新提一遍。事实描述见 `docs/incidents.md` 第 24 条 |
 
 ### 已推翻的决策
 
