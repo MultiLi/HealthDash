@@ -1,6 +1,6 @@
 # 当前架构
 
-> **本文件是架构的唯一权威描述。** `notes/architecture_v4.md` 是 2026-10-25 的推导过程与 S1/S2 落地记录，作为历史保留，**不再更新**——它的结论已吸收进本文。
+> **本文件是架构的唯一权威描述。**
 >
 > 本文回答两个问题：**数据怎么流？代码住哪？** 判读怎么写见 `skills/body-health/SKILL.md`，运维怎么做见 `docs/operations.md`。
 
@@ -37,26 +37,20 @@ L5  surface        主页 / 日报告 / 周期查询 / 对话                   
 | L4 | **只读 L3** | 报告 md / judgment json | `data/reports/` | 骨架逐字节，叙述不确定 |
 | L5 | L2/L3/L4 | 页面、回答 | `site/`（发布产物） | — |
 
-### 2.1 数据单根（2026-10-31 立）
+### 2.1 数据单根
 
 **全部个人数据住在 `data/` 下，代码目录不含数据。** 这一条是硬约束，不是风格偏好：
 
 ```
 data/
-  raw/  inbody/  db/  reports/  logs/  state/  tests/  profile.json
+  raw/  inbody/  db/  reports/  logs/  state/  tests/  archive/  profile.json
 ```
 
-之所以要强制，是因为数据原先散在 7 个位置（`reports/`、`daily_log.jsonl`、
-`notes/events.jsonl`、`data/raw/`、`data/inbody/`、`data/state/health.db`、
-`site/.data/`），防泄露只能靠 `.gitignore` 逐条列举，**漏一条就把个人健康数据
-推到了公开仓库上**（`docs/incidents.md` 第 24 条）。
+**为什么用结构而不是规则**：数据分散时，防泄露只能靠 `.gitignore` 逐条列举，漏一条就是泄露（`docs/incidents.md` #24）。现在 `.gitignore` 只有一行 `data/*`，新增任何数据子目录天然不入库——边界由**目录结构**保证，不再依赖谁记得改规则。
 
-现在 `.gitignore` 只有一行 `data/*`，新增任何数据子目录天然不入库——
-边界由**目录结构**保证，不再依赖谁记得改规则。
+`archive/` 存放已退役文档的原件（清理历史时归档），永不进仓库，只查不改。
 
-**唯一例外**：`site/index.json`、`site/daily/`、`site/.data/` 留在 `site/` 下，
-因为它们是发布契约（`server.py` 与前端从固定路径取），挪了要改部署参数。
-它们仍是派生数据，已 ignore。
+**唯一例外**：`site/index.json`、`site/daily/`、`site/.data/` 留在 `site/` 下，因为它们是发布契约（`server.py` 与前端从固定路径取），挪了要改部署参数。它们仍是派生数据，已 ignore。
 
 ### 2.2 文件 vs 数据库的分工
 
@@ -74,7 +68,49 @@ data/
 
 **L3 是心脏**。它把「今天 HRV 低于基线带下沿、偏移超过 mdc_single，所以是正式破位」从散文变成一条可查询记录。没有它，「过去 90 天红灯出现在哪些维度」只能靠重读 90 份报告。
 
-三个核心对象的字段定义与设计取舍见 `notes/architecture_v4.md` §3（该文件是本地私有笔记，含真实数值，**不入库**）。
+### 2.3 三个核心对象的规格
+
+字段实现见 `scripts/db.py` 的建表语句与 `references/metrics.json`；这里只钉不可协商的语义。
+
+**Observation（L1）** — 一次测量，永不合并、永不平均。
+
+| 字段 | 职责 |
+|---|---|
+| `t` / `t_end` / `coverage` | **时间对齐的唯一出处**。睡眠属于醒来那天、负荷属于前一天，这个错位在 L1 钉死，消费方不许再猜 |
+| `method` / `device` / `conditions` | 可比性判据。`comparable_on` 任一项不满足即判 `not-comparable` 且**不给差值** |
+| `derived_from` | 派生观测的溯源链，口径变更时可级联重算 |
+
+**Unit（L2）** — 一个尺度下的统计量。`scale ∈ {day, week, month, roll7, roll28, roll90}`。
+
+| 铁律 | 内容 |
+|---|---|
+| 变化判定唯一在 L2 | `delta.verdict` 五档：`changed` / `within-noise` / `insufficient` / `uncalibrated` / `suppressed`。前端与报告只消费，不自己算 |
+| 滚动窗禁环比 | 相邻两步重叠 6/7，变化一律用**非重叠位移差** `v_t − v_(t−k)` |
+| 覆盖不足不给结论 | `coverage < 门槛` → `judge="na"`。门槛：周 4/7、月 15/当月天数、滚动 0.7×窗长 |
+
+**单元级门槛必须按 `confidence.tier.change` 分级**——`mdc_change` 是单次读数门槛，直接套到周均会失真：
+
+| tier.change | 指标 | 允许的结论形式 |
+|---|---|---|
+| `med` | hrv_ms / rhr_bpm / sleep_h / spo2_sleep_avg | 周环比 verdict + 多月斜率 |
+| `low` | steps_daily / body_fat_pct / vo2max / 骨骼肌 / 去脂体重 / 内脏脂肪 | **不给周环比**，只给多月斜率或不给 |
+
+**Assertion（L3）** — 命题 + 布尔 + 证据 + 档位。四条性质让它可规模化：`id` 稳定（可跨日统计）、`evidence` 只含已算好的数字（LLM 引用即可）、`level` 由代码定（不可改判）、可回归（`backtest diff`）。
+
+断言是 **DAG 不是平铺**：L1 单指标断言 → L2 交叉断言（布尔组合）→ L3 总评与维度档位。**交叉规则是否触发由代码判，LLM 只解释。**
+
+L1 断言 id 按维度命名：`sleep` / `activity` / `autonomic` / `load` / `stress_energy` / `capacity` / `bodycomp` / `data`。
+`data` 维度是显式声明的一类断言——**数据缺口不是脚注，是结论的一部分**，参与总评（取 `NEUTRAL` 而非 `GOOD`）。
+
+**MetricDef** — 一个指标只有一份定义：语义、聚合、方向、达标线映射。`references/metrics.json` 是唯一来源，`scripts/metricdefs.py` 是唯一解析器。
+
+| 约束 | 内容 |
+|---|---|
+| 阈值三语义 | `goal`（展示达标）/ `judge`（判读线，未声明则退回 goal）/ `severe`（红线）。三者可以不同，但必须写在同一处并各自具名 |
+| 表达式受限 | 只允许 数字 / 点号路径 / `+ - * /` / 括号，`ast` 白名单求值，不用 `eval` |
+| 退路必须显式 | 个人带缺失时退回哪条规则写在 `band_fallback`；**禁止代码里藏 `or 50` 这类静默退路** |
+| 解析失败必须响 | 缺路径直接抛错，`metricdefs.py validate` 与 `index.py verify` 列出每条断链（含「区间写反」） |
+| 阈值可引用信源 | `ref:<指标名>` 让达标线吃设备逐日算的值（该睡多久、建议几点睡），与静态值 `max/min` 混写；取严不取松 |
 
 ---
 
@@ -101,7 +137,7 @@ data/
 
 ## 四、代码组织：现状与目标
 
-### 4.1 现状（2026-10-25 H3 后）
+### 4.1 代码分布
 
 | 位置 | 行数 | 内容 |
 |---|---|---|
@@ -112,26 +148,26 @@ data/
 | `site/server.py` | 468 | 同源可写端点（标准库，单端口） |
 | `skills/body-health/references/` | — | 口径与指标定义（rules / metrics / lexicon） |
 
-2026-10-25 之前，83% 的后端代码住在 `.workbuddy/skills/` —— 一个名字就宣告「我是某 Agent 平台插件」的目录。H3 已把它们搬到根目录 `skills/`，`.workbuddy/skills/` 下只留两个指向新位置的符号链接（兼容旧命令路径与宿主 skill 发现）。**新代码一律写新路径。**
+`.workbuddy/skills/` 下只留指向 `skills/` 的符号链接（兼容旧命令路径与宿主 skill 发现）。**新代码一律写新路径。**
 
-### 4.2 路径解析（H1 已完成）
+### 4.2 路径解析
 
-**曾经的病灶**：13 个脚本各写一遍 `dirname(__file__)/../../../..` 反推工作区根，外加 `tools/homepage/paths.py` 用一条硬编码字符串指回引擎目录。**代码放在哪就是运行时契约**——搬一次目录，13 处同时断，且报错位置离根因很远。
+**规则：代码放在哪，绝不能成为运行时契约。**
 
-**现在**：`skills/body-health/scripts/settings.py` 是唯一解析点，按三级顺序找根：
+`skills/body-health/scripts/settings.py` 是唯一解析点，按三级顺序找根：
 
 1. 环境变量 `HEALTH_ROOT`（换机器、测试、fixture 目录）
 2. 从自身位置向上找**锚点**（同时存在 `tools/` 与 `docs/` 的祖先目录，最多 8 层）
 3. 按旧布局兜底（`scripts/` 上四层）
 
-关键是第 2 级用锚点而不是固定层数，所以 H3 搬迁是**零代码改动**：
+关键是第 2 级用锚点而不是固定层数，所以目录搬迁是**零代码改动**：
 
 | 布局 | 深度 | 结果 |
 |---|---|---|
 | `skills/body-health/scripts/`（当前） | 上 3 层 | 解析到工作区根 |
 | `.workbuddy/skills/body-health/scripts/`（兼容符号链接） | 上 4 层 | 同样解析到工作区根 |
 
-采集通道目录（`skills/garmin-connect-cn/`）由 `settings.garmin_scripts_dir()` 按候选顺序发现——它改过名（去掉 `__skillhub` 平台痕迹），调用方无需跟着改。
+采集通道目录（`skills/garmin-connect-cn/`）由 `settings.garmin_scripts_dir()` 按候选顺序发现，改目录名时调用方无需跟着改。
 
 **规则**：新代码一律 `from settings import ROOT / RAW_DIR / REPORTS_DIR ...`，不许再用 `__file__` 往上数。
 
@@ -193,20 +229,18 @@ docs/        项目文档（人读）
 
 ---
 
-## 六、工程迁移路径
+## 六、剩余迁移步骤
 
-按「先解除最硬的耦合，再动会改变行为的」排序。**H1 是其余全部的前置条件。**
+按「先解除最硬的耦合，再动会改变行为的」排序。
 
 | 步 | 动作 | 风险 | 验证 |
 |---|---|---|---|
-| **H1** | ✅ **2026-10-25 完成**：`skills/body-health/scripts/settings.py` 集中路径解析（`HEALTH_ROOT` 环境变量优先，其次向上找锚点）；14 处反推改为导入；`tools/homepage/paths.py` 改为按候选顺序定位；新增 `pyproject.toml`（依赖与工具配置的唯一声明，引擎零第三方依赖） | 低，零行为变化 | 22 个模块全部导入成功、根解析一致；`index.py verify` 11 项 / `backtest golden` 12/12 / `smoke_site` 113 项 / `probe_interactions` 8/8 全过；另做**搬迁布局模拟**确认解析不变 |
-| **H2** | 5 个班次 prompt 落进 `skills/*/automations/`，宿主配置只留「读该文件」 | 低 | 手动触发一次 10:00 班比对行为 |
-| **H3** | ✅ **2026-10-25 完成**：`skills/` 搬到根目录（`.workbuddy/skills/body-health` 与 `garmin-connect-cn-data__skillhub` 留符号链接兼容）；garmin 目录去掉 `__skillhub` 平台痕迹改名为 `garmin-connect-cn`，`sync.py` 改由 `settings.garmin_scripts_dir()` 发现；`.gitignore` 的平台元数据规则随之改到 `skills/` 下 | 中 | 搬迁后 22 模块导入 / verify 11 / golden 12/12 / smoke 113 / build / compose / check_inbody / slot resolve 全过；**旧路径命令逐条实测仍可用** |
+| **H2** | 班次 prompt 落进 `skills/*/automations/`，宿主配置只留「读该文件」 | 低 | 手动触发一次班次比对行为 |
 | **H4** | 拆 SKILL.md：prompt / 架构 / 事故 / 手册 四份 | 中，会改判读行为 | 连出 3 天与旧版逐条比 findings |
 | **H5** | `data/reports/` 按机器件 / 人件分目录 | 中 | 跑补跑流程验单一终版 |
 | **H6** | `make verify` + CI + 脱敏 fixture + 发布动作脚本化 | 低 | CI 绿 + 一次真实发布 |
 
-H1 与 H3 已完成，H4 之前不再有机械性阻塞。**H2 是唯一带外部依赖的一步**：prompt 住在 WorkBuddy 自动化配置里，仓库只能写规范，实际配置要人工同步。
+**H2 是唯一带外部依赖的一步**：prompt 住在 WorkBuddy 自动化配置里，仓库只能写规范，实际配置要人工同步。
 
 ---
 
