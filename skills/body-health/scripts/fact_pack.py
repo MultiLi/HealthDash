@@ -21,9 +21,10 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 from settings import ROOT as _WS  # noqa: E402  路径唯一解析点（settings.py）
 sys.path.insert(0, _WS)  # 供 import tools 无关，仅为路径完整性
-REPORTS = (os.environ.get("HEALTH_REPORTS_DIR")
-           or os.path.join(_WS, "reports"))
-EVENTS = os.path.join(_WS, "notes", "events.jsonl")
+import settings as _settings  # noqa: E402  路径唯一解析点（settings.py）
+# 2026-10-31 数据迁入 data/ 后，报告与事件日志都在 data/ 下；旧的 <ws>/reports、<ws>/notes 已废弃
+REPORTS = (os.environ.get("HEALTH_REPORTS_DIR") or _settings.REPORTS_DIR)
+EVENTS = _settings.EVENTS_LOG
 
 from daily_brief import (load_rules, load_subjective, compute_z2,
                          detect_exercise, build_trend, _get, SUBJ_LOG)

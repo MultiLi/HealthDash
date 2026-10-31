@@ -27,22 +27,44 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from adapters import get_adapter  # noqa: E402
 
+import settings as _settings  # noqa: E402  路径唯一解析点（settings.py）
+
 RULES = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                      "..", "references", "rules.json")
-# 主观日志 / 报告目录默认都在工作空间根
-# （skill 位于 <workspace>/.workbuddy/skills/body-health/scripts，向上 4 级到 <workspace>）
-WS_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                       "..", "..", "..", "..")
-SUBJ_LOG = os.path.join(WS_ROOT, "daily_log.jsonl")
-# 报告默认落工作空间 reports/，防止忘传 --out 时产物落 /tmp 丢失
-OUT_DIR = os.path.join(WS_ROOT, "reports")
+# 主观日志 / 报告目录一律走 settings.py。
+# 2026-10-31 数据迁入 data/ 后，旧的「向上 4 级 + WS_ROOT/daily_log.jsonl」算法已失效
+# （skills/body-health/scripts 向上 4 级落到 Documents，读不到任何主观数据）。
+SUBJ_LOG = _settings.DAILY_LOG
+OUT_DIR = _settings.REPORTS_DIR
 
 SEVERITY = {"BAD": 0, "WARN": 1, "NEUTRAL": 2, "GOOD": 3}
 ICON = {"BAD": "[红]", "WARN": "[黄]", "GOOD": "[绿]", "INFO": "[·]"}
 
 
 def load_rules():
-    return json.load(open(RULES))
+    """通用口径 rules.json + 个人档案 data/profile.json。
+
+    个人值（max_hr / rhr_7d_avg）**不在 rules.json 里**——那份要能公开。
+    档案缺失时退回 profile.example.json 并打警告，让「忘了建档案」变成可见的错，
+    而不是静默用错 max_hr 去算 Z2 区间。
+    """
+    with open(RULES, encoding="utf-8") as fh:
+        rules = json.load(fh)
+    for path, is_example in ((_settings.PROFILE, False),
+                             (getattr(_settings, "PROFILE_EXAMPLE", None), True)):
+        if not path or not os.path.isfile(path):
+            continue
+        try:
+            with open(path, encoding="utf-8") as fh:
+                prof = json.load(fh)
+        except Exception:
+            continue
+        if is_example:
+            print(f"[warn] 未找到个人档案，退回模板 {path}；max_hr/rhr 可能不准",
+                  file=sys.stderr)
+        rules["profile"] = prof
+        break
+    return rules
 
 
 def hhmm(seconds):

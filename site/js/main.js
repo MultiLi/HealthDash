@@ -3,12 +3,12 @@
  * 观测状态只有两个自由度：**anchor（锚定日期）+ scale（尺度）**。
  * 没有「概览页」「某日页」之分——那两者是同一个视图在月尺度与日尺度下的样子。
  * 首屏只拉索引；单日细分在展开时才拉当月分片（取数链路见 data.js）。 */
-import { store } from "./store.js?v=b8889ec3";
-import { esc, $ } from "./utils.js?v=b8889ec3";
-import { renderPage, setupDetailToggle, renderBriefLog } from "./metricgrid.js?v=b8889ec3";
-import { shiftMonth, monthKey, fmtMD } from "./dateutil.js?v=b8889ec3";
-import { loadIndex } from "./data.js?v=b8889ec3";
-import { renderInBody, setInBody } from "./inbody.js?v=b8889ec3";
+import { store } from "./store.js?v=08f55394";
+import { esc, $ } from "./utils.js?v=08f55394";
+import { renderPage, setupDetailToggle, renderBriefLog } from "./metricgrid.js?v=08f55394";
+import { shiftMonth, monthKey, fmtMD } from "./dateutil.js?v=08f55394";
+import { loadIndex } from "./data.js?v=08f55394";
+import { renderInBody, setInBody } from "./inbody.js?v=08f55394";
 
 function setScale(scale) {
   store.scale = scale;
