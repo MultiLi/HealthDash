@@ -168,6 +168,13 @@ GitHub 生成的 Python 模板含 `/site` 一行（mkdocs 产物目录），把�
 
 **防线**：先用 `api.github.com/meta` 核对官方三把主机键指纹，与 `keyscan` 结果一致再 `ssh-keygen -R` 重写。**确认陈旧而非 MITM 才动手。**
 
+### 23. CI 红被合并：空库骗过 golden 守卫（2026-11-01）
+
+PR #10 引入的 fixture 生成器调 `build_index` 时，`units_block` 内的 `db.connect()` 在裸 checkout 里 `makedirs` + sqlite 自动建库 + 建 SCHEMA——凭空造出空的 `data/db/health.db`。golden 检查的守卫只判「文件存在」，被骗过后对空库跑金标 0/11 失败。**而这次失败没有被拦住：执行者跑完 `gh pr checks --watch` 后没核对结论就继续执行了合并命令**（`--watch` 的退出码不反映检查结论），红 PR 进了 main。
+
+**根因**：两个叠加——① sqlite 连接的隐式建库副作用没有被 fixture 生成器隔离；② 合并动作没有以「检查结论全绿」为前置条件，只依赖了一个不可靠的命令退出码。
+**防线（三道）**：① 生成器把 `indexlayer.units_block` 短路成合成标记，杜绝读库副作用；② `check_golden` 守卫升级为「文件存在**且**有 assertions 表」，空库 SKIP 并说明原因；③ **合并 PR 前必须显式读 `statusCheckRollup` 确认全绿**——`--watch`/轮询命令的 rc 不算数。这条是给执行 agent 的：命令成功 ≠ 检查通过。
+
 ### 24. 个人健康数据被推到公开仓库（2026-10-31 发现）
 
 仓库是 **public** 且已推送，内容包括：`MEMORY.md`（体重、体成分、体脂率、骨骼肌）、
