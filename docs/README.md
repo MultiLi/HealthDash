@@ -80,6 +80,7 @@ README.md                  人的入口。项目是什么、怎么跑起来、�
 docs/
   README.md                本文件：地图、划分规范、历史归 git
   architecture.md          ★ 当前架构的唯一权威描述（分层、真相源、边界）
+  vision.md                ★ 愿景与数据模型总纲（流批关系、事件不可变、推进顺序）
   operations.md            ★ 运维手册：每天/每周要做什么、怎么验证
   workflow.md              ★ 开发流程：分支模型、worktree 隔离、PR 门禁（改代码前先读）
   frontend.md              前端与主页参考
