@@ -315,6 +315,69 @@ def cmd_link(a):
     return 0
 
 
+def cmd_sync(a):
+    """把**主工作区**快进到 origin/main。这是整个开发流程的最后一步。
+
+    为什么要有这一步：PR 合并之后，主工作区还停在合并前的 commit 上。
+    不拉回来的话，下一次在这里改动就是从旧基线起步，越拖越难合——
+    而且 `git log` 看起来一切正常，没人会注意到自己落后了。
+
+    只做 `--ff-only`：绝不自动合并、绝不自动 rebase。出现分叉就停下来说清楚，
+    因为那意味着本地有别的提交，需要人来判断（推成 PR 还是丢掉）。
+    """
+    mr = main_root()
+    if mr is None:
+        print("不在 git 仓库内", file=sys.stderr)
+        return 2
+
+    rc, out = git("rev-parse", "--abbrev-ref", "HEAD", cwd=mr)
+    cur = out.strip() if rc == 0 else "?"
+    if cur != "main":
+        print("主工作区当前在 `%s`，不是 main。" % cur, file=sys.stderr)
+        print("先 `git switch main` 再同步——在别的分支上 ff 会把 main 拉歪。", file=sys.stderr)
+        return 2
+
+    rc, before = git("rev-parse", "--short", "main", cwd=mr)
+    before = before.strip()
+
+    rc, out = git("fetch", "origin", "--prune", cwd=mr)
+    if rc != 0:
+        print("fetch 失败：\n%s" % out.strip(), file=sys.stderr)
+        return 1
+
+    rc, target = git("rev-parse", "--short", "origin/main", cwd=mr)
+    target = target.strip()
+
+    rc, out = git("merge", "--ff-only", "origin/main", cwd=mr)
+    if rc != 0:
+        rc2, ahead = git("rev-list", "--count", "origin/main..main", cwd=mr)
+        ahead = ahead.strip() if rc2 == 0 else "?"
+        print("无法快进到 origin/main：\n%s" % out.strip(), file=sys.stderr)
+        print("", file=sys.stderr)
+        if ahead not in ("0", "?"):
+            print("本地 main 比远端多 %s 个提交。先走 PR 推上去，或确认要不要丢掉。" % ahead,
+                  file=sys.stderr)
+        else:
+            print("多半是工作区里未提交的改动会和目标提交冲突：先提交或 stash 再同步。",
+                  file=sys.stderr)
+        return 1
+
+    if before == target:
+        print("主工作区已在 origin/main（%s），无需同步。" % target)
+    else:
+        rc, cnt = git("rev-list", "--count", "%s..%s" % (before, target), cwd=mr)
+        n = cnt.strip() if rc == 0 else "?"
+        print("主工作区已同步：%s → %s（快进 %s 个提交）" % (before, target, n))
+        rc, log = git("log", "--oneline", "%s..%s" % (before, target), cwd=mr)
+        for line in (log.strip().splitlines() if rc == 0 else [])[:5]:
+            print("  " + line)
+
+    print("")
+    print("若这次同步动到了 site/，产物要重建，是否要发布再看 deploy.py 的结论：")
+    print("  python3 tools/build_homepage_data.py && python3 tools/deploy.py")
+    return 0
+
+
 def cmd_rm(a):
     mr = main_root()
     if mr is None:
@@ -356,6 +419,7 @@ def main():
 
     sub.add_parser("list", help="列出所有 worktree").set_defaults(func=cmd_list)
     sub.add_parser("link", help="给所有 worktree 补链数据").set_defaults(func=cmd_link)
+    sub.add_parser("sync", help="把主工作区快进到 origin/main（流程收尾）").set_defaults(func=cmd_sync)
 
     p_rm = sub.add_parser("rm", help="删除 worktree")
     p_rm.add_argument("name")

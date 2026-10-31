@@ -42,8 +42,24 @@
 
 ## 状态文件
 
-`data/state/deploy.lock.json` —— 记录「上一次成功上线时」的代码与数据指纹。
+`data/state/deploy.lock.json` —— 记录「上一次**确认**上线时」的代码与数据指纹。
 它不是真相，是一个游标；删掉它会退回「首次运行」状态（只建基线、不动作）。
+
+## 游标会说谎，所以要有 `code_verified`（2026-11-01 修）
+
+上面那条 `init` 分支曾经直接把「本地当前指纹」写成「已上线」。只要当时工作区里
+躺着一批还没发布的改动，基线从第一秒起就是错的——之后 `plan()` 永远算「没变」，
+永远 noop。**2026-11-01 实证**：`--check` 报「代码与数据都与上次上线一致」，
+而线上 `main.js?v=f094d208`、本地 `a3b1db98`，js 根本没推上去。
+
+所以游标里多了一个 `code_verified`：
+  · `init` 写 **false**（只记录本地状态，不声称线上一致）
+  · `--mark-app-deployed` 写 **true**（发布成功是唯一可信证据）
+  · `plan()` 见到 false，会真的去拉线上 `index.html` 比对指纹；
+    一致就自愈成 true，不一致就返回 `republish`。
+
+判据从「本地两次指纹之差」升级成「本地 vs 线上」。前者只能发现「我改了」，
+发现不了「我改了但没上线」——那正是这个文件存在的全部理由。
 """
 import argparse
 import hashlib
@@ -52,6 +68,7 @@ import os
 import re
 import subprocess
 import sys
+import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -102,6 +119,47 @@ def code_fingerprint(site_dir=SITE):
     return h.hexdigest()[:12]
 
 
+#: 线上地址的唯一来源。读不到就不做核验（离线也能用，只是不声称「已一致」）。
+_DEPLOY_JSON = os.path.join(HERE, "deploy.json")
+
+#: index.html 里真正决定浏览器请求哪个资源的那个键：?v=（资源）/ ?b=（数据）。
+_ASSET_REF = re.compile(r"main\.js\?v=([0-9a-f]+)")
+
+
+def site_origin():
+    try:
+        with open(_DEPLOY_JSON, encoding="utf-8") as fh:
+            return (json.load(fh) or {}).get("origin") or ""
+    except (OSError, ValueError):
+        return ""
+
+
+def local_asset_version():
+    """本地 index.html 引用的资源版本——浏览器真正会去请求的那个键。"""
+    m = _ASSET_REF.search(_read(os.path.join(SITE, "index.html")))
+    return m.group(1) if m else ""
+
+
+def live_asset_version(timeout=8):
+    """线上 index.html 引用的资源版本。取不到返回 ""，调用方必须当作「无法核验」。"""
+    origin = site_origin()
+    if not origin:
+        return ""
+    # 明确绕过系统代理：这域名是自己家的，走代理反而常被拦（且代理进程时常不在）
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    req = urllib.request.Request(
+        origin.rstrip("/") + "/?_=" + str(int(__import__("time").time())),
+        headers={"Cache-Control": "no-cache", "User-Agent": "healthd-deploy/1"},
+    )
+    try:
+        with opener.open(req, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8", "ignore")
+    except Exception:
+        return ""
+    m = _ASSET_REF.search(body)
+    return m.group(1) if m else ""
+
+
 def read_lock():
     try:
         with open(LOCK_PATH, encoding="utf-8") as fh:
@@ -118,8 +176,18 @@ def write_lock(lock):
         fh.write("\n")
 
 
-def plan():
-    """返回 (动作, 说明)。动作 ∈ init / noop / hot_update / republish / republish+hot_update。"""
+def plan(heal=False, force_verify=False):
+    """返回 (动作, 说明)。
+
+    动作 ∈ init / noop / hot_update / republish / republish+hot_update
+
+    核心变化（2026-11-01）：只要游标没被「一次真实发布」确认过，就**去问线上**，
+    而不是拿本地前后两次指纹相比。后者只能发现「我改了」，发现不了
+    「我改了、但从来没上线」。
+
+    force_verify=True 时无视 `code_verified`，每次都拉线上比对（排查用；
+    会多一次 HTTP 请求，日常不需要）。
+    """
     code, data = code_fingerprint(), data_token()
     lock = read_lock()
     if not lock.get("code"):
@@ -131,7 +199,26 @@ def plan():
     info = {"code": code, "data": data,
             "prev_code": lock.get("code"), "prev_data": lock.get("data"),
             "app_deployed_at": lock.get("app_deployed_at"),
-            "data_pushed_at": lock.get("data_pushed_at")}
+            "data_pushed_at": lock.get("data_pushed_at"),
+            "code_verified": bool(lock.get("code_verified"))}
+
+    # ── 游标未验证（或被要求强制核验）：以线上为准 ──────────────────────
+    if force_verify or not lock.get("code_verified"):
+        info["local_asset"] = local_asset_version()
+        info["live_asset"] = live_asset_version()
+        if info["live_asset"] and info["live_asset"] == info["local_asset"]:
+            # 线上与本地资源版本一致 = 线上确实是最新的，游标可以自愈
+            info["code_verified"] = True
+            if heal:
+                lock["code_verified"] = True
+                write_lock(lock)
+        elif info["live_asset"]:
+            # 线上能读、但版本对不上 = 铁证：代码没上线
+            return ("republish" + ("+hot_update" if data_changed else "")), info
+        else:
+            # 线上取不到（离线/域名不通）：不能声称一致，也不因此卡住定时任务。
+            # 保留旧判据，但把「未核验」这件事带出去。
+            info["live_unreachable"] = True
 
     if code_changed and data_changed:
         return "republish+hot_update", info
@@ -155,6 +242,8 @@ def main():
     ap.add_argument("--mark-app-deployed", action="store_true",
                     help="应用发布成功后调用，登记当前代码版本")
     ap.add_argument("--json", action="store_true", help="机器可读输出")
+    ap.add_argument("--verify-live", action="store_true",
+                    help="强制拉线上 index.html 比对（无视游标的已验证标记）")
     a = ap.parse_args()
 
     # —— 登记发布完成 ——
@@ -162,6 +251,8 @@ def main():
         lock = read_lock()
         lock["code"] = code_fingerprint()
         lock["data"] = data_token()
+        # 一次真实发布的成功回执，是唯一能让游标「可信」的东西
+        lock["code_verified"] = True
         lock["app_deployed_at"] = __import__("datetime").datetime.now().strftime(
             "%Y-%m-%dT%H:%M:%S")
         lock.pop("note", None)   # 「首次建立基线」这类临时说明，登记真实发布后就不再成立
@@ -170,11 +261,14 @@ def main():
         print("（本命令只更新游标，不校验线上；发布是否真的成功要靠打开链接确认）")
         return 0
 
-    action, info = plan()
+    action, info = plan(heal=not a.check, force_verify=a.verify_live)
 
     if action == "init":
         lock = {"code": info["code"], "data": info["data"],
                 "app_deployed_at": None, "data_pushed_at": None,
+                # 关键：这是「本地现在什么样」，不是「线上现在什么样」。
+                # 不写 False 的话，只要本地躺着未发布的改动，游标就从第一秒起是错的。
+                "code_verified": False,
                 "note": "首次建立基线；真正的上线时间未知，需要人工确认一次"}
         if not a.check:
             write_lock(lock)
@@ -191,6 +285,16 @@ def main():
             else "（上次 %s）" % info["prev_code"],
             info["data"], "" if info["prev_data"] in (None, info["data"])
             else "（上次 %s）" % info["prev_data"]))
+        # 线上核验结果必须显式打出来：这是唯一能证明「真的上线了」的东西
+        if info.get("live_asset"):
+            same = info["live_asset"] == info.get("local_asset")
+            print("线上资源 v=%s   本地 v=%s   %s" % (
+                info["live_asset"], info.get("local_asset") or "（读不到）",
+                "一致" if same else "★ 不一致 —— 代码没上线"))
+        if info.get("live_unreachable"):
+            print("⚠️ 取不到线上（离线或域名不通）：只按本地游标判断，未核验线上")
+        if not info.get("code_verified"):
+            print("⚠️ 游标未经发布确认（code_verified=false）：以上结论不保证线上一致")
 
     # `--push` 是「强制推一次」，所以 noop 时也要放行——否则指纹没变就永远推不了，
     # 而「指纹没变但线上 .data/ 空了」正是重新发布后的常见状态（新沙箱里数据目录是空的）。
