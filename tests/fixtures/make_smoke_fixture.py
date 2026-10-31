@@ -31,8 +31,15 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 
 from homepage.paths import load_rules                    # noqa: E402
-from homepage.indexlayer import build_index, shard_days  # noqa: E402
+import homepage.indexlayer as indexlayer                 # noqa: E402
+from homepage.indexlayer import shard_days               # noqa: E402
 from homepage.timeutil import weekday_cn                 # noqa: E402
+
+# 关键防线（2026-11-01 CI 事故）：units_block 会 db.connect()，而 sqlite 在裸
+# checkout 里会**凭空创建**空的 data/db/health.db——随后的 golden 检查靠「文件
+# 存在」判定可跑，空库让它在 CI 里假性运行并失败。fixture 的 units 本来就是
+# 合成的，直接把真实读库口短路掉，杜绝这个副作用。
+indexlayer.units_block = lambda rules, day_rows=None: {"_fixture": "synthetic"}
 
 SPAN_START = "2026-09-01"   # smoke 有写死 2026-09 系列锚点，跨度必须覆盖 9 月
 HRV_BAND = {"low": 45, "high": 75}
@@ -256,8 +263,9 @@ def main():
         "days": days,
         "inbody": None,
     }
-    idx = build_index(data, rules)
-    # CI 无库 / 无主观日志：这三个块由本脚本合成（见模块注释的分工说明）
+    idx = indexlayer.build_index(data, rules)
+    # CI 无库 / 无主观日志：这三个块由本脚本合成（见模块注释的分工说明）。
+    # units 已在上面把读库口短路成 _fixture 标记，这里整体替换为合成判定。
     idx["units"] = synth_units(idx["days"])
     idx["events"] = {
         "2026-09-15": [{"t": "context", "c": "合成事件：当日为工作日、久坐为主（fixture 用例）",
