@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "_comment": "片段层配置唯一源（2026-11-01 建，roadmap P2）。日分区定义 + 片段指标与日级指标的对照关系。改这里等于改口径：pairs 里 whitelist=true 的项决定 2c 谁可以由片段聚合，只有被实测证明恒等的指标才许进；不等但已查明原因的日期写进 known_exceptions，未登记的异常一律让 CI 红。",
+  "dayparts": {
+    "night": [0, 6],
+    "morning": [6, 12],
+    "afternoon": [12, 18],
+    "evening": [18, 24]
+  },
+  "pairs": [
+    {
+      "fragment": ["hour_steps"],
+      "agg": "sum",
+      "day": "steps_daily",
+      "tolerance": 0,
+      "whitelist": true,
+      "known_exceptions": [
+        {"date": "2026-09-08", "why": "桶合计比 usersummary 少 10 步（0.08%）：源两侧口径本身的舍入差"},
+        {"date": "2026-10-14", "why": "桶合计比 usersummary 少 39 步（0.4%）：源两侧口径本身的舍入差"},
+        {"date": "2026-10-07", "why": "桶合计比 usersummary 少 4088 步（36%）：当日 43 个桶 activityLevel=none 但 usersummary 仍记步，属源自身不一致；不以片段改日值"}
+      ],
+      "note": "96 桶齐全时 37/40 天精确相等。3 个例外全部来自源两侧不一致（已逐日登记），不是切法错误——故仍进白名单，但例外日不标 derived_from"
+    },
+    {
+      "fragment": ["hour_sleep_deep_min", "hour_sleep_light_min", "hour_sleep_rem_min"],
+      "agg": "sum",
+      "divisor": 60,
+      "day": "sleep_h",
+      "tolerance": 0.02,
+      "whitelist": true,
+      "known_exceptions": [],
+      "note": "分级分钟合计 ÷60 精确等于 sleepTimeSeconds（逐级对得上：深/浅/REM 分别等于 deep_s/light_s/rem_s）。**清醒分钟不计入**——sleep_h 不含清醒，混进去会把睡眠虚增约 1.6h"
+    },
+    {
+      "fragment": ["hour_sedentary_min"],
+      "agg": "sum",
+      "day": "sedentary_min",
+      "tolerance": 0,
+      "whitelist": false,
+      "note": "桶×15 远小于日值（例 10-03：90 vs 936）：usersummary 的 sedentarySeconds 把 activityLevel=none 的时段也计入，桶等级不反映它。片段只作相对分布，日值仍由 usersummary 裁决"
+    },
+    {
+      "fragment": ["hour_stress"],
+      "agg": "mean",
+      "day": "stress_avg",
+      "tolerance": 1,
+      "whitelist": false,
+      "note": "小时均值的均值 ≠ 日 avg（分母不是小时数，且无读数时段被跳过）；实测最大差 6.6 分"
+    }
+  ],
+  "no_counterpart": {
+    "hour_hr_bpm": "日级没有「全天心率均值」这个概念（rhr_bpm 是静息心率，不可比）",
+    "hour_hr_min": "日级 hr_range.min 是全天最低瞬时值，与「小时最低的再最低」口径不同",
+    "hour_hr_max": "同上：日级 max 是全天最高瞬时值，不做日值裁决",
+    "hour_bb": "bb_low 是当日最低电量（点值），与小时均值不可比",
+    "hour_sleep_awake_min": "清醒分钟不进 sleep_h 的合计（sleep_h 不含清醒），只作夜间觉醒分布"
+  }
+}

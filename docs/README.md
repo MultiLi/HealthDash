@@ -85,7 +85,7 @@ docs/
   architecture.md          ★ 当前架构的唯一权威描述（分层、真相源、边界；§八 = 否决项「明确不做」）
   vision.md                ★ 愿景与数据模型总纲（流批关系、事件不可变）
   roadmap.md               现状到未来的推进排期（P0–P4 主线 + 工程债并行线）
-  p2-fragment-layer.md     P2 片段层设计：数据现实、白名单、2a→2b→2c 分步
+  fragment-layer.md        片段层（小时/半区）：数据现实、白名单实测、只出值不算判
   operations.md            ★ 运维手册：每天/每周要做什么、怎么验证
   workflow.md              ★ 开发流程：分支模型、worktree 隔离、PR 门禁（改代码前先读）
   frontend.md              前端与主页参考

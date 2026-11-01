@@ -594,6 +594,171 @@
    "error_ref": "steps_daily",
    "dir": null,
    "note": "急慢性负荷比（设备算出）。进观测层后才能做「负荷 vs 恢复」的跨窗比较。"
+  },
+  "hour_hr_bpm": {
+   "kind": "interval",
+   "cadence": "hour",
+   "role": "proxy",
+   "scales": [
+    "hour",
+    "daypart"
+   ],
+   "precision": 1,
+   "check": false,
+   "label": "小时心率",
+   "unit": "bpm",
+   "agg": "mean",
+   "note": "该小时心率均值（2 分钟采样）。片段只出值：日级没有「全天心率均值」这个口径（rhr_bpm 是静息心率，不可比）。"
+  },
+  "hour_hr_min": {
+   "kind": "interval",
+   "cadence": "hour",
+   "role": "proxy",
+   "scales": [
+    "hour",
+    "daypart"
+   ],
+   "precision": 1,
+   "check": false,
+   "label": "小时最低心率",
+   "unit": "bpm",
+   "agg": "min",
+   "note": "该小时心率最低值。日分区取窗口内最低。"
+  },
+  "hour_hr_max": {
+   "kind": "interval",
+   "cadence": "hour",
+   "role": "proxy",
+   "scales": [
+    "hour",
+    "daypart"
+   ],
+   "precision": 1,
+   "check": false,
+   "label": "小时最高心率",
+   "unit": "bpm",
+   "agg": "max",
+   "note": "该小时心率最高值。日分区取窗口内最高。"
+  },
+  "hour_stress": {
+   "kind": "interval",
+   "cadence": "hour",
+   "role": "proxy",
+   "scales": [
+    "hour",
+    "daypart"
+   ],
+   "precision": 1,
+   "check": false,
+   "label": "小时压力",
+   "unit": "score",
+   "agg": "mean",
+   "note": "该小时压力均值（3 分钟采样）。小时均值的均值 ≠ 日 avg：分母不是小时数，且无读数时段被跳过。"
+  },
+  "hour_bb": {
+   "kind": "interval",
+   "cadence": "hour",
+   "role": "proxy",
+   "scales": [
+    "hour",
+    "daypart"
+   ],
+   "precision": 1,
+   "check": false,
+   "label": "小时身体电量",
+   "unit": "level",
+   "agg": "mean",
+   "note": "该小时电量均值（3 分钟采样）。与 bb_low（当日最低电量点值）不可比。"
+  },
+  "hour_steps": {
+   "kind": "interval",
+   "cadence": "hour",
+   "role": "proxy",
+   "scales": [
+    "hour",
+    "daypart"
+   ],
+   "precision": 1,
+   "check": false,
+   "label": "小时步数",
+   "unit": "步",
+   "agg": "sum",
+   "note": "15 分钟桶求和。**实测逐日精确等于 usersummary 日值**，是唯一可切的指标（见 references/fragments.json）。"
+  },
+  "hour_sedentary_min": {
+   "kind": "interval",
+   "cadence": "hour",
+   "role": "proxy",
+   "scales": [
+    "hour",
+    "daypart"
+   ],
+   "precision": 1,
+   "check": false,
+   "label": "小时久坐",
+   "unit": "min",
+   "agg": "sum",
+   "note": "15 分钟活动等级为 sedentary 的分钟数。桶×15 **小于**日值（实测 660 vs 841），只作相对分布，日值仍由 usersummary 裁决。"
+  },
+  "hour_sleep_deep_min": {
+   "kind": "interval",
+   "cadence": "hour",
+   "role": "proxy",
+   "scales": [
+    "hour",
+    "daypart"
+   ],
+   "precision": 1,
+   "check": false,
+   "label": "深睡分钟",
+   "unit": "min",
+   "agg": "sum",
+   "note": "睡眠分级 0（深睡）在该小时的分钟数。归属起床日，conditions.night 写明是哪一夜。"
+  },
+  "hour_sleep_light_min": {
+   "kind": "interval",
+   "cadence": "hour",
+   "role": "proxy",
+   "scales": [
+    "hour",
+    "daypart"
+   ],
+   "precision": 1,
+   "check": false,
+   "label": "浅睡分钟",
+   "unit": "min",
+   "agg": "sum",
+   "note": "睡眠分级 1（浅睡）在该小时的分钟数。"
+  },
+  "hour_sleep_rem_min": {
+   "kind": "interval",
+   "cadence": "hour",
+   "role": "proxy",
+   "scales": [
+    "hour",
+    "daypart"
+   ],
+   "precision": 1,
+   "check": false,
+   "label": "REM 分钟",
+   "unit": "min",
+   "agg": "sum",
+   "note": "睡眠分级 2（REM）在该小时的分钟数。"
+  },
+  "hour_sleep_awake_min": {
+   "kind": "interval",
+   "cadence": "hour",
+   "role": "proxy",
+   "scales": [
+    "hour",
+    "daypart"
+   ],
+   "precision": 1,
+   "check": false,
+   "label": "睡眠中清醒分钟",
+   "unit": "min",
+   "agg": "sum",
+   "note": "睡眠分级 3（清醒）在该小时的分钟数。夜间觉醒的分布靠它看。"
   }
  },
  "reference_policy": {

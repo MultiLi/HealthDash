@@ -201,9 +201,14 @@ def check_structure():
         if tracked:
             problems.append("data/ 下有 %d 个文件被跟踪：%s" % (len(tracked), ", ".join(tracked[:3])))
 
-    # 误入库的大文件（二进制/产物，往往是手滑 git add -A）
+    # 误入库的大文件（二进制/产物，往往是手滑 git add -A）。
+    # **只查被跟踪的文件**：data/ 与 site/ 下的派生物本来就该大（PV P2 后
+    # health.db 长到 5MB 是正常的），拿工作区大小报警会把「正常增长」和
+    # 「手滑入库」混成同一件事——真正的判据是 git 有没有收它。
     big = []
-    for rel in walk(("",)):
+    rc, out = sh(["git", "ls-files", "-z"])
+    tracked_files = [x for x in out.split("\0") if x] if rc == 0 else []
+    for rel in tracked_files:
         try:
             size = os.path.getsize(os.path.join(ROOT, rel))
         except OSError:
@@ -211,7 +216,7 @@ def check_structure():
         if size > 2 * 1024 * 1024:
             big.append("%s (%.1f MB)" % (rel, size / 1048576))
     if big:
-        problems.append("跟踪了 >2MB 的文件：%s" % ", ".join(big[:3]))
+        problems.append("入库了 >2MB 的文件：%s" % ", ".join(big[:3]))
 
     if problems:
         return "fail", "%s\n    修法：数据边界是本仓最贵的一条教训（见 docs/incidents.md），不要绕过" % "；".join(problems)
@@ -327,6 +332,46 @@ def check_daily_view():
     return "fail", "对账不一致：%s\n    修法：写入口只认一处——改数据走 eventbus.append，再 daily_log_view.py rebuild" % head[:200]
 
 
+def _db_tables(names):
+    """库是不是「真的」有这些表。空白 sqlite 文件会骗过 isfile（见 check_golden）。"""
+    db_path = os.path.join(ROOT, "data", "db", "health.db")
+    if not os.path.isfile(db_path):
+        return False
+    import sqlite3
+    try:
+        con = sqlite3.connect(db_path)
+        have = {r[0] for r in con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        n = con.execute("SELECT COUNT(*) FROM obs").fetchone()[0] if "obs" in have else 0
+        con.close()
+    except Exception:
+        return False
+    return set(names) <= have and n > 0
+
+
+def check_fragments():
+    """片段一致性（roadmap P2）：片段回推 vs 日汇总，白名单指标不许有未登记异常。
+
+    CI 无数据 → SKIP。本机上它每天回答一件事：切出来的小时加回去，还等于
+    原来的日值吗？不等的新日期会直接让这里变红——要么修切法，要么在
+    references/fragments.json 的 known_exceptions 里登记原因（登记过的不再报）。
+    """
+    script = os.path.join(ROOT, "tools", "fragment_consistency.py")
+    if not os.path.isfile(script):
+        return "skip", "缺 tools/fragment_consistency.py"
+    if not _db_tables(("obs",)):
+        return "skip", "缺 data/db/health.db 或库为空（数据不入库，CI 里必然没有）"
+    rc, out = sh([sys.executable, script], timeout=120)
+    if rc == 0:
+        m = re.search(r"白名单（可切）(\d+) 项；条件恒等 (\d+) 项", out)
+        return "pass", ("白名单 %s 项（条件恒等 %s）无未登记异常"
+                        % (m.group(1), m.group(2)) if m else "一致性报告通过")
+    bad = [ln.strip() for ln in out.splitlines() if ln.strip().startswith("✗")]
+    return "fail", "%s\n    修法：python3 tools/fragment_consistency.py 看逐日差值；\n    " \
+                   "不一致要么是切法错（修代码），要么是源自身不一致（登记 known_exceptions）" \
+                   % "；".join(bad[:2])
+
+
 CHECKS = [
     ("guard", check_guard),
     ("py:compile", check_py_compile),
@@ -335,6 +380,7 @@ CHECKS = [
     ("structure", check_structure),
     ("events:schema", check_events_schema),
     ("daily:view", check_daily_view),
+    ("fragments:consistency", check_fragments),
     ("smoke", check_smoke),
     ("golden", check_golden),
 ]
