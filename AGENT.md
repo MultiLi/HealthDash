@@ -61,6 +61,8 @@
 | **条件查询** | `python3 $S/query.py --q '{"window":{...},"metrics":[...],"conditions":[{"kind":"metric\|event\|collect",...}]}'` | 一类日子的值；结果里带命中/排除/**不可判定**三桶与最小样本门 | 无（只读）；样本不足时后端会给 `na`/`insufficient`，**不要绕过它下结论** |
 | **保存视图** | `python3 $S/query.py --save <id> --title ... --q '...'` / `--list-views` / `--rm-view <id>` | 写入 `data/views.json`（只存查询定义） | 写个人配置；存完要重建才生效 |
 | 视图物化 | `python3 tools/build_homepage_data.py`（自动带上） | `site/views/<id>.json` + 深链 `?view=<id>` | 构建产物（gitignored，随 push 热更新） |
+| 查询复述 | `python3 $S/query.py --explain ...` | 打印「我理解你要问的是…」（窗口/指标/条件） | 无；先复述再取数 |
+| 查询溯源 | `python3 $S/query.py --json ...` 的 `trace` 段 | 窗口内相关断言 id + 档位，回答可指回断言 | 无 |
 | 查询等价性 | `python3 tools/query_equivalence.py` | 查询层与 units 表逐格比对（CI 项 `query:equivalence`） | 无 |
 | 条件不变量 | `python3 tools/query_checks.py` | 三类条件的正/反用例 + 三桶闭合 + 最小样本门（CI 项 `query:conditions`） | 无 |
 | 前端冒烟 | `node tools/smoke_site.mjs`（`SMOKE_DATA_DIR=<目录>` 可指向 fixture） | 129 项断言（fixture 路径 134 项） | 无 |
