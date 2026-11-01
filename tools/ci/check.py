@@ -308,6 +308,25 @@ def check_events_schema():
     return "pass", "fixture + 真实数据 %s 均通过" % (m.group(1) if m else "")
 
 
+def check_daily_view():
+    """daily_log 物化视图对账（roadmap P1/1b）：文件必须等于事件重推的结果。
+
+    它抓的是「有人绕过桥直接改文件」——双写期每天都要为零，翻转后文件是派生物，
+    差异即说明重建逻辑或写入路径出了问题。CI 无数据 → SKIP。
+    """
+    script = os.path.join(ROOT, "skills", "body-health", "scripts", "daily_log_view.py")
+    daily = os.path.join(ROOT, "data", "logs", "daily_log.jsonl")
+    events = os.path.join(ROOT, "data", "logs", "events.jsonl")
+    if not (os.path.isfile(script) and os.path.isfile(daily) and os.path.isfile(events)):
+        return "skip", "缺 daily_log/events（数据不入库，CI 里必然没有）"
+    rc, out = sh([sys.executable, script, "verify"], timeout=60)
+    if rc == 0:
+        m = re.search(r"（(\d+) 天", out)
+        return "pass", "文件与事件视图逐字段一致（%s 天）" % (m.group(1) if m else "?")
+    head = "；".join(ln.strip() for ln in out.splitlines()[1:4] if ln.strip())
+    return "fail", "对账不一致：%s\n    修法：写入口只认一处——改数据走 eventbus.append，再 daily_log_view.py rebuild" % head[:200]
+
+
 CHECKS = [
     ("guard", check_guard),
     ("py:compile", check_py_compile),
@@ -315,6 +334,7 @@ CHECKS = [
     ("path:anchor", check_path_anchor),
     ("structure", check_structure),
     ("events:schema", check_events_schema),
+    ("daily:view", check_daily_view),
     ("smoke", check_smoke),
     ("golden", check_golden),
 ]

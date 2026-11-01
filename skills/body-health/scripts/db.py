@@ -110,58 +110,12 @@ CREATE TABLE IF NOT EXISTS obs_day_gate (
   note       TEXT
 );
 
--- ── 主观层与产物层（2026-10-31 入库）──────────────────────────────────
--- 这三张表是**镜像**，不是写入真相：daily_log.jsonl 与 events.jsonl 仍是
--- 追加式原始日志（一行一天 / 一行一事件，人可读、可 diff、可手工改），
--- 报告正文仍在 data/reports/ 的 md/json 文件里。
--- 入库的理由只有一个：**跨日查询**。「近 90 天体重」「历次体检发现了什么」
--- 「红黄绿分布」在原形态下要读几十个文件，在 SQL 里是一行。
--- 因此：写入仍走文件，查询走这里，同步由 tools/sync_local_store.py 负责。
-CREATE TABLE IF NOT EXISTS daily_log (
-  date          TEXT PRIMARY KEY,
-  recorded_at   TEXT,
-  energy        INTEGER,
-  soreness      INTEGER,
-  sleep_quality REAL,
-  weight_kg     REAL,                   -- 晨起空腹，唯一正式体重字段
-  bp_sys        INTEGER,
-  bp_dia        INTEGER,
-  alcohol_cups  REAL,
-  caffeine_last TEXT,
-  phone_down_plan TEXT,
-  overtime      INTEGER,
-  note          TEXT,
-  extra         TEXT                    -- 其余字段 JSON（含废弃的 weight_extra_*）
-);
-CREATE INDEX IF NOT EXISTS daily_log_weight ON daily_log(weight_kg);
-
-CREATE TABLE IF NOT EXISTS events (
-  id      INTEGER PRIMARY KEY AUTOINCREMENT,
-  ts      TEXT NOT NULL,
-  date    TEXT NOT NULL,
-  type    TEXT,                         -- symptom / sleep / diet / mood / checkup / life_event / note / context
-  content TEXT NOT NULL,
-  source  TEXT,
-  UNIQUE(ts, content)
-);
-CREATE INDEX IF NOT EXISTS events_date ON events(date);
-CREATE INDEX IF NOT EXISTS events_type ON events(type);
-
-CREATE TABLE IF NOT EXISTS reports (
-  date         TEXT NOT NULL,
-  kind         TEXT NOT NULL DEFAULT 'body_brief',
-  rule_level   TEXT,                    -- 规则档：按 rules.json 算出的档位
-  judge_level  TEXT,                    -- 判读档：允许因数据缺口降档，两者不一致时要能查出来
-  summary      TEXT,                    -- 结论首段（正文全文在 md 里）
-  n_findings   INTEGER,
-  n_cross      INTEGER,
-  has_judgment INTEGER,                 -- 0 = 当天报告已生成但判读未回填
-  data_hash    TEXT, rules_hash TEXT, engine_ver TEXT,
-  synced_at    TEXT,
-  md_path      TEXT, json_path TEXT,
-  PRIMARY KEY (date, kind)
-);
-CREATE INDEX IF NOT EXISTS reports_level ON reports(judge_level);
+-- ── 主观/产物层：**不入库**（2026-11-01 定）────────────────────────────
+-- daily_log / events / reports 曾经以镜像表入库（当时理由：跨日查询方便）。
+-- 但代码里**没有任何读者**，它们只是真相的第二份拷贝——而第二份拷贝一定会漂。
+-- 现在主观数据的真相是 events.jsonl，daily_log 是它重推出来的物化视图
+-- （skills/body-health/scripts/daily_log_view.py）；报告正文在 data/reports/。
+-- 需要 SQL 时按事件重建**带对账的派生表**，而不是长期并挂一份没人验的副本。
 
 CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT);
 """

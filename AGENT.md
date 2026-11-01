@@ -52,6 +52,7 @@
 | 加密备份 | `python3 tools/backup_health.py --list`（只列）/ `--out <目录>`（打包）/ `--store-pass`（首次下发口令到钥匙串）/ `--show-pass`（打印口令） | `health_backup_<时间戳>.tar.gz.enc` | 写外部目录；口令自动从钥匙串读（env > 钥匙串 > 交互） |
 | 事件写入 | 代码里 `from eventbus import append, supersede`（`$S/eventbus.py`） | 追加一条事件到 `data/logs/events.jsonl` | **写事件流**；写前按 `references/event_schema.json` 校验 |
 | 事件体检 | `python3 $S/eventbus.py --ids`（看有效 id）/ `--check`（逐条校验）；`python3 tools/validate_events.py` | 有效 id 清单 / 逐行错误 | 无 |
+| 主观视图 | `python3 $S/daily_log_view.py sync`（文件→事件）/ `verify`（对账）/ `rebuild`（事件→文件） | `data/logs/daily_log.jsonl` 与事件流对齐 | **sync/rebuild 会写 jsonl**；rebuild 原子替换 |
 | 回测 | `python3 $S/backtest.py diff` | 口径变更前后改判清单 | 无 |
 | 金标 | `python3 $S/backtest.py golden` | 11 条锚点是否复现 | 无 |
 | 前端冒烟 | `node tools/smoke_site.mjs`（`SMOKE_DATA_DIR=<目录>` 可指向 fixture） | 129 项断言（fixture 路径 134 项） | 无 |
@@ -73,7 +74,7 @@
 | 4 | **不许二次登录 Garmin**。token 在 `~/.config/garmin-cn/garth`，由 `sync.py` 自己管 | 会触发风控，且多套鉴权路径并存必出事故 |
 | 5 | **不许覆盖终版报告**。`compose.py --write` 只写 `.skeleton.md`；`--as-final` 才碰正式报告且需 `--force` | 终版报告是唯一的健康档案，没有软删除可退 |
 | 6 | **不许因「数据还没同步」就重出报告或催数**。先看 `lastSyncTimestampGMT` | 手表没同步 ≠ 拉数失败。提高拉数频率不会让云端凭空多出数据 |
-| 7 | **不许手拼 JSON 往 `events.jsonl` 追加，也不许改/删已有行**。写入一律 `eventbus.append()` / `eventbus.supersede()` | 事件流是不可变真相源；绕过校验手写会带进未声明字段与坏 supersede 链（见 `references/event_schema.json` 的 invariants） |
+| 7 | **不许手拼 JSON 往 `events.jsonl` 追加，也不许改/删已有行**。写入一律 `eventbus.append()` / `eventbus.supersede()`；改完 `daily_log.jsonl` 必须 `daily_log_view.py sync` | 事件流是不可变真相源；绕过校验手写会带进未声明字段与坏 supersede 链（见 `references/event_schema.json` 的 invariants）。视图与事件对不上时 `check.py` 的 `daily:view` 会红 |
 
 ---
 
@@ -89,11 +90,23 @@ data/db/health.db                     obs → units → assertions（可删除�
 data/reports/facts_D.json             ★ 判读唯一合法输入（assertions / units / scales / gaps）
   ↓ 你（判读）
 data/reports/judgment_D.json          判读结论（结构校验见 verify_judgment.py）
-  ↓ build_homepage_data.py（同一进程内顺带把主观日志与报告镜像进库）
+  ↓ build_homepage_data.py（只读库与文件，产前端数据层；主观/事件/报告不入库）
 site/index.json + site/daily/*.json   前端数据层
   ↓ push_data.py
 线上 .data/                           热更新，不需要重新发布
 ```
+
+**主观数据（补数）的写入口**：`data/logs/events.jsonl` 是真相源，`daily_log.jsonl`
+是它的**日层物化视图**（一行一天、有则更新），但视图由事件重推而来——不是第二个真相。
+
+```
+你记下的主观数据 → eventbus.append()（type=measurement/diet/context，payload.metric 指定字段）
+                 → daily_log_view.py rebuild → data/logs/daily_log.jsonl（派生物）
+```
+
+过渡期允许直接改 `daily_log.jsonl`，但**改完必须**跑 `daily_log_view.py sync`
+把它补进事件流；`daily_log_view.py verify` 差异不为零就说明有人绕过了桥，
+`check.py` 的 `daily:view` 项会红。
 
 **全部个人数据都在 `data/` 下，这个目录整体不入库。** 你要读写的数据只能是
 `data/` 下的路径；如果发现数据出现在别处（`reports/`、`notes/events.jsonl` 这类
