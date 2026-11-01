@@ -51,8 +51,19 @@ from settings import EVENTS_LOG                              # noqa: E402
 
 SCALE_NAMES = ("day", "week", "month", "roll7", "roll28", "roll90")
 #: 查询定义允许的键。多一个都报错——静默忽略拼错的字段会让调用方以为查了。
-Q_KEYS = {"window", "metrics", "delta"}
+Q_KEYS = {"window", "metrics", "delta", "conditions", "logic"}
 WIN_KEYS = {"start", "end", "scale", "key"}
+#: 条件对象的允许键（按 kind 细分，见 _check_cond）
+COND_KEYS = {
+    "metric": {"kind", "metric", "op", "value", "range", "negate"},
+    "event": {"kind", "type", "metric", "contains", "op", "value", "shift", "negate"},
+    "collect": {"kind", "level_in", "exclude_levels", "negate"},
+}
+OPS = {
+    "<": lambda a, b: a < b, "<=": lambda a, b: a <= b,
+    ">": lambda a, b: a > b, ">=": lambda a, b: a >= b,
+    "==": lambda a, b: a == b, "!=": lambda a, b: a != b,
+}
 
 
 class QueryError(ValueError):
@@ -108,8 +119,69 @@ def normalize(qdef, reg=None):
         if unknown:
             raise QueryError("未知指标：%s（--list-metrics 看全部 %d 个）"
                              % ("、".join(unknown), len(pool)))
+    conds = qdef.get("conditions") or []
+    if not isinstance(conds, list):
+        raise QueryError("conditions 必须是数组")
+    reg = reg if reg is not None else db.load_metrics()
+    for c in conds:
+        _check_cond(c, reg)
+    logic = str(qdef.get("logic") or "and").lower()
+    if logic not in ("and", "or"):
+        raise QueryError("logic 只能是 and / or")
     return {"window": win, "metrics": list(names),
-            "delta": bool(qdef.get("delta", True))}
+            "delta": bool(qdef.get("delta", True)),
+            "conditions": conds, "logic": logic}
+
+
+def _cond_metrics(reg):
+    """条件可用的指标：全部已注册的日级指标（含非聚合的参考量，如 sleep_need_h）。
+
+    片段指标（hour_*）不行——它们是小时级观测，拿来当「这一天的条件」就是把
+    粒度偷偷换了（见 docs/fragment-layer.md）。
+    """
+    return {k for k in reg if not k.startswith(units.fragments.PREFIX)}
+
+
+def _check_cond(c, reg):
+    if not isinstance(c, dict):
+        raise QueryError("条件必须是对象")
+    kind = c.get("kind")
+    if kind not in COND_KEYS:
+        raise QueryError("未知条件类型：%r（允许：metric / event / collect）" % (kind,))
+    extra = set(c) - COND_KEYS[kind]
+    if extra:
+        raise QueryError("%s 条件里有未知字段：%s（允许：%s）"
+                         % (kind, "、".join(sorted(extra)),
+                            "、".join(sorted(COND_KEYS[kind]))))
+    if kind == "metric":
+        if not c.get("metric"):
+            raise QueryError("metric 条件必须给 metric")
+        if c["metric"] not in _cond_metrics(reg):
+            raise QueryError("条件指标未注册或属于片段：%s" % c["metric"])
+        has_range = "range" in c
+        has_op = "op" in c
+        if has_range == has_op:
+            raise QueryError("metric 条件要么给 op+value，要么给 range，二选一")
+        if has_op:
+            if c["op"] not in OPS:
+                raise QueryError("未知比较符：%s（允许：%s）" % (c["op"], "、".join(OPS)))
+            if "value" not in c:
+                raise QueryError("给了 op 就必须给 value")
+        else:
+            rng = c["range"]
+            if not (isinstance(rng, (list, tuple)) and len(rng) == 2):
+                raise QueryError("range 必须是 [下界, 上界]")
+    elif kind == "event":
+        if not any(c.get(k) for k in ("type", "metric", "contains")):
+            raise QueryError("event 条件至少要给 type / metric / contains 之一")
+        if c.get("metric") and c.get("op") and "value" not in c:
+            raise QueryError("event 条件给了 op 就必须给 value")
+        if c.get("op") and c["op"] not in OPS:
+            raise QueryError("未知比较符：%s" % c["op"])
+    else:
+        if c.get("level_in") is None and c.get("exclude_levels") is None:
+            raise QueryError("collect 条件要给 level_in 或 exclude_levels")
+
 
 
 # ------------------------------------------------------------------ 求值
@@ -152,8 +224,136 @@ def _specs_for(q, ctx, rules):
     return sp, prev
 
 
+def _load_events():
+    """按归属日索引事件（**排除被 supersede 的**：作废的事件不该影响条件筛选）。"""
+    if not os.path.isfile(EVENTS_LOG):
+        return {}
+    import eventbus
+    events = eventbus.read(EVENTS_LOG)
+    dead = eventbus.superseded_ids(events)
+    idx = {}
+    for e in events:
+        if e["_id"] in dead:
+            continue
+        idx.setdefault(e["date"], []).append(e)
+    return idx
+
+
+def _load_gates(con):
+    return {r["date"]: r["level"] for r in con.execute("SELECT date, level FROM obs_day_gate")}
+
+
+def _cmp_ok(v, cond):
+    if "range" in cond:
+        lo, hi = cond["range"]
+        return lo <= v <= hi
+    return OPS[cond["op"]](v, cond["value"])
+
+
+def _event_hit(e, cond):
+    p = e.get("payload") or {}
+    if cond.get("type") and e.get("type") != cond["type"]:
+        return False
+    if cond.get("contains") and cond["contains"] not in (e.get("content") or ""):
+        return False
+    if cond.get("metric"):
+        if p.get("metric") != cond["metric"]:
+            return False
+        if cond.get("op"):
+            try:
+                return OPS[cond["op"]](float(p.get("value")), float(cond["value"]))
+            except (TypeError, ValueError):
+                return False
+    return True
+
+
+def _day_matches(cond, d, ctx, ev_idx, gates):
+    """True / False / **None（不可判定）**。三者必须分开：
+
+    「那天没测睡眠」不等于「那天睡够了」。把不可判定当成 False 会让筛选结果
+    悄悄偏向有数据的日子，而不知道的人会把这个偏差读成结论。
+    """
+    kind = cond["kind"]
+    if kind == "metric":
+        v = ctx["day_vals"].get(d, {}).get(cond["metric"])
+        if v is None:
+            return None
+        res = _cmp_ok(float(v), cond)
+    elif kind == "event":
+        shift = int(cond.get("shift") or 0)
+        src = (datetime.date.fromisoformat(d) - datetime.timedelta(days=shift)).isoformat()
+        res = any(_event_hit(e, cond) for e in (ev_idx.get(src) or []))
+    else:
+        # 闸门表只含有 raw 的日子；没有 raw 就没有行 —— 那正是 missing_raw，
+        # 不是「不知道」。当成不可判定会让采集条件永远有一堆不明不白的空洞。
+        lvl = gates.get(d, "missing_raw")
+        if cond.get("level_in") is not None:
+            res = lvl in cond["level_in"]
+        else:
+            res = lvl not in (cond.get("exclude_levels") or [])
+    if cond.get("negate"):
+        res = not res
+    return res
+
+
+def select_days(q, dates, ctx, ev_idx, gates):
+    """按条件挑日子。返回 (命中的日期, 统计)。
+
+    `and` 语义下「有一条 False 就出局，有一条 None 就算不可判定」——这是为了让
+    「某天缺睡眠数据」不会因为另一条条件满足而被当成命中。
+    """
+    matched, undecidable = [], 0
+    per = [{"条件": c, "命中": 0, "未命中": 0, "不可判定": 0} for c in q["conditions"]]
+    for d in dates:
+        vs = []
+        for i, c in enumerate(q["conditions"]):
+            r = _day_matches(c, d, ctx, ev_idx, gates)
+            if r is None:
+                per[i]["不可判定"] += 1
+            elif r:
+                per[i]["命中"] += 1
+            else:
+                per[i]["未命中"] += 1
+            vs.append(r)
+        if q["logic"] == "and":
+            ok = False if any(v is False for v in vs) else (
+                True if all(v is True for v in vs) else None)
+        else:
+            ok = True if any(v is True for v in vs) else (
+                False if all(v is False for v in vs) else None)
+        if ok is True:
+            matched.append(d)
+        elif ok is None:
+            undecidable += 1
+    return matched, {"candidates": len(dates), "matched": len(matched),
+                     "excluded": len(dates) - len(matched) - undecidable,
+                     "undecidable": undecidable, "by_condition": per,
+                     "logic": q["logic"], "matched_dates": matched}
+
+
+def apply_min_n(rows, matched_n, required):
+    """条件筛选后的最小样本门。**判定权在这里，不在调用方。**
+
+    条件把样本变小之后，均值差很容易「看起来显著」——3 个熬夜日的 RHR 略高
+    不是发现。低于门槛一律 na / insufficient，并说明原因；不许把门槛调低来凑结论。
+    """
+    if not required:
+        return rows
+    for r in rows:
+        if r["n"] < int(required):
+            if r.get("judge") not in (None,):
+                r["judge"] = "na"
+            r["judge_rate"] = None
+            r["delta_verdict"] = "insufficient"
+            why = "筛选后仅 %d 个实测日（门槛 %d）" % (r["n"], int(required))
+            r["delta_note"] = why if not r.get("delta_note") else \
+                "%s；%s" % (why, r["delta_note"])
+            r["min_n_note"] = why
+    return rows
+
+
 def run(qdef, con=None, rules=None, reg=None, ctx=None):
-    """执行一次查询。返回 {query, ruler, window, provenance, rows, empty}。"""
+    """执行一次查询。返回 {query, ruler, window, selection, provenance, rows, empty}。"""
     con = con or db.connect()
     rules = rules or db.load_rules()
     reg = reg if reg is not None else db.load_metrics()
@@ -163,6 +363,20 @@ def run(qdef, con=None, rules=None, reg=None, ctx=None):
     if ctx is None:
         raise QueryError("obs 表为空：先跑 index.py build")
     sp, prev_sp = _specs_for(q, ctx, rules)
+    selection = None
+    if q["conditions"]:
+        ev_idx, gates = _load_events(), _load_gates(con)
+        dates, selection = select_days(q, sp["dates"], ctx, ev_idx, gates)
+        sp = units.window_spec(sp["start"], sp["end"], ctx, rules, dates=dates,
+                               key="%s#cond" % sp["key"])
+        if prev_sp is not None and prev_sp["dates"]:
+            pdates, _ = select_days(q, prev_sp["dates"], ctx, ev_idx, gates)
+            prev_sp = units.window_spec(prev_sp["start"], prev_sp["end"], ctx, rules,
+                                        dates=pdates, key="%s#cond" % prev_sp["key"])
+        if not dates:
+            raise QueryError("这个条件下窗口内没有任何命中的日子"
+                             "（候选 %d 天，不可判定 %d 天）"
+                             % (selection["candidates"], selection["undecidable"]))
     rows = units.compute_cells(sp, metrics, ctx, rules)
     cells = {(r["scale"], r["key"], r["metric"]): r for r in rows}
     if q["delta"] and prev_sp is not None and prev_sp["dates"]:
@@ -171,6 +385,15 @@ def run(qdef, con=None, rules=None, reg=None, ctx=None):
         # 本查询的所有行同属一个 spec，上一个单元恒为 prev_sp（任意窗口＝前移一窗长）
         units.apply_delta(rows, cells, ctx, rules,
                           key_of_prev=lambda sc, key: prev_sp["key"])
+    else:
+        # 没有可比的上一窗时也要把话说明白，不能留个空白让人以为是零变化
+        for r in rows:
+            r["delta_verdict"] = "insufficient"
+            r["delta_note"] = ("没有可比的上一窗（同条件、整段前移）"
+                               if selection is not None else "没有可比的上一窗")
+    min_n = int((rules.get("query") or {}).get("min_n_selected") or 0)
+    if selection is not None and min_n:
+        apply_min_n(rows, selection["matched"], min_n)
     for r in rows:
         mdef = reg.get(r["metric"]) or {}
         r["label"] = mdef.get("label")
@@ -187,6 +410,8 @@ def run(qdef, con=None, rules=None, reg=None, ctx=None):
                    "prev": ({"start": prev_sp["start"], "end": prev_sp["end"],
                              "days": len(prev_sp["dates"])}
                             if prev_sp and prev_sp["dates"] else None)},
+        "selection": selection,
+        "min_n": ({"required": min_n} if selection is not None and min_n else None),
         "provenance": _provenance(con),
         "rows": rows,
         "empty": [m for m in q["metrics"] if m not in {r["metric"] for r in rows}],
@@ -204,18 +429,58 @@ def _fmt(v, mdef, m):
     return ("%.2f" % v).rstrip("0").rstrip(".")
 
 
+def _cond_label(c):
+    k = c.get("kind")
+    neg = "非" if c.get("negate") else ""
+    if k == "metric":
+        body = c.get("range") and "%s ∈ %s" % (c["metric"], c["range"]) or \
+            "%s %s %s" % (c["metric"], c.get("op"), c.get("value"))
+    elif k == "event":
+        bits = []
+        if c.get("type"):
+            bits.append("type=%s" % c["type"])
+        if c.get("metric"):
+            bits.append("%s %s %s" % (c["metric"], c.get("op") or "存在", c.get("value") or ""))
+        if c.get("contains"):
+            bits.append("含「%s」" % c["contains"])
+        if c.get("shift"):
+            bits.append("前 %d 日" % c["shift"])
+        body = "事件 " + "·".join(bits)
+    else:
+        body = "采集 %s" % (c.get("level_in") or ("不含 %s" % c.get("exclude_levels")))
+    return neg + body
+
+
 def render(res):
     w = res["window"]
+    s = res.get("selection")
     out = []
-    out.append("窗口 %s ~ %s（%d 天有效 / 分母 %d）· 尺子借用 %s"
-               % (w["first"], w["last"], w["days"], w["expected"], res["ruler"]))
+    if s:
+        out.append("查询范围 %s ~ %s（候选 %d 天）→ 命中 %d 天（%s ~ %s，分母 %d）· 尺子借用 %s"
+                   % (w["start"], w["end"], s["candidates"], s["matched"],
+                      w["first"], w["last"], w["expected"], res["ruler"]))
+        out.append("条件（%s）%s" % (s["logic"].upper(),
+                                  " + ".join(_cond_label(c) for c in res["query"]["conditions"])))
+        out.append("筛选：命中 %d · 排除 %d · **不可判定 %d**（缺数据的日子既不算命中也不算排除）"
+                   % (s["matched"], s["excluded"], s["undecidable"]))
+        for c in s["by_condition"]:
+            out.append("   · %-34s 命中 %d / 未 %d / 不可判 %d"
+                       % (_cond_label(c["条件"])[:34], c["命中"], c["未命中"], c["不可判定"]))
+        if res.get("min_n"):
+            out.append("最小样本门：%d 个实测日（低于它一律 na，不许把门槛调低凑结论）"
+                       % res["min_n"]["required"])
+    else:
+        out.append("窗口 %s ~ %s（%d 天有效 / 分母 %d）· 尺子借用 %s"
+                   % (w["first"], w["last"], w["days"], w["expected"], res["ruler"]))
     if w["prev"]:
-        out.append("对比窗 %s ~ %s（%d 天）" % (w["prev"]["start"], w["prev"]["end"],
-                                            w["prev"]["days"]))
+        out.append("对比窗 %s ~ %s（%d 天%s）"
+                   % (w["prev"]["start"], w["prev"]["end"], w["prev"]["days"],
+                      "，同条件" if s else ""))
     p = res["provenance"]
-    out.append("真值版本 rules %s · data %s · engine %s · built %s"
+    out.append("真值版本 rules %s · data %s · engine %s · events %s · built %s"
                % ((p["rules_hash"] or "-")[:8], (p["data_hash"] or "-")[:8],
-                  (p["engine_ver"] or "-")[:8], p["built_at"] or "-"))
+                  (p["engine_ver"] or "-")[:8], (p.get("events_hash") or "-")[:8],
+                  p["built_at"] or "-"))
     out.append("")
     out.append("%-16s %10s %4s %6s %-4s %-14s %s"
                % ("指标", "值", "n", "覆盖", "达标", "变化", "说明"))

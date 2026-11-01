@@ -430,7 +430,11 @@ def compute_cell(spec, metric, mdef, ctx, rules):
             "agg": mdef.get("agg"), "n": n, "coverage": coverage,
             "judge": judge, "judge_rate": judge_rate,
             "start": spec["start"], "end": spec["end"],
-            "expected": spec["expected"], "ruler": spec.get("ruler")}
+            "expected": spec["expected"], "ruler": spec.get("ruler"),
+            # 环比字段先占位：不跑 apply_delta（如查询关掉 delta、或没有上一窗）时
+            # 也要有完整的行形状，否则消费方取 delta_verdict 会 KeyError。
+            "delta_v": None, "delta_mdc": None, "delta_verdict": None,
+            "delta_vs": None, "delta_note": None}
 
 
 def compute_cells(spec, metrics, ctx, rules):

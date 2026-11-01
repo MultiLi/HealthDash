@@ -505,5 +505,9 @@
    "skeletal_muscle_mass_kg": 4.0,
    "visceral_fat_level": 3
   }
+ },
+ "query": {
+  "_comment": "查询层（query.py）的门槛唯一来源。min_n_selected = 条件筛选后**至少多少个实测日**才允许给达标/变化结论。条件筛选天然把样本变小：3 天的『熬夜次日 RHR 偏高』不是发现，是噪声。5 是下限，不是调优值——低于它一律 na/insufficient，不许下调来凑结论。",
+  "min_n_selected": 5
  }
 }

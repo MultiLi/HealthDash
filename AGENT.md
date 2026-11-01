@@ -58,7 +58,9 @@
 | 片段一致性 | `python3 tools/fragment_consistency.py` | 逐指标「片段回推 vs 日值」结论表；白名单未登记异常 → exit 1 | 无 |
 | 片段取值 | `python3 $S/units.py get --scale hour --key 2026-10-31T14`（或 `daypart --key 2026-10-31-afternoon`） | 该小时/半区的片段值（**只有值，没有判定**） | 无 |
 | **任意窗口查询** | `python3 $S/query.py --days 14 --metrics hrv_ms,rhr_bpm`（或 `--start/--end`、`--scale/--key`、`--json`、`--list-metrics`） | 任意窗口的值 + 达标 + 环比 + 真值版本（`ruler` 说明借的哪把尺子） | 无（只读）；判定由后端给，**不许自己再算** |
+| **条件查询** | `python3 $S/query.py --q '{"window":{...},"metrics":[...],"conditions":[{"kind":"metric\|event\|collect",...}]}'` | 一类日子的值；结果里带命中/排除/**不可判定**三桶与最小样本门 | 无（只读）；样本不足时后端会给 `na`/`insufficient`，**不要绕过它下结论** |
 | 查询等价性 | `python3 tools/query_equivalence.py` | 查询层与 units 表逐格比对（CI 项 `query:equivalence`） | 无 |
+| 条件不变量 | `python3 tools/query_checks.py` | 三类条件的正/反用例 + 三桶闭合 + 最小样本门（CI 项 `query:conditions`） | 无 |
 | 前端冒烟 | `node tools/smoke_site.mjs`（`SMOKE_DATA_DIR=<目录>` 可指向 fixture） | 129 项断言（fixture 路径 134 项） | 无 |
 | 交互探针 | `python3 tools/probe_interactions.py` | 8 用例真浏览器点击 | 无 |
 
@@ -148,7 +150,7 @@ python3 tools/ci/check.py
 ```
 
 它依次验：数据守卫 / Python 语法与 3.9 下限 / JS 语法 / 路径锚点 / 数据边界结构 /
-事件 schema / 主观视图对账 / 片段一致性 / **查询等价性** / 前端冒烟 / 判读金标。
+事件 schema / 主观视图对账 / 片段一致性 / **查询等价性 / 条件不变量** / 前端冒烟 / 判读金标。
 exit 0 才继续。**它报 SKIP 不等于通过**——SKIP 是「这项没验」（CI 里恒 SKIP 的是依赖真实数据的几项）。
 
 跑完一轮判读，这三条必须同时成立：
