@@ -393,6 +393,28 @@ def check_query_equivalence():
     return "fail", "查询层与 units 表不一致：\n    %s\n    修法：python3 tools/query_equivalence.py 看差异；多半是改了 compute_cell 没重建" % "；".join(lines[:3])[:300]
 
 
+def check_query_conditions():
+    """条件筛选不变量（roadmap P4b）：只验恒真命题，不钉具体天数。
+
+    条件是「看一类日子」的入口，也是一种能把噪声变成结论的工具（3 个熬夜日的
+    均值差看起来总是很显著）。这里守两条：命中的日子必须真的满足条件；
+    样本不足时判定必须是 na 而不是凑出来的 ok。
+    """
+    script = os.path.join(ROOT, "tools", "query_checks.py")
+    if not os.path.isfile(script):
+        return "skip", "缺 tools/query_checks.py"
+    if not _db_tables(("units",)):
+        return "skip", "缺 data/db/health.db 或库为空（数据不入库，CI 里必然没有）"
+    rc, out = sh([sys.executable, script], timeout=180)
+    if rc == 0:
+        m = re.search(r"（(\d+)/(\d+) 通过）", out)
+        return "pass", ("条件不变量 %s/%s 通过" % (m.group(1), m.group(2))
+                        if m else "全部通过")
+    bad = [ln.strip() for ln in out.splitlines() if ln.strip().startswith("✗")]
+    return "fail", "%s\n    修法：python3 tools/query_checks.py 看是哪条不变量破了" % \
+                   "；".join(bad[:3])[:300]
+
+
 CHECKS = [
     ("guard", check_guard),
     ("py:compile", check_py_compile),
@@ -403,6 +425,7 @@ CHECKS = [
     ("daily:view", check_daily_view),
     ("fragments:consistency", check_fragments),
     ("query:equivalence", check_query_equivalence),
+    ("query:conditions", check_query_conditions),
     ("smoke", check_smoke),
     ("golden", check_golden),
 ]

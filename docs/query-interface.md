@@ -21,6 +21,8 @@
 | `window.scale` / `.key` | 二选一 | 已标定的单元：`day`/`week`/`month`/`roll7`/`roll28`/`roll90` + 键 |
 | `metrics` | 否 | 省略 = 全部可查询指标（21 个：有 `agg` 的日级指标） |
 | `delta` | 否 | 省略 = true（算与上一窗的位移差） |
+| `conditions` | 否 | 条件数组，见 §四。省略 = 不筛日子 |
+| `logic` | 否 | `and`（默认）/ `or` |
 
 **未知字段一律报错**：`metric`（少了 s）、`conditons` 这类拼错不会静默变成「按默认口径跑」，而是直接拒绝并列出合法字段。
 
@@ -44,7 +46,35 @@
 
 **截断日不进聚合**：`coverage < day_coverage_min`（0.95）的那天不参与聚合（会拉偏），但计入分母 → 覆盖率下降 → 该给 `na` 就给 `na`。这条与 `units.rebuild` 完全一致。
 
-## 四、等价性门（P4 的硬门）
+## 四、条件（看一类日子，而不是一段时间）
+
+```json
+{"window": {"start": "2026-09-02", "end": "2026-11-01"},
+ "metrics": ["rhr_bpm"],
+ "conditions": [{"kind": "metric", "metric": "sleep_h", "op": "<", "value": 6.5}]}
+```
+
+三类条件，字段严格校验（未知键直接报错）：
+
+| kind | 写法 | 语义 |
+|---|---|---|
+| `metric` | `{"metric":"sleep_h","op":"<","value":6.5}` 或 `{"metric":"hrv_ms","range":[50,60]}` | 当天该指标满足比较 |
+| `event` | `{"type":"note","contains":"熬夜"}` / `{"metric":"alcohol_cups","op":">","value":0}` / 带 `"shift":1` | 当天（或**前 N 天**）有匹配事件；`shift:1` 就是「次日」 |
+| `collect` | `{"level_in":["complete"]}` 或 `{"exclude_levels":["missing_raw"]}` | 当天采集闸门级别 |
+
+任何条件都可用 `"negate": true` 取反（「非熬夜日」＝同一条加 negate，不必另写规则）。
+
+### 三个必须钉住的语义
+
+**① 分母 = 命中天数**，不是窗口天数。筛「睡眠<6.5h 的日子」时问的是这些天平均如何，所以 `coverage = 有该指标的天数 ÷ 命中天数`。
+
+**② 不可判定 ≠ 未命中。** 那天没测睡眠，既不能算「熬夜日」也不能算「非熬夜日」。把缺失当 False 会让筛选悄悄偏向有数据的日子，而这个偏差读起来像结论。所以结果里单列 `undecidable`，并保证 **命中 + 排除 + 不可判定 = 候选天数**（`tools/query_checks.py` 的三桶闭合检查守着）。
+
+**③ 最小样本门。** 条件筛选天然把样本变小，而小样本的均值差看起来总是很显著——3 个熬夜日的 RHR 略高不是发现。`rules.query.min_n_selected`（现 5）以下的实测天数一律 `judge=na` / `delta_verdict=insufficient`，并写明原因。**这个门槛只从口径文件读，不接受调用方传参**——否则就成了「选一个能让结论过线的门槛」。
+
+对比窗同样施加相同条件（整段前移一窗长），这样「这一段熬夜日 vs 上一段熬夜日」才是同质比较。想要「熬夜日 vs 非熬夜日」，用 `negate` 查两次。
+
+## 五、等价性门（P4 的硬门）
 
 `tools/query_equivalence.py`，CI 项 `query:equivalence`：
 
@@ -55,7 +85,7 @@
 
 P4a 落地前的重构本身也过了同一把尺子：抽 `compute_cell` / `apply_delta` 前后，`units` 表 **13139 行逐字段零差异**。
 
-## 五、代码地图
+## 六、代码地图
 
 | 文件 | 职责 |
 |---|---|
@@ -65,7 +95,10 @@ P4a 落地前的重构本身也过了同一把尺子：抽 `compute_cell` / `app
 | `units.py::window_spec` | 任意窗口 → 与 `unit_specs` 同形状的 spec（分母截断、借尺子） |
 | `units.py::ruler_for` | 窗口长度 → 借用哪把尺子 |
 | `query.py` | 查询定义的校验、解析、求值与展示；`run()` 是库入口，CLI 是壳 |
+| `query.py::select_days` | 条件 → 命中日集合（三态：命中/未命中/不可判定） |
+| `query.py::apply_min_n` | 条件筛选后的最小样本门（判定权在这里，不在调用方） |
 | `tools/query_equivalence.py` | 等价性门（CI 项 `query:equivalence`） |
+| `tools/query_checks.py` | 条件不变量检查（CI 项 `query:conditions`） |
 
 命令：
 
@@ -76,16 +109,15 @@ python3 skills/body-health/scripts/query.py --scale week --key 2026-W44
 python3 skills/body-health/scripts/query.py --list-metrics
 ```
 
-## 六、未落地
+## 七、未落地
 
 | 项 | 内容 |
 |---|---|
-| 条件组合 | 指标 / 事件 / 采集三类条件，AND/OR 组合。分母改为「符合条件的日子」，需配最小样本门（条件筛选后 n 天然变小，3 个样本的「熬夜次日 RHR 偏高」不是发现） |
 | 保存视图 | 查询定义可存、可回放；深链（URL 即视图） |
 | 报告接入 | 02:00 报告由查询接口产出，而非独立管线 |
 | agent 编译入口 | 自然语言 → 查询定义；回答可溯源到断言 id |
 
-## 七、明确不做
+## 八、明确不做
 
 - 不做「原始序列导出让你自己算」——判定权不下放，这一条在 P4 不松口
 - 不做报表编辑器 / 看板自由布局（视图是查询定义，不是画布）
