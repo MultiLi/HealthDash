@@ -1,0 +1,32 @@
+#!/bin/sh
+# 提交前置门禁。**判据写在这里，不写在文档里**——提醒会被忘，钩子不会。
+#
+# 两条，都是 2026-11-01 真实犯过、且靠自觉改了又犯的：
+#   ① 不许在 main 上直接提交（main 只靠 PR 进，且只允许 squash）
+#   ② 发布产物指纹必须与内容一致（内容改了没重建 / 重建了只提交一半，都会造出
+#      「index.html 新指纹 + 模块内旧指纹」的双模块实例，store 不共享）
+#
+# 装一次就永久生效（仓库级配置，worktree 共用）：
+#   python3 tools/ci/setup_hooks.py
+#
+# 极少数确实要在 main 上落一个提交的场景（空仓库初始化、历史修复），用
+#   ALLOW_COMMIT_MAIN=1 git commit ...
+# 显式开口，而不是把钩子删掉。
+
+branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+if [ "$branch" = "main" ] && [ -z "$ALLOW_COMMIT_MAIN" ]; then
+  cat >&2 <<'MSG'
+✗ 拒绝提交：当前在 main 上。
+
+  main 只能经 PR 合入（仓库只允许 squash 合并）。直接提交会让「main 上一定绿」
+  这个前提失效，之后所有基于 main 的判断都不可信。
+
+  → git switch -c fix/<一句话描述>      然后重新提交
+  （确实需要在 main 落提交时：ALLOW_COMMIT_MAIN=1 git commit ...）
+MSG
+  exit 1
+fi
+
+PY=python3
+command -v "$PY" >/dev/null 2>&1 || PY=python
+"$PY" tools/ci/check_asset_fingerprint.py || exit 1

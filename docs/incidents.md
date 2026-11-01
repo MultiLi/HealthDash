@@ -209,6 +209,32 @@ gh pr view N --json statusCheckRollup \
 
 ---
 
+### 25. 指纹只提交一半 → 双模块实例（2026-11-01）
+
+**现象**：CI 里 smoke 挂 6 条，报的全是取数链路与轨迹渲染；本地跑同一条 smoke 却是 164 项全绿。检查项本身没有任何问题。
+
+**根因**：为了让 diff 干净，把 7 个「只有指纹差异」的 js 还原了。于是 `index.html` 引用新指纹、`data.js` 内部 `import "./data.js?v=旧"`。smoke 按 html 里的版本号 import 模块，拿到的是**第二个模块实例**——它有自己的 `store`，写进去的状态渲染器读不到。
+
+**防线**：
+
+1. `tools/ci/check_asset_fingerprint.py`：每处 `?v=` 必须等于 `assetver.asset_version()`（按当前内容算出），不是「彼此一致」这么弱——连「改了内容忘了重建」一起抓。
+2. `.git/hooks/pre-commit`（经 `core.hooksPath` 指向 `tools/hooks`）：不一致直接拒绝提交。
+3. CI 检查项 `asset:fingerprint`：钩子可以被 `--no-verify` 绕过，CI 不行。
+4. 纪律：**指纹要么整体提交、要么整体还原，不许挑**。
+
+### 26. 反复在 main 上直接提交（2026-11-01 起多次）
+
+**现象**：同一类操作错误在一天里出现三次以上（文档改动、P1 提交、趋势线修复），每次都是「顺手 commit」，事后才发现要退回 main 重新走分支+PR。事后补救本身有风险（`reset --hard` 会丢工作区），且 `main` 一旦有未推送提交，「main 上一定绿」这个前提就不成立。
+
+**根因**：流程写在文档里，而文档靠记性执行。记性在连续工作时最先失效的东西。
+
+**防线**：
+
+1. `pre-commit` 拒绝任何在 `main` 上的提交（`ALLOW_COMMIT_MAIN=1` 是显式逃生口，用于空仓库初始化）。
+2. `pre-push` 拒绝直接 push `main`（`ALLOW_MAIN_PUSH=1` 同理）。
+3. 钩子经 `core.hooksPath -> tools/hooks` 生效，全仓一次、worktree 共用；`tools/ci/setup_hooks.py --check` 与 CI 检查项 `hooks:installed` 保证它不会静默失效。
+4. **判据写进钩子，不写进文档**——文档解释为什么，钩子负责不许。
+
 ## 增补规则
 
 - 新事故**必须带发生日期**（它是 `golden.json` 找锚点的依据），但**不要写真实身体数值**——`guard_no_data.py` 会拦，写中性描述。
