@@ -164,7 +164,16 @@ python3 tools/ci/wt.py new feat/xxx && cd .worktrees/feat-xxx
 python3 tools/ci/check.py
 git add -A && git commit -m 'feat: ...' && git push -u origin feat/xxx
 gh pr create --base main --head feat/xxx
+
+# 3. 合并：**门禁是这条 grep，不是 --watch 的退出码**
+gh pr checks N --watch >/dev/null 2>&1
+gh pr view N --json statusCheckRollup \
+  -q '[.statusCheckRollup[].conclusion] | all(. == "SUCCESS")' | grep -qx true \
+  || { echo "CI 未全绿，停止合并"; exit 1; }
+gh pr merge N --squash --delete-branch
 ```
+
+`gh ... -q` 在结论为 `false` 时只打印、退出码仍是 0——直接接 `&& gh pr merge` 会在红 PR 上照样合并（2026-11-01 两次，见 `incidents.md` #23）。**任何「先打印再判断」的命令都不算门禁，只有退出码算。**
 
 三个约束：
 
