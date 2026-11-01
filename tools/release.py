@@ -17,7 +17,7 @@
     ④ 代码先上线  republish 时必须先发布应用，**再**推数据
                  → 旧服务端不认识新数据键，先推数据会被整包拒绝（连当天 index 都丢）
     ⑤ 推数据     热更新 + 回读核验（不信返回值，只信再取一次）
-    ⑥ 登记游标   --mark-app-deployed 只在真实发布成功后写
+    ⑥ 登记游标   由 deploy.py 的推送路径一并完成（--mark-app-deployed 留给发布后手工登记）
     ⑦ 清理       删已合并的本地分支、清构建残留、把工作区拉回干净
                  → 产物指纹是构建副产物，不该以「未提交改动」的样子跨会话存在
     ⑧ 线上核验   真去 curl 关键端点，打印链接
@@ -139,11 +139,6 @@ def push():
         raise Abort(3, "推送异常 rc=%s" % rc)
 
 
-def mark_deployed():
-    rc, out = sh([sys.executable, "tools/deploy.py", "--mark-app-deployed"], timeout=120)
-    print("  " + (out.strip().splitlines() or [""])[0])
-
-
 # ------------------------------------------------------------------ ⑦ 清理
 def cleanup(keep_artifacts=False):
     step("⑦", "清理")
@@ -218,9 +213,9 @@ def main():
             push()
         else:
             print("  线上已同步，跳过推送")
+        cleanup(a.keep_artifacts)
         if not verify_live():
             return 3
-        cleanup(a.keep_artifacts)
         print("\n完成：代码与数据都与线上一致")
         return 0
     except Abort as e:
