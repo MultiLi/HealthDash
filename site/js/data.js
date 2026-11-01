@@ -9,8 +9,8 @@
  * 兜底不是「降级糊弄」：它是同一份构建产物的两个位置，内容同源，只是新鲜度不同。
  * 走了哪条路记在 store.dataFrom，顶部同步胶囊会显式标注——不允许静默用旧数据。
  */
-import { store } from "./store.js?v=3ffa1ed4";
-import { monthKey } from "./dateutil.js?v=3ffa1ed4";
+import { store } from "./store.js?v=22e64f2d";
+import { monthKey } from "./dateutil.js?v=22e64f2d";
 
 function getJSON(url) {
   /* fetch 缺失（或被打桩成同步抛）时，`fetch(url)` 抛的是**同步** ReferenceError，
@@ -45,9 +45,15 @@ function pick(apiUrl, staticUrl) {
   );
 }
 
+/* 通用「端点优先、静态兜底」入口：查询视图（views/<id>.json）复用它，
+   免得每加一种数据就在页面里重写一遍回落逻辑。 */
+export function loadJSON(apiUrl, staticUrl) {
+  return pick(apiUrl, staticUrl);
+}
+
 /* 首屏唯一载荷：逐日轻量索引 */
 export function loadIndex() {
-  return pick("api/data/index", "index.json?b=3c13d3fe");
+  return pick("api/data/index", "index.json?b=8142a751");
 }
 
 /* 月度详情分片的按需加载与缓存：只有在真的要展开某天时才拉当月分片 */
@@ -55,7 +61,7 @@ export function ensureShard(dateStr) {
   var month = monthKey(dateStr);
   if (store.shards[month]) return Promise.resolve(store.shards[month]);
   if (store.pending[month]) return store.pending[month];
-  store.pending[month] = pick("api/data/daily/" + month, "daily/" + month + ".json?b=3c13d3fe")
+  store.pending[month] = pick("api/data/daily/" + month, "daily/" + month + ".json?b=8142a751")
     .then(function (j) {
       store.shards[month] = j.days || {};
       delete store.pending[month];

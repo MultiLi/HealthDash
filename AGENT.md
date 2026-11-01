@@ -59,6 +59,8 @@
 | 片段取值 | `python3 $S/units.py get --scale hour --key 2026-10-31T14`（或 `daypart --key 2026-10-31-afternoon`） | 该小时/半区的片段值（**只有值，没有判定**） | 无 |
 | **任意窗口查询** | `python3 $S/query.py --days 14 --metrics hrv_ms,rhr_bpm`（或 `--start/--end`、`--scale/--key`、`--json`、`--list-metrics`） | 任意窗口的值 + 达标 + 环比 + 真值版本（`ruler` 说明借的哪把尺子） | 无（只读）；判定由后端给，**不许自己再算** |
 | **条件查询** | `python3 $S/query.py --q '{"window":{...},"metrics":[...],"conditions":[{"kind":"metric\|event\|collect",...}]}'` | 一类日子的值；结果里带命中/排除/**不可判定**三桶与最小样本门 | 无（只读）；样本不足时后端会给 `na`/`insufficient`，**不要绕过它下结论** |
+| **保存视图** | `python3 $S/query.py --save <id> --title ... --q '...'` / `--list-views` / `--rm-view <id>` | 写入 `data/views.json`（只存查询定义） | 写个人配置；存完要重建才生效 |
+| 视图物化 | `python3 tools/build_homepage_data.py`（自动带上） | `site/views/<id>.json` + 深链 `?view=<id>` | 构建产物（gitignored，随 push 热更新） |
 | 查询等价性 | `python3 tools/query_equivalence.py` | 查询层与 units 表逐格比对（CI 项 `query:equivalence`） | 无 |
 | 条件不变量 | `python3 tools/query_checks.py` | 三类条件的正/反用例 + 三桶闭合 + 最小样本门（CI 项 `query:conditions`） | 无 |
 | 前端冒烟 | `node tools/smoke_site.mjs`（`SMOKE_DATA_DIR=<目录>` 可指向 fixture） | 129 项断言（fixture 路径 134 项） | 无 |

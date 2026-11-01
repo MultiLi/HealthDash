@@ -74,7 +74,32 @@
 
 对比窗同样施加相同条件（整段前移一窗长），这样「这一段熬夜日 vs 上一段熬夜日」才是同质比较。想要「熬夜日 vs 非熬夜日」，用 `negate` 查两次。
 
-## 五、等价性门（P4 的硬门）
+## 五、保存视图与深链
+
+查询定义可以存下来，构建时求值成静态 JSON，页面按 `?view=<id>` 渲染。
+
+```bash
+python3 $S/query.py --save late-bed --title "晚睡日的静息心率" \
+  --q '{"window":{"days":60},"metrics":["rhr_bpm"],"conditions":[{"kind":"metric","metric":"sleep_bed_min","op":">=","value":120}]}'
+python3 $S/query.py --list-views        # 看已存的
+python3 $S/query.py --rm-view late-bed  # 删
+python3 tools/build_homepage_data.py    # 求值 → site/views/<id>.json
+# 深链：<域名>/?view=late-bed
+```
+
+| 环节 | 谁做 | 说明 |
+|---|---|---|
+| 定义 | `data/views.json` | 只存**查询定义**，不存结果（定义入库/入档，结果每次重算） |
+| 求值 | `tools/homepage/views.py` | 构建时调 `query.run()`；一个视图坏了写 `{"error":...}`，不拖垮整次构建 |
+| 传输 | `site/views/<id>.json` | 与月度分片同性质的数据，走 `push_data.py` 热更新（每晚随报告刷新） |
+| 渲染 | `site/js/view.js` | **一个字都不算**：值/达标/变化/覆盖率全部来自 JSON |
+| 取数 | `api/data/views/<id>` 优先，`views/<id>.json` 兜底 | 与首页同一套「端点优先、静态兜底」纪律 |
+
+**为什么不在浏览器里算**：判定必须在后端（§一）。代价是「深链只对已保存的视图生效」——临时问题由 agent 直接答，不生成 URL。这不是妥协，是顺序：先有后端算好的答案，才有可分享的链接。
+
+**视图失败要说出来**：页面显示「这个视图暂时算不出来：<错误>」，不画空表。空表与查询失败在页面上长得一样，那是最坏的一种沉默。
+
+## 六、等价性门（P4 的硬门）
 
 `tools/query_equivalence.py`，CI 项 `query:equivalence`：
 
@@ -85,7 +110,7 @@
 
 P4a 落地前的重构本身也过了同一把尺子：抽 `compute_cell` / `apply_delta` 前后，`units` 表 **13139 行逐字段零差异**。
 
-## 六、代码地图
+## 七、代码地图
 
 | 文件 | 职责 |
 |---|---|
@@ -109,15 +134,14 @@ python3 skills/body-health/scripts/query.py --scale week --key 2026-W44
 python3 skills/body-health/scripts/query.py --list-metrics
 ```
 
-## 七、未落地
+## 八、未落地
 
 | 项 | 内容 |
 |---|---|
-| 保存视图 | 查询定义可存、可回放；深链（URL 即视图） |
 | 报告接入 | 02:00 报告由查询接口产出，而非独立管线 |
 | agent 编译入口 | 自然语言 → 查询定义；回答可溯源到断言 id |
 
-## 八、明确不做
+## 九、明确不做
 
 - 不做「原始序列导出让你自己算」——判定权不下放，这一条在 P4 不松口
 - 不做报表编辑器 / 看板自由布局（视图是查询定义，不是画布）

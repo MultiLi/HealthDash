@@ -589,6 +589,93 @@ ok(count(matHtml, /dm-c /g) > 40, "矩阵画出逐日格子", count(matHtml, /dm
 ok(/dm-c na/.test(matHtml), "无判定格与未达标格分开画（na 不等于 no）");
 ok(/dm-s/.test(matHtml), "每行给达标比");
 
+console.log("\n== 查询视图（?view=）==");
+const { renderView, viewId, initView } = await import(mod("js/view.js"));
+ok(viewId("?view=late-bed") === "late-bed" && viewId("") === null &&
+   viewId("?x=1&view=recent-14") === "recent-14", "从 URL 解析视图 id",
+   String(viewId("?view=late-bed")));
+
+/* 渲染器只读后端算好的字段，自己不做任何判定——这里用三行不同 judge 的假数据
+   验证「不给结论」与「未达标」在页面上确实是两种东西。 */
+const fakeView = {
+  id: "t", title: "测试视图", note: "备注一行",
+  query: { window: { start: "2026-09-01", end: "2026-09-30" },
+           metrics: ["hrv_ms", "steps_daily", "sleep_h"],
+           conditions: [{ kind: "metric", metric: "sleep_h", op: "<", value: 6.5 }] },
+  ruler: "month",
+  window: { start: "2026-09-01", end: "2026-09-30", days: 12, expected: 12,
+            first: "2026-09-03", last: "2026-09-28" },
+  selection: { candidates: 30, matched: 12, excluded: 18, undecidable: 0, logic: "and" },
+  min_n: { required: 5 },
+  provenance: { rules_hash: "c7a6a6e9d6b9", data_hash: "3243598badc9",
+                engine_ver: "f0559dc0bb4f", events_hash: "ec25a279aaaa",
+                built_at: "2026-11-01T12:31:23" },
+  rows: [
+    { metric: "hrv_ms", label: "HRV", value: 57, n: 11, coverage: 0.92,
+      judge: "ok", judge_rate: null, delta_v: -2, delta_verdict: "within-noise",
+      delta_note: "|Δ|=2.00 ≤ mdc 20.00" },
+    { metric: "steps_daily", label: "日步数", value: 7433, n: 12, coverage: 1,
+      judge: "no", judge_rate: null, delta_v: null, delta_verdict: "insufficient",
+      delta_note: "没有可比的上一窗" },
+    { metric: "sleep_h", label: "睡眠", value: 5.9, n: 12, coverage: 1,
+      judge: "na", judge_rate: 0.15, delta_v: null, delta_verdict: "suppressed",
+      delta_note: null }
+  ],
+  empty: ["spo2_sleep_avg"], error: null
+};
+const vHtml = renderView(fakeView);
+ok(vHtml.includes("测试视图") && vHtml.includes("查询视图"), "标题与徽标渲染");
+ok(vHtml.includes("命中 <b>12</b>") && vHtml.includes("候选 30"), "命中/候选天数来自后端字段",
+  "含不可判定信息：" + vHtml.includes("不可判定"));
+ok(vHtml.includes("尺子 month") && vHtml.includes("最小样本 5"), "尺子与最小样本门明示");
+ok(vHtml.includes("q-ok") && vHtml.includes("达标"), "ok → 达标");
+ok(vHtml.includes("q-no") && vHtml.includes("未达标"), "no → 未达标");
+ok(vHtml.includes("q-na") && vHtml.includes("不给结论"), "na → 不给结论（不是「未达标」）");
+ok(vHtml.includes("在误差内") && vHtml.includes("样本不足") && vHtml.includes("不做环比"),
+  "delta_verdict 五档有中文标签，页面不自己比大小");
+ok(vHtml.includes("5.9") && vHtml.includes("7433"), "数值原样展示（不在前端重算）");
+ok(vHtml.includes("na ≠ 0"), "无数据指标单独提示，不当作 0");
+ok(vHtml.includes("rules c7a6a6e9") && vHtml.includes("events ec25a279"),
+  "真值版本（含事件指纹）随视图展示");
+ok(vHtml.includes("sleep_h &lt; 6.5"), "条件原样回显", vHtml.slice(vHtml.indexOf("条件："), vHtml.indexOf("条件：") + 40));
+
+const errHtml = renderView({ id: "x", title: "坏视图", error: "QueryError: 窗口内没有命中" });
+ok(errHtml.includes("算不出来") && errHtml.includes("QueryError") && !errHtml.includes("<table"),
+  "视图出错时只报错，不画空表");
+
+/* 接线：initView 要真的去取 views/<id>.json 并把面板显示出来 */
+const seen = [];
+globalThis.fetch = function (url) {
+  seen.push(String(url));
+  return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(fakeView) });
+};
+globalThis.location = { search: "?view=t" };
+document.getElementById("query-view").hidden = true;
+await initView();
+ok(seen.length === 1 && seen[0] === "api/data/views/t",
+  "视图先打端点（不带 .json 后缀，绕开缓存）", seen[0]);
+ok(!hidden("query-view") && html("query-view").includes("测试视图"),
+  "面板显示并渲染出内容（默认页不受影响：无参数时不请求）");
+/* 端点挂了必须回落随包副本——视图同样不能白屏 */
+const seen2 = [];
+globalThis.fetch = function (url) {
+  seen2.push(String(url));
+  if (String(url).indexOf("api/data/") === 0) return Promise.resolve({ ok: false, status: 503 });
+  return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(fakeView) });
+};
+globalThis.location = { search: "?view=t" };
+document.getElementById("query-view").hidden = true;
+await initView();
+ok(seen2.length === 2 && /^views\/t\.json$/.test(seen2[1]),
+  "端点异常时回落随包静态视图", seen2.join(" → "));
+ok(html("query-view").includes("测试视图"), "回落后仍然渲染出内容");
+
+globalThis.location = { search: "" };
+const n0 = seen2.length;
+document.getElementById("query-view").hidden = true;
+await initView();
+ok(seen2.length === n0 && hidden("query-view"), "没有 ?view= 参数时完全不请求、保持隐藏");
+
 console.log("\n" + "=".repeat(46));
 console.log(failed === 0 ? `全部通过：${passed} 项` : `${passed} 通过 / ${failed} 失败`);
 process.exit(failed === 0 ? 0 : 1);

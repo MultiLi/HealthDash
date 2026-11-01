@@ -39,8 +39,12 @@ DATA_DIR = os.path.join(SITE_DIR, ".data")
 PREV_DIR = os.path.join(DATA_DIR, ".prev")
 BUNDLED_INDEX = os.path.join(SITE_DIR, "index.json")
 BUNDLED_DAILY = os.path.join(SITE_DIR, "daily")
+#: 保存视图的求值产物（site/views/<id>.json）。与 index/daily 同级，走同一套热更新。
+BUNDLED_VIEWS = os.path.join(SITE_DIR, "views")
 
 MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
+#: 视图 id 白名单字符（与 query.py 的 --save 校验同一套），防路径穿越
+VIEW_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 MAX_BODY = 32 * 1024 * 1024
 
 # 可被 HTTP 取走的扩展名白名单。不在名单里的一律 404（含 .py / .md / 无扩展名文件）。
@@ -93,6 +97,10 @@ def state_shard_path(month):
     return os.path.join(DATA_DIR, "daily", month + ".json")
 
 
+def state_view_path(vid):
+    return os.path.join(DATA_DIR, "views", vid + ".json")
+
+
 # ---------------------------------------------------------------- 读写小工具
 
 def _read_json(path):
@@ -131,13 +139,15 @@ def _snapshot_prev():
         if os.path.isfile(src):
             shutil.copy2(src, os.path.join(PREV_DIR, rel))
             n += 1
-    src_daily = os.path.join(DATA_DIR, "daily")
-    if os.path.isdir(src_daily):
-        os.makedirs(os.path.join(PREV_DIR, "daily"), exist_ok=True)
-        for name in sorted(os.listdir(src_daily)):
+    for sub in ("daily", "views"):
+        src_dir = os.path.join(DATA_DIR, sub)
+        if not os.path.isdir(src_dir):
+            continue
+        os.makedirs(os.path.join(PREV_DIR, sub), exist_ok=True)
+        for name in sorted(os.listdir(src_dir)):
             if name.endswith(".json"):
-                shutil.copy2(os.path.join(src_daily, name),
-                             os.path.join(PREV_DIR, "daily", name))
+                shutil.copy2(os.path.join(src_dir, name),
+                             os.path.join(PREV_DIR, sub, name))
                 n += 1
     return n
 
@@ -314,6 +324,22 @@ class Handler(BaseHTTPRequestHandler):
                 return self._err(404, "数据不可用：%s" % err)
             return self._json(200, obj, {"X-Data-Origin": origin,
                                          "Access-Control-Allow-Origin": "*"})
+        m = re.match(r"^views/(.+)$", rest)
+        if m:
+            vid = m.group(1)
+            if not VIEW_RE.match(vid):
+                return self._err(400, "视图 id 不合法")
+            obj, err = _read_json(state_view_path(vid))
+            origin = "state"
+            if obj is None:
+                obj, err = _read_json(os.path.join(BUNDLED_VIEWS, vid + ".json"))
+                origin = "bundled"
+            if obj is None:
+                # 与月度分片相反：**没有这个视图就是错**。分片缺失是「那个月没记录」，
+                # 视图缺失是「链接坏了/没构建」——前者空态，后者必须报出来。
+                return self._err(404, "没有这个视图：%s（先保存并重新构建）" % vid)
+            return self._json(200, obj, {"X-Data-Origin": origin,
+                                         "Access-Control-Allow-Origin": "*"})
         m = re.match(r"^daily/(.+)$", rest)
         if m:
             month = m.group(1)
@@ -368,6 +394,10 @@ class Handler(BaseHTTPRequestHandler):
                 err = validate_index(obj)
             elif rel.startswith("daily/"):
                 err = validate_shard(rel[len("daily/"):-5], obj)
+            elif rel.startswith("views/"):
+                vid = rel[len("views/"):-5]
+                err = None if VIEW_RE.match(vid) and isinstance(obj, dict) \
+                    and obj.get("id") == vid else "视图载荷不合法：%s" % rel
             else:
                 err = "不认识的条目：%s" % rel
             if err:
@@ -379,6 +409,8 @@ class Handler(BaseHTTPRequestHandler):
             for rel, obj in files.items():
                 if rel == "index.json":
                     path = state_index_path()
+                elif rel.startswith("views/"):
+                    path = state_view_path(rel[len("views/"):-5])
                 else:
                     path = state_shard_path(rel[len("daily/"):-5])
                 written[rel] = _write_json(path, obj)

@@ -110,3 +110,15 @@
 - 定义见上文「已澄清 ③」。字段 `g` 只在 `>0` 时下发。
 
 **工具陷阱**：`probe_interactions.py` 若用「轮询 `p.poll()` 再 `stdout.read()`」，`--dump-dom` 输出走管道而**管道缓冲区只有 ~64KB**；页面变长后 Chrome 阻塞在 write 上永不退出，看门狗把**全部用例**判成 HUNG——**连不点击的基线也 HUNG**。必须用 `communicate(timeout=...)` 边读边等。**判据：连基线都 HUNG，先怀疑测量工具，不是产品。**
+
+## 查询视图（?view=<id>）
+
+页面在正常总览之上多一个**可选**面板：URL 带 `?view=<id>` 时渲染一个保存的查询结果。
+
+- 数据来自 `site/views/<id>.json`（构建时由 `tools/homepage/views.py` 调 `query.run()` 算好），
+  取数走 `api/data/views/<id>` 优先、`views/<id>.json` 兜底，与首页同一套纪律。
+- `site/js/view.js` **不做任何计算**：值、达标、变化、覆盖率全部读 JSON 字段；
+  「不给结论（na）」与「未达标（no）」在页面上是两种颜色两种文案。
+- 没有 `?view=` 参数时它完全不发请求、保持隐藏——默认页面零影响。
+- 视图算不出来时只显示错误原因，不画空表（空表与失败长得一样，是最坏的沉默）。
+- 判据与实现见 `docs/query-interface.md` §五。

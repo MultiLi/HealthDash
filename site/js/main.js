@@ -3,12 +3,13 @@
  * 观测状态只有两个自由度：**anchor（锚定日期）+ scale（尺度）**。
  * 没有「概览页」「某日页」之分——那两者是同一个视图在月尺度与日尺度下的样子。
  * 首屏只拉索引；单日细分在展开时才拉当月分片（取数链路见 data.js）。 */
-import { store } from "./store.js?v=3ffa1ed4";
-import { esc, $ } from "./utils.js?v=3ffa1ed4";
-import { renderPage, setupDetailToggle, renderBriefLog } from "./metricgrid.js?v=3ffa1ed4";
-import { shiftMonth, monthKey, fmtMD } from "./dateutil.js?v=3ffa1ed4";
-import { loadIndex } from "./data.js?v=3ffa1ed4";
-import { renderInBody, setInBody } from "./inbody.js?v=3ffa1ed4";
+import { store } from "./store.js?v=22e64f2d";
+import { esc, $ } from "./utils.js?v=22e64f2d";
+import { renderPage, setupDetailToggle, renderBriefLog } from "./metricgrid.js?v=22e64f2d";
+import { shiftMonth, monthKey, fmtMD } from "./dateutil.js?v=22e64f2d";
+import { loadIndex } from "./data.js?v=22e64f2d";
+import { renderInBody, setInBody } from "./inbody.js?v=22e64f2d";
+import { initView } from "./view.js?v=22e64f2d";
 
 function setScale(scale) {
   store.scale = scale;
@@ -228,6 +229,9 @@ function init(ixd) {
   renderNudge();
   /* 判读流水同理：它是长期视角，跟着日历翻页重建 37 行只会互相打断 */
   renderBriefLog();
+  /* 查询视图是附加面板：没有 ?view= 参数时它什么都不做，
+     有则把后端算好的 saved view 渲染在页面顶部（不动下面的总览）。 */
+  initView();
 }
 
 /* 冒烟测试要 import 本模块的纯函数，但不想触发整页 boot

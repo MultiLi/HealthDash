@@ -26,6 +26,8 @@ data/*
 # 不挪进 data/ 的原因：server.py 与前端从固定路径取，挪了要改部署参数。
 site/index.json
 site/daily/
+# 保存视图的求值结果：同样是 data/ 的渲染副本，含真实身体数值 → 不入库
+site/views/
 site/.data/
 site/_probe_*.html
 
