@@ -17,8 +17,10 @@
 # 和「上线」是两个动作，中间靠人记得。这个提醒就是那个「记得」。
 # 它**不阻断推送**：发布是外部动作，可能失败、可能要人确认，不该卡住 git。
 #
-# 安装：cp tools/hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
-# 卸载：rm .git/hooks/pre-push
+# 安装：python3 tools/ci/setup_hooks.py
+#      （它把 core.hooksPath 指到 tools/hooks，全仓一次生效、worktree 共用；
+#        不再往 .git/hooks 拷副本——副本会和仓库里的版本漂移，而漂移了没人知道）
+# 卸载：git config --unset core.hooksPath
 
 MAIN_REF="refs/heads/main"
 ZERO="0000000000000000000000000000000000000000"

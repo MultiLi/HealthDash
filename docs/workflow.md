@@ -186,6 +186,26 @@ gh pr merge N --squash --delete-branch
 **不在分支上构建。** 产物的内容指纹要与 main 的代码同源；分支上 build 出来的指纹
 拿到 main 上会被当成「又改过」，永远对不上。
 
+### 5.1.1 门禁：写进钩子，不靠记性
+
+两条纪律曾经反复被违反，原因都不是不懂，是「顺手」。所以它们不再靠文档执行：
+
+```bash
+python3 tools/ci/setup_hooks.py          # 一次即可；--check 只看状态
+```
+
+| 钩子 | 拦什么 | 为什么 |
+|---|---|---|
+| `pre-commit` | 在 `main` 上提交 | main 只经 PR（只允许 squash）。main 上出现直推提交，「main 一定绿」就不成立了 |
+| `pre-commit` | `?v=` 指纹与内容不符 | 指纹只提交一半会造出双模块实例（`store` 不共享），CI 红在离问题很远的地方 |
+| `pre-push` | 直接 push `main` | 同上；远端分支保护才是真保护，这道是兜底 |
+
+实现走 `core.hooksPath -> tools/hooks`，不往 `.git/hooks` 拷副本——副本会漂移，而漂移没有症状。worktree 共用 `.git/config`，设一次全都生效。
+
+**逃生口**（显式、需写理由，别让它变成习惯）：`ALLOW_COMMIT_MAIN=1`、`ALLOW_MAIN_PUSH=1`。
+
+CI 侧对应检查项 `asset:fingerprint`（钩子可被 `--no-verify` 绕过，CI 不行）；`hooks:installed` 只在本机跑，防止换机器后门禁静默消失。
+
 ### 5.2 清理
 
 | 对象 | 动作 | 为什么 |

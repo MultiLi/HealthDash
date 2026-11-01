@@ -415,8 +415,47 @@ def check_query_conditions():
                    "；".join(bad[:3])[:300]
 
 
+def check_asset_fingerprint():
+    """发布产物指纹：每处 ?v= 必须等于按当前内容算出的版本。
+
+    比「各处彼此一致」更强：内容改了没重建、重建了只提交一半，这两种都会被抓到。
+    2026-11-01 就是后者——index.html 新指纹 + 模块内旧指纹 = 双模块实例，CI 6 条红。
+    """
+    script = os.path.join(ROOT, "tools", "ci", "check_asset_fingerprint.py")
+    if not os.path.isfile(script):
+        return "skip", "缺 tools/ci/check_asset_fingerprint.py"
+    rc, out = sh([sys.executable, script], timeout=120)
+    if rc == 0:
+        line = next((ln.strip() for ln in out.splitlines() if ln.startswith("资源指纹")), "")
+        return "pass", line or "指纹与内容一致"
+    bad = [ln.strip() for ln in out.splitlines()
+           if ln.strip() and not ln.startswith(("✗", "修法", "（"))]
+    return "fail", "%s\n    修法：python3 tools/build_homepage_data.py && git add site/" % (
+        "；".join(bad[:3]) or "指纹不一致")
+
+
+def check_hooks():
+    """提交门禁是否接上（core.hooksPath -> tools/hooks）。
+
+    只在本地有意义：CI 不产生提交，也没有仓库级钩子概念。
+    这条存在的理由：换机器 / 新 clone 后钩子会静默失效，而「门禁失效」没有任何症状。
+    """
+    if os.environ.get("GITHUB_ACTIONS") or os.environ.get("CI"):
+        return "skip", "CI 环境不提交，无需钩子"
+    script = os.path.join(ROOT, "tools", "ci", "setup_hooks.py")
+    if not os.path.isfile(script):
+        return "skip", "缺 tools/ci/setup_hooks.py"
+    rc, out = sh([sys.executable, script, "--check"], timeout=30)
+    if rc == 0:
+        return "pass", "core.hooksPath 已指向 tools/hooks"
+    first = (out.strip().splitlines() or ["未设置"])[0].strip()
+    return "fail", "%s\n    修法：python3 tools/ci/setup_hooks.py" % first
+
+
 CHECKS = [
     ("guard", check_guard),
+    ("asset:fingerprint", check_asset_fingerprint),
+    ("hooks:installed", check_hooks),
     ("py:compile", check_py_compile),
     ("js:syntax", check_js_syntax),
     ("path:anchor", check_path_anchor),

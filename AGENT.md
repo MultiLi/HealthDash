@@ -45,7 +45,7 @@
 | 判读自检 | `python3 $S/verify_judgment.py --date D` | 五项校验结果 | 无 |
 | 记完成 | `python3 $S/slot.py mark done --data-cutoff HH:MM` | `data/state/slots.json` | **不可逆**，会阻止重出 |
 | 主页构建 | `python3 tools/build_homepage_data.py` | `site/index.json` + `site/daily/` | 覆盖产物 |
-| **CD（合入→清理→部署）** | `python3 tools/release.py`（体检）/ `--run`（执行） | 固定顺序：起点校验 → 构建 → 判动作 → 热更新 → 核验 → 清理；exit 2 = 需要先发布应用 | 改了线上数据；会删已合并分支、还原 site/ 产物 |
+| **提交门禁** | `python3 tools/ci/setup_hooks.py`（一次；`--check` 只看） | `core.hooksPath -> tools/hooks`：拒 main 直提、拒指纹不一致、拒直推 main | 装一次永久生效；换机器要重装 |\n| **指纹核对** | `python3 tools/ci/check_asset_fingerprint.py` | 每处 `?v=` 是否等于按内容算出的版本 | 无（CI 项 `asset:fingerprint`） |\n| **CD（合入→清理→部署）** | `python3 tools/release.py`（体检）/ `--run`（执行） | 固定顺序：起点校验 → 构建 → 判动作 → 热更新 → 核验 → 清理；exit 2 = 需要先发布应用 | 改了线上数据；会删已合并分支、还原 site/ 产物 |
 | **部署编排** | `python3 tools/deploy.py`（= 检查 + 需要就热更新）/ `--check` 只看 | 输出 `noop`/`hot_update`/`republish`；exit 2 = 需要重新发布 | 改了线上数据（热更新时） |
 | 发布后登记 | `python3 tools/deploy.py --mark-app-deployed` | 更新上线游标 | 只写本地游标 |
 | 主页推送 | `python3 tools/push_data.py` | 线上 `.data/` | 改线上数据 |
@@ -155,7 +155,7 @@ python3 tools/ci/check.py
 ```
 
 它依次验：数据守卫 / Python 语法与 3.9 下限 / JS 语法 / 路径锚点 / 数据边界结构 /
-事件 schema / 主观视图对账 / 片段一致性 / **查询等价性 / 条件不变量** / 前端冒烟 / 判读金标。
+指纹一致性 / 钩子安装 / 事件 schema / 主观视图对账 / 片段一致性 / **查询等价性 / 条件不变量** / 前端冒烟 / 判读金标。
 exit 0 才继续。**它报 SKIP 不等于通过**——SKIP 是「这项没验」（CI 里恒 SKIP 的是依赖真实数据的几项）。
 
 跑完一轮判读，这三条必须同时成立：
