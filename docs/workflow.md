@@ -140,48 +140,84 @@ CI 跑的是**完全相同的这一句**（`.github/workflows/ci.yml`）。
 
 ---
 
-## 五、一次完整开发的动作序列
+## 五、合入 → 清理 → 部署
+
+三段，顺序固定。**顺序不是建议，是判据**：任何一步提前或跳过，线上就会和 git 分家，
+而 `git log` 看起来一切正常。整条链路由 `tools/release.py` 兜住（体检默认不动作，`--run` 才执行）。
 
 ```bash
-# 0. 起点：main 必须是绿的。不绿先修，不要在红的基线上叠东西。
-git switch main && git pull
-python3 tools/ci/check.py
-
-# 1. 开分支 + worktree
-python3 tools/ci/wt.py new feat/xxx && cd .worktrees/feat-xxx
-
-# 2. 改代码（改 site/ 的话，先 build 再冒烟）
-python3 tools/build_homepage_data.py && node tools/smoke_site.mjs
-
-# 3. 自检
-python3 tools/ci/check.py
-
-# 4. 提交并推分支
-git add -A && git commit -m 'feat: ...' && git push -u origin feat/xxx
-
-# 5. 开 PR（网页或 gh pr create --fill），等 check 绿
-
-# 6. 合并后：清掉 worktree，把主工作区拉回最新 main
-python3 tools/ci/wt.py rm feat/xxx
-python3 tools/ci/wt.py sync        # 主工作区快进到 origin/main
-
-# 7. 如果改了 site/：重建产物 + 判断该怎么上线
-python3 tools/build_homepage_data.py
-python3 tools/deploy.py            # 输出 republish → 重新发布应用 → --mark-app-deployed
-
-# 8. 发布后核验（唯一能证明「真的上线了」的动作）
-python3 tools/deploy.py --check --verify-live
+python3 tools/release.py          # 体检：告诉你现在该做什么，不改任何东西
+python3 tools/release.py --run    # 真跑：构建 → 按需热更新 → 核验 → 清理
 ```
 
-第 6 步的 `sync` 不能省。PR 合并只更新远端，主工作区还停在合并前的 commit 上；
-不拉回来的话，下一次改动就从旧基线起步，越拖越难合——而 `git log` 看起来一切正常，
-没人会发现自己落后了。
+### 5.1 合入
 
-第 7 步最容易漏。**`git push` 不等于上线**，两者的差集不会自己显形。
+```bash
+# 0. 起点：main 必须绿。不绿先修，不要在红的基线上叠东西。
+git switch main && git pull --ff-only
+python3 tools/ci/check.py
 
-**而 `deploy.py --check` 本身也可能骗人。** 它比较的是「本地前后两次指纹」：只能发现「我改了」，发现不了「我改了、但从来没上线」。只要工作区里躺着一批未发布的改动，游标就会把本地状态误记成线上状态，之后无论怎么改都报 noop。
+# 1. 开分支（并行改动多时用 worktree）
+python3 tools/ci/wt.py new feat/xxx && cd .worktrees/feat-xxx
 
-所以游标里有 `code_verified`：
+# 2. 改代码 → 自检 → 提交 → 推分支 → 开 PR
+python3 tools/ci/check.py
+git add -A && git commit -m 'feat: ...' && git push -u origin feat/xxx
+gh pr create --base main --head feat/xxx
+```
+
+三个约束：
+
+| 约束 | 理由 |
+|---|---|
+| main 只靠 PR 进，且只允许 **squash** | 仓库设置如此；squash 正文要写清 why |
+| 合并前必须看到 `statusCheckRollup` **全绿** | `gh pr checks --watch` 的退出码不反映检查结论，2026-11-01 因此在 CI 红下合并过一次 |
+| 合并后立刻 `pull --ff-only` | 不拉回来，下一次改动就从旧基线起步，越拖越难合 |
+
+**不在分支上构建。** 产物的内容指纹要与 main 的代码同源；分支上 build 出来的指纹
+拿到 main 上会被当成「又改过」，永远对不上。
+
+### 5.2 清理
+
+| 对象 | 动作 | 为什么 |
+|---|---|---|
+| 已合并的本地分支 | `git branch --merged main` 后删掉 | 留着会让 `git log --all` 变得难读，也容易在上面继续改旧代码 |
+| worktree | `python3 tools/ci/wt.py rm <分支>` | 它有一份完整源码树，废弃后就是第二个真相 |
+| `site/` 产物指纹 | 交付后还原（`git checkout -- site/`），**不入库** | `?v=` / `?b=` 是构建副产物：线上那份已经上传，本地留一堆未提交改动只会让下个会话误以为有人改了前端 |
+| 部署游标与快照 | 不动 | `data/state/deploy.lock.json` 由 deploy.py 维护，手改会造出「假已上线」 |
+
+`release.py --run` 会做完这些；`--keep-artifacts` 可以保留产物差异（排查线上差异时用）。
+
+### 5.3 部署
+
+顺序是硬的：**代码先上线，再推数据。**
+
+```bash
+python3 tools/release.py --run
+```
+
+它会按固定顺序走：① 起点校验 → ② 在 main 上构建 → ③ `deploy.py --check` 判动作
+→ ④ 需要发布时**停下**并给出下一步 → ⑤ 热更新 + 回读核验 → ⑥ 登记游标 → ⑦ 清理 → ⑧ 线上核验。
+
+需要重新发布时（`deploy.py` 报 `republish`），**三条命令，一条都不能省**：
+
+```bash
+# 1) 在 WorkBuddy 里发布 site/ 应用（参数见 tools/deploy.json）
+# 2) 发布成功后登记游标（只有这一步能证明线上真的是这版代码）
+python3 tools/deploy.py --mark-app-deployed
+# 3) 再跑一次，这次才推数据
+python3 tools/release.py --run
+```
+
+**为什么不能先推数据**：新数据键（如 `views/`）在旧服务端上不存在，`POST /api/push`
+会整包 400——连当天的 index 一起推不上去，而失败发生在凌晨无人值守时。
+2026-11-01 实见过一次，现在的应急降级只是兜底，不是正确顺序。
+
+**`git push` 不等于上线。** 两者的差集不会自己显形：2026-10-31 的重构就是这么积压的
+（本地构建了、冒烟过了、git 推了，线上打开还是旧那版）。
+
+**而 `deploy.py --check` 本身也可能骗人。** 它比较的是「本地前后两次指纹」：只能发现
+「我改了」，发现不了「我改了、但从来没上线」。所以游标里有 `code_verified`：
 
 | 谁写 | 写什么 | 为什么 |
 |---|---|---|
@@ -189,13 +225,11 @@ python3 tools/deploy.py --check --verify-live
 | `--mark-app-deployed` | `true` | 一次真实发布成功，是唯一可信证据 |
 | `plan()` 见到 `false` | 拉线上比对 | 一致就自愈成 `true`，不一致就报 `republish` |
 
-日常不需要额外动作。只有排查「到底上线没有」时用强制核验：
+排查「到底上线没有」时用强制核验，**这是唯一不依赖游标说谎的判据**：
 
 ```bash
-python3 tools/deploy.py --check --verify-live   # 无视游标，直接问线上
+python3 tools/deploy.py --check --verify-live
 ```
-
-它会把两个版本号并排打出来，一致/不一致一眼可见。**这是唯一不依赖游标说谎的判据。**
 
 ---
 

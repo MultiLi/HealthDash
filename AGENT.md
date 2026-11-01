@@ -45,6 +45,7 @@
 | 判读自检 | `python3 $S/verify_judgment.py --date D` | 五项校验结果 | 无 |
 | 记完成 | `python3 $S/slot.py mark done --data-cutoff HH:MM` | `data/state/slots.json` | **不可逆**，会阻止重出 |
 | 主页构建 | `python3 tools/build_homepage_data.py` | `site/index.json` + `site/daily/` | 覆盖产物 |
+| **CD（合入→清理→部署）** | `python3 tools/release.py`（体检）/ `--run`（执行） | 固定顺序：起点校验 → 构建 → 判动作 → 热更新 → 核验 → 清理；exit 2 = 需要先发布应用 | 改了线上数据；会删已合并分支、还原 site/ 产物 |
 | **部署编排** | `python3 tools/deploy.py`（= 检查 + 需要就热更新）/ `--check` 只看 | 输出 `noop`/`hot_update`/`republish`；exit 2 = 需要重新发布 | 改了线上数据（热更新时） |
 | 发布后登记 | `python3 tools/deploy.py --mark-app-deployed` | 更新上线游标 | 只写本地游标 |
 | 主页推送 | `python3 tools/push_data.py` | 线上 `.data/` | 改线上数据 |
