@@ -5,10 +5,10 @@
  * 于是「看某天」不需要换页面，只需要在日尺度下把卡展开。
  * 每个函数返回 HTML 字符串，数据取自按月分片的完整 day 对象。
  */
-import { C } from "./constants.js?v=687749a4";
-import { esc, dash, fm } from "./utils.js?v=687749a4";
-import { lineChart, hypnoSvg, stackBar, hourBars, rangeBar } from "./charts.js?v=687749a4";
-import { facts, subChips } from "./components.js?v=687749a4";
+import { C } from "./constants.js?v=a75f6573";
+import { esc, dash, fm } from "./utils.js?v=a75f6573";
+import { lineChart, hypnoSvg, stackBar, hourBars, rangeBar } from "./charts.js?v=a75f6573";
+import { facts, subChips } from "./components.js?v=a75f6573";
 
 function t(title) { return '<h4 class="detail-title">' + esc(title) + "</h4>"; }
 
