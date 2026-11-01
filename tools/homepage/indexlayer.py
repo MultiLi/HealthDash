@@ -243,10 +243,20 @@ def collect_block(days, rows):
         runs.append(cur)
     ranges = ["%s~%s" % (g[0][5:], g[-1][5:]) if len(g) > 1 else g[0][5:]
               for g in runs]
+    # 近 14 天：胶囊上那句「X/Y 天有实测」的分母必须是**一个有名字的窗口**。
+    # 用整个跨度（61 天）当分母，用户读到的是一串没说清起止的数字——「38/61」既不是
+    # 本周也不是本月，无可对照。所以这里另给一段带起止的近窗，跨度统计降为悬停详情。
+    recent_days = 14
+    tail = rows[-recent_days:]
+    cr = Counter(r["cs"] for r in tail) if tail else Counter()
     return {
         "summary": {"n": len(rows), "ok": c["ok"], "failed": c["failed"],
                     "missing": c["missing"], "absent": c["absent"],
                     "pending": c["pending"]},
+        "recent": ({"days": len(tail), "from": tail[0]["date"], "to": tail[-1]["date"],
+                    "ok": cr["ok"], "failed": cr["failed"], "missing": cr["missing"],
+                    "absent": cr["absent"], "pending": cr["pending"]}
+                   if tail else None),
         # 只留最近 5 次：告警条是「现在要不要去看一眼」，不是错误归档。
         "recent_errors": errs[:5],
         "missing_ranges": ranges,

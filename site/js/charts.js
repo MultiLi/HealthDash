@@ -2,8 +2,8 @@
    单日页细分：折线 / 睡眠时间轴 / 堆叠条 / 逐时柱 / 范围条。
    指标卡序列：sparkline——x 轴粒度跟随全局尺度（日/周/月），
    同一个量在同一张卡上换粒度，而不是拆到不同页面。 */
-import { C } from "./constants.js?v=a75f6573";
-import { esc } from "./utils.js?v=a75f6573";
+import { C } from "./constants.js?v=e9e11956";
+import { esc } from "./utils.js?v=e9e11956";
 
 /* 折线图：pts [[label, v], ...]，band [lo,hi] 画参考区间 */
 export function lineChart(pts, o) {
@@ -55,9 +55,21 @@ export function lineChart(pts, o) {
 export function sparkline(points, m, ix, o) {
   o = o || {};
   var W = 320, H = 92, PL = 34, PR = 12, PT = 12, PB = 16;
-  var n = points.length;
-  var present = points.map(function (p) { return p.v; }).filter(function (v) { return v != null; });
-  if (!present.length) return '<p class="mini-note">该范围内无实测值。</p>';
+  if (!points || !points.length) return '<p class="mini-note">该范围内无实测值。</p>';
+
+  /* **x 轴只覆盖真正有数据的区间。**
+     原来的写法把「近 12 个月」12 个槽位全画出来，而项目只跑了两个月：于是轴上
+     写着「2025 年 11 月 → 2026 年 10 月」，一条线缩在最右边两个点上——
+     轴在宣称跨越一年，图里只有两个月，读的人只会觉得「粒度不对」。
+     两头空槽没有信息量，裁掉；真实跨度的起止才该出现在轴上。 */
+  var i0 = 0, i1 = points.length - 1;
+  while (i0 <= i1 && points[i0].v == null) i0++;
+  while (i1 >= i0 && points[i1].v == null) i1--;
+  if (i1 < i0) return '<p class="mini-note">该范围内无实测值。</p>';
+  var pts = points.slice(i0, i1 + 1);
+
+  var n = pts.length;
+  var present = pts.map(function (p) { return p.v; }).filter(function (v) { return v != null; });
 
   var lo = Math.min.apply(null, present), hi = Math.max.apply(null, present);
   var refs = [];
@@ -86,7 +98,7 @@ export function sparkline(points, m, ix, o) {
 
   /* 折线 + 淡填充：长序列下比逐点柱子好读一个量级 */
   var d = "", started = false, first = null, last = null;
-  points.forEach(function (p, i) {
+  pts.forEach(function (p, i) {
     if (p.v == null) return;
     var seg = (started ? "L" : "M") + X(i).toFixed(1) + " " + Y(p.v).toFixed(1);
     d += seg;
@@ -99,7 +111,7 @@ export function sparkline(points, m, ix, o) {
   s += '<path d="' + d + '" fill="none" stroke="' + C.green + '" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>';
 
   /* 数据点：达成绿 / 未达成琥珀 / 无判定灰；进行中的单元画空心 */
-  points.forEach(function (p, i) {
+  pts.forEach(function (p, i) {
     if (p.v == null) return;
     var col = p.ok === null ? C.gray : p.ok ? "#10B981" : "#F59E0B";
     var r = n > 40 ? 1.8 : 2.8;
@@ -116,11 +128,18 @@ export function sparkline(points, m, ix, o) {
       '" y2="' + (H - PB) + '" stroke="#10B981" stroke-width="1" opacity=".28"/>';
   }
 
-  s += '<text class="axis-lab" x="' + PL + '" y="' + (H - 3) + '" text-anchor="start">' + esc(points[0].label) + "</text>";
+  s += '<text class="axis-lab" x="' + PL + '" y="' + (H - 3) + '" text-anchor="start">' + esc(pts[0].label) + "</text>";
   if (n > 1) {
-    s += '<text class="axis-lab" x="' + (W - PR) + '" y="' + (H - 3) + '" text-anchor="end">' + esc(points[n - 1].label) + "</text>";
+    s += '<text class="axis-lab" x="' + (W - PR) + '" y="' + (H - 3) + '" text-anchor="end">' + esc(pts[n - 1].label) + "</text>";
   }
-  return s + "</svg>";
+  s += "</svg>";
+  /* 两个点连起来是「一段」，不是「趋势」。低于三个单元就明说，
+     与「覆盖不足不给结论」同一条纪律——不拿一条斜线冒充走势。 */
+  if (n < 3) {
+    s += '<p class="mini-note">只有 ' + n + ' 个单元有数据，还看不出趋势' +
+      (o.finer ? '（' + esc(o.finer) + '）' : '') + "</p>";
+  }
+  return s;
 }
 
 /* 睡眠结构时间轴：segs [startMin, endMin, level]，0深 1浅 2REM 3清醒 */
