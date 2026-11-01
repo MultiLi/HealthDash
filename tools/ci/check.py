@@ -372,6 +372,27 @@ def check_fragments():
                    % "；".join(bad[:2])
 
 
+def check_query_equivalence():
+    """查询层口径等价（roadmap P4 硬门）：每格重算必须与 units 表逐字段一致。
+
+    它抓两类问题：① 有人给查询写了第二套聚合/判定（两个消费端会给出不同答案）；
+    ② 改了 compute_cell 却没重建（库还是旧数，主页与查询开始对不上）。
+    这两类都不会让 golden 变红——金标只钉 11 个历史日子。
+    """
+    script = os.path.join(ROOT, "tools", "query_equivalence.py")
+    if not os.path.isfile(script):
+        return "skip", "缺 tools/query_equivalence.py"
+    if not _db_tables(("units",)):
+        return "skip", "缺 data/db/health.db 或库为空（数据不入库，CI 里必然没有）"
+    rc, out = sh([sys.executable, script], timeout=180)
+    if rc == 0:
+        m = re.search(r"可比 (\d+) 格", out)
+        return "pass", "查询层与 units 同源（%s 格逐字段一致）" % (m.group(1) if m else "?")
+    lines = [ln.strip() for ln in out.splitlines() if ln.strip().startswith("✗")
+             or ln.strip().startswith("   ")]
+    return "fail", "查询层与 units 表不一致：\n    %s\n    修法：python3 tools/query_equivalence.py 看差异；多半是改了 compute_cell 没重建" % "；".join(lines[:3])[:300]
+
+
 CHECKS = [
     ("guard", check_guard),
     ("py:compile", check_py_compile),
@@ -381,6 +402,7 @@ CHECKS = [
     ("events:schema", check_events_schema),
     ("daily:view", check_daily_view),
     ("fragments:consistency", check_fragments),
+    ("query:equivalence", check_query_equivalence),
     ("smoke", check_smoke),
     ("golden", check_golden),
 ]

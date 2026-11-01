@@ -142,6 +142,50 @@ def unit_specs(first, last, today, rules):
     return out
 
 
+# ------------------------------------------------------------------ 任意窗口
+def ruler_for(n_days, rules=None):
+    """任意窗口**借哪把已标定的尺子**。
+
+    覆盖门禁（`coverage_min`）是按尺度标定出来的：日 1.0、周 0.57、月 0.5、
+    滚动 0.7。任意窗口没有标定过，现编一个门槛就等于「为了让结论过线而调门槛」。
+    所以这里只**借用**长度最接近的已标定尺度，并把它记进结果（`ruler`），
+    让「这个判定用的是哪把尺子」始终可回答——与 metricdefs 的 must_report_ruler 同一条纪律。
+    """
+    rules = rules or db.load_rules()
+    cov = (rules.get("units") or {}).get("coverage_min") or {}
+    n = int(n_days)
+    if n <= 1:
+        return "day"
+    if n <= 7:
+        return "week"
+    if n <= 31:
+        return "month"
+    if n <= 60:
+        return "roll28"
+    return "roll90" if "roll90" in cov else "roll28"
+
+
+def window_spec(start, end, ctx, rules=None, dates=None, key=None):
+    """任意时间窗 → 与 unit_specs 同形状的 spec（`scale="window"`）。
+
+    **只按有数据的日子算分母**：窗口覆盖到数据范围之外的部分不是「漏采」
+    （项目开始前、今天之后的日子都不该计入 expected）。这条与 week/month 的
+    截断规则一致——否则查「过去一年」会得到一个永远很低的覆盖率。
+    `dates` 可显式给出（条件筛选后的日子），此时 expected 就是筛选后的天数。
+    """
+    first, last = ctx["first"], min(ctx["last"], ctx["today"])
+    if dates is None:
+        d0 = max(datetime.date.fromisoformat(start), datetime.date.fromisoformat(first))
+        d1 = min(datetime.date.fromisoformat(end), datetime.date.fromisoformat(last))
+        dates = [] if d1 < d0 else [(d0 + datetime.timedelta(days=i)).isoformat()
+                                    for i in range((d1 - d0).days + 1)]
+    else:
+        dates = [d for d in dates if first <= d <= last]
+    return {"scale": "window", "key": key or ("%s~%s" % (start, end)),
+            "start": start, "end": end, "dates": dates,
+            "expected": len(dates), "ruler": ruler_for(len(dates), rules)}
+
+
 # ------------------------------------------------------------------ 取值
 def _read_obs(con, metrics):
     """从 L1 读逐日值。L2 只读 L1，绝不回 raw——口径变更时只需重跑这一层。
@@ -281,122 +325,146 @@ def _frag_units(con, reg):
     return rows
 
 
-# ------------------------------------------------------------------ 重算
-def rebuild(con, rules=None, metrics=None, quiet=True):
-    rules = rules or db.load_rules()
-    reg = db.load_metrics()
-    _frag_only = frag_metrics(reg)
-    metrics = {k: v for k, v in (metrics or {k: v for k, v in reg.items()
-                                             if v.get("agg")}).items()
-               if k not in _frag_only}
+# ------------------------------------------------------------------ 求值核心
+# 这一节是**全仓唯一的「窗口 → 单元格」实现**：`rebuild()`（批量物化六个尺度）与
+# `query.py`（任意窗口按需查询）都调这里的函数。抽出来的唯一理由就是 P4 的那条
+# 硬约束——查询不许有自己的一套数学。任何在这里之外重写聚合/达标/环比的地方，
+# 都会让两个消费端在同一个问题上给出不同答案（docs/query-interface.md §3）。
+def context(con, rules, metrics):
+    """一次性装载求值输入。同一份 ctx 喂给所有 spec，避免逐格读库。"""
     u = rules.get("units") or {}
-    cov_min = u.get("coverage_min") or {}
-    delta_min_n = u.get("delta_min_n", 2)
-    suppress = set(u.get("tier_suppress_change") or ["low", "none"])
-
     day_vals, bands, cov = _read_obs(con, metrics)
-    day_cov_min = u.get("day_coverage_min", 0.95)
-    daily_ok_rate = u.get("daily_ok_rate", 0.6)
-    # 每个指标引用了哪些参考量（阈值里的 ref:xxx）
-    ref_names = {m: sorted({r for expr in (md.get("thresholds") or {}).values()
-                            if isinstance(expr, str)
-                            for r in metricdefs.refs_in(expr)})
-                 for m, md in metrics.items()}
     if not day_vals:
-        if not quiet:
-            print("obs 表为空：先跑 index.py build")
-        return 0
-    first, last = min(day_vals), max(day_vals)
-    today = datetime.date.today().isoformat()
-    specs = unit_specs(first, last, today, rules)
+        return None
+    return {
+        "day_vals": day_vals, "bands": bands, "cov": cov,
+        "cov_min": u.get("coverage_min") or {},
+        "delta_min_n": u.get("delta_min_n", 2),
+        "suppress": set(u.get("tier_suppress_change") or ["low", "none"]),
+        "day_cov_min": u.get("day_coverage_min", 0.95),
+        "daily_ok_rate": u.get("daily_ok_rate", 0.6),
+        "ref_names": {m: sorted({r for expr in (md.get("thresholds") or {}).values()
+                                 if isinstance(expr, str)
+                                 for r in metricdefs.refs_in(expr)})
+                      for m, md in metrics.items()},
+        "first": min(day_vals), "last": max(day_vals),
+        "today": datetime.date.today().isoformat(),
+    }
 
-    # ---- 第一遍：算出每个单元每个指标的值 ----
-    cells, rows = {}, []
-    for sp in specs:
-        sc, key = sp["scale"], sp["key"]
-        for m, mdef in metrics.items():
-            vals, last_d = [], None
-            for d in sp["dates"]:
-                v = day_vals.get(d, {}).get(m)
-                if v is None:
+
+def compute_cell(spec, metric, mdef, ctx, rules):
+    """一个 (窗口, 指标) → 单元格。**不含环比**（环比要看相邻单元格，见 apply_delta）。
+
+    spec 里的 `ruler` 是「借哪把已标定的尺子」：日/周/月/滚动窗各用自己那把；
+    任意窗口没有标定过门槛，借用长度最接近的尺度并把 ruler 写进结果，保证
+    「这个判定用的是哪把尺子」可回答。
+    """
+    day_vals, cov, bands = ctx["day_vals"], ctx["cov"], ctx["bands"]
+    sc = spec["scale"]
+    ruler = spec.get("ruler") or sc
+    vals = []
+    for d in spec["dates"]:
+        v = day_vals.get(d, {}).get(metric)
+        if v is None:
+            continue
+        # 截断日不进**聚合**：coverage 0.11 的那天算「一天」会把周均整体拉偏
+        # （2026-10-25 02:48 截止、1656 步，计入会把本周步数从 6,400 压到 5,729）。
+        # 日尺度例外——值要留着给「今天走到现在多少步」用，由 coverage 判 na。
+        c = cov.get((metric, d))
+        if sc != "day" and c is not None and c < ctx["day_cov_min"]:
+            continue
+        vals.append(v)
+    if not vals:
+        return None
+    value = _agg(vals, mdef.get("agg"))
+    n = len(vals)
+    if sc == "day":
+        # 日尺度的 coverage ＝ 这一天被观测了多大比例（不是 n/1=1.0）。
+        # 否则截断日会拿到 1.0 覆盖率并照常判达标——那是把半天的账当整天。
+        cs = [cov.get((metric, d)) for d in spec["dates"]]
+        cs = [c for c in cs if c is not None]
+        coverage = round(min(cs), 3) if cs else None
+    else:
+        coverage = round(n / spec["expected"], 3) if spec["expected"] else None
+    band = None
+    if metric == "hrv_ms":
+        for d in reversed(spec["dates"]):
+            b = bands.get(d) or {}
+            if b.get("hrv_band_low") is not None and b.get("hrv_band_high") is not None:
+                band = (b["hrv_band_low"], b["hrv_band_high"])
+                break
+    judge, judge_rate = None, None
+    if mdef.get("dir"):
+        if coverage is None or coverage < (ctx["cov_min"].get(ruler, 0) or 0):
+            judge = "na"
+        elif mdef.get("judge_mode") == "daily":
+            # 阈值逐日变（如「设备当晚算的需求」）→ 逐日判再求达标率。
+            # 用「日均时长 ÷ 日均需求」会失真：两个均值相除不等于逐日达标率。
+            ok_n = tot = 0
+            for d in spec["dates"]:
+                vd = day_vals.get(d, {})
+                val_d = vd.get(metric)
+                if val_d is None:
                     continue
-                # 截断日不进**聚合**：coverage 0.11 的那天算「一天」会把周均整体拉偏
-                # （2026-10-25 02:48 截止、1656 步，计入会把本周步数从 6,400 压到 5,729）。
-                # 日尺度例外——值要留着给「今天走到现在多少步」用，由 coverage 判 na。
-                c = cov.get((m, d))
-                if sp["scale"] != "day" and c is not None and c < day_cov_min:
+                c_d = cov.get((metric, d))
+                if c_d is not None and c_d < ctx["day_cov_min"] and sc != "day":
                     continue
-                vals.append(v)
-                last_d = d
-            if not vals:
-                continue
-            value = _agg(vals, mdef.get("agg"))
-            n = len(vals)
-            if sc == "day":
-                # 日尺度的 coverage ＝ 这一天被观测了多大比例（不是 n/1=1.0）。
-                # 否则截断日会拿到 1.0 覆盖率并照常判达标——那是把半天的账当整天。
-                cs = [cov.get((m, d)) for d in sp["dates"]]
-                cs = [c for c in cs if c is not None]
-                coverage = round(min(cs), 3) if cs else None
+                refs = {k: vd.get(k) for k in ctx["ref_names"].get(metric, [])}
+                try:
+                    th = metricdefs.judge_of(metric, rules, refs)
+                except Exception:
+                    th = metricdefs.judge_of(metric, rules)
+                if th is None:
+                    continue
+                tot += 1
+                ok_n += 1 if (val_d >= th if mdef["dir"] == "above"
+                              else val_d <= th) else 0
+            if tot:
+                judge_rate = round(ok_n / tot, 3)
+                judge = "ok" if judge_rate >= ctx["daily_ok_rate"] else "no"
             else:
-                coverage = round(n / sp["expected"], 3) if sp["expected"] else None
-            band = None
-            if m == "hrv_ms":
-                for d in reversed(sp["dates"]):
-                    b = bands.get(d) or {}
-                    if b.get("hrv_band_low") is not None and b.get("hrv_band_high") is not None:
-                        band = (b["hrv_band_low"], b["hrv_band_high"])
-                        break
-            judge, judge_rate = None, None
-            if mdef.get("dir"):
-                if coverage is None or coverage < cov_min.get(sc, 0):
-                    judge = "na"
-                elif mdef.get("judge_mode") == "daily":
-                    # 阈值逐日变（如「设备当晚算的需求」）→ 逐日判再求达标率。
-                    # 用「日均时长 ÷ 日均需求」会失真：两个均值相除不等于逐日达标率。
-                    ok_n = tot = 0
-                    for d in sp["dates"]:
-                        vd = day_vals.get(d, {})
-                        val_d = vd.get(m)
-                        if val_d is None:
-                            continue
-                        c_d = cov.get((m, d))
-                        if c_d is not None and c_d < day_cov_min and sc != "day":
-                            continue
-                        refs = {k: vd.get(k) for k in ref_names.get(m, [])}
-                        try:
-                            th = metricdefs.judge_of(m, rules, refs)
-                        except Exception:
-                            th = metricdefs.judge_of(m, rules)
-                        if th is None:
-                            continue
-                        tot += 1
-                        ok_n += 1 if (val_d >= th if mdef["dir"] == "above"
-                                      else val_d <= th) else 0
-                    if tot:
-                        judge_rate = round(ok_n / tot, 3)
-                        judge = "ok" if judge_rate >= daily_ok_rate else "no"
-                        judge_note = "%d/%d 天达标（≥%.0f%% 记 ok）" % (
-                            ok_n, tot, daily_ok_rate * 100)
-                    else:
-                        judge = "na"
-                else:
-                    judge = _judge(m, value, mdef, rules, band)
-            row = {"scale": sc, "key": key, "metric": m, "value": value,
-                   "agg": mdef.get("agg"), "n": n, "coverage": coverage,
-                   "judge": judge, "judge_rate": judge_rate,
-                   "start": sp["start"], "end": sp["end"],
-                   "expected": sp["expected"]}
-            cells[(sc, key, m)] = row
-            rows.append(row)
+                judge = "na"
+        else:
+            judge = _judge(metric, value, mdef, rules, band)
+    return {"scale": sc, "key": spec["key"], "metric": metric, "value": value,
+            "agg": mdef.get("agg"), "n": n, "coverage": coverage,
+            "judge": judge, "judge_rate": judge_rate,
+            "start": spec["start"], "end": spec["end"],
+            "expected": spec["expected"], "ruler": spec.get("ruler")}
 
-    # ---- 第二遍：环比 / 位移差 ----
+
+def compute_cells(spec, metrics, ctx, rules):
+    """一个窗口 × 全部指标 → 单元格列表（跳过没有数据的指标）。"""
+    out = []
+    for m, mdef in metrics.items():
+        cell = compute_cell(spec, m, mdef, ctx, rules)
+        if cell is not None:
+            out.append(cell)
+    return out
+
+
+def apply_delta(rows, cells, ctx, rules, key_of_prev=None):
+    """环比 / 位移差。**变化判定只在这里**，消费方只读 delta_verdict。
+
+    `key_of_prev(scale, key)` 允许查询层把「上一个单元」定义成别的（窗口 → 前移一个窗长），
+    而日/周/月/滚动仍走 `prev_key`。五档语义不变。
+    """
+    def _default_prev(sc, key):
+        if sc == "window":
+            # 任意窗口没有「上一个单元」的天然定义（前移一个窗长由调用方决定），
+            # 猜一个就会让两个不同的窗口被当成可比。宁可报错。
+            raise ValueError("window 尺度的上一窗必须由调用方传入 key_of_prev")
+        return prev_key(sc, key, k=int(sc[4:]) if sc.startswith("roll") else None)
+
+    key_of_prev = key_of_prev or _default_prev
+    cov_min, delta_min_n, suppress = ctx["cov_min"], ctx["delta_min_n"], ctx["suppress"]
     for row in rows:
         sc, key, m = row["scale"], row["key"], row["metric"]
+        ruler = row.get("ruler") or sc
         conf = db.metric_conf(rules, m)
         mdc = conf.get("mdc_change")
         tier = (conf.get("tier") or {}).get("change")
-        pkey = prev_key(sc, key, k=int(sc[4:]) if sc.startswith("roll") else None)
+        pkey = key_of_prev(sc, key)
         prev = cells.get((sc, pkey, m))
         row["delta_vs"] = pkey
         row["delta_mdc"] = mdc
@@ -408,7 +476,7 @@ def rebuild(con, rules=None, metrics=None, quiet=True):
         # 覆盖不足时**不给变化结论**（2026-10-25）。理由：近 28/90 天窗只有 50% 覆盖时，
         # 两个窗的均值差把「缺数据」算成了「变了」——这正是趋势分析最容易被污染的形态。
         # 优先级最高：它比样本量、比门槛都更根本（数字本身不可比）。
-        cmin = float(cov_min.get(sc, 0) or 0)
+        cmin = float(cov_min.get(ruler, 0) or 0)
         cs = [x for x in (row.get("coverage"), prev.get("coverage")) if x is not None]
         if cmin and cs and min(cs) < cmin:
             row["delta_verdict"] = "insufficient"
@@ -426,10 +494,37 @@ def rebuild(con, rules=None, metrics=None, quiet=True):
             row["delta_note"] = "tier.change=%s：不做环比判定，看多月斜率" % tier
         elif abs(dv) > float(mdc):
             row["delta_verdict"] = "changed"
-            row["delta_note"] = "|Δ|=%.2f > mdc %.2f" % (abs(dv), float(mdc))
+            row["delta_note"] = "|Δ|=%.2f > mdc %.2f" % (abs(dv), mdc)
         else:
             row["delta_verdict"] = "within-noise"
-            row["delta_note"] = "|Δ|=%.2f ≤ mdc %.2f" % (abs(dv), float(mdc))
+            row["delta_note"] = "|Δ|=%.2f ≤ mdc %.2f" % (abs(dv), mdc)
+    return rows
+
+
+# ------------------------------------------------------------------ 重算
+def rebuild(con, rules=None, metrics=None, quiet=True):
+    rules = rules or db.load_rules()
+    reg = db.load_metrics()
+    _frag_only = frag_metrics(reg)
+    metrics = {k: v for k, v in (metrics or {k: v for k, v in reg.items()
+                                             if v.get("agg")}).items()
+               if k not in _frag_only}
+    ctx = context(con, rules, metrics)
+    if ctx is None:
+        if not quiet:
+            print("obs 表为空：先跑 index.py build")
+        return 0
+    specs = unit_specs(ctx["first"], ctx["last"], ctx["today"], rules)
+
+    # ---- 第一遍：算出每个单元每个指标的值 ----
+    cells, rows = {}, []
+    for sp in specs:
+        for row in compute_cells(sp, metrics, ctx, rules):
+            cells[(row["scale"], row["key"], row["metric"])] = row
+            rows.append(row)
+
+    # ---- 第二遍：环比 / 位移差 ----
+    apply_delta(rows, cells, ctx, rules)
 
     con.executemany("DELETE FROM units WHERE scale=? AND key=?",
                     [(sp["scale"], sp["key"]) for sp in specs])
