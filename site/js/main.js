@@ -3,13 +3,13 @@
  * 观测状态只有两个自由度：**anchor（锚定日期）+ scale（尺度）**。
  * 没有「概览页」「某日页」之分——那两者是同一个视图在月尺度与日尺度下的样子。
  * 首屏只拉索引；单日细分在展开时才拉当月分片（取数链路见 data.js）。 */
-import { store } from "./store.js?v=a75f6573";
-import { esc, $ } from "./utils.js?v=a75f6573";
-import { renderPage, setupDetailToggle, renderBriefLog } from "./metricgrid.js?v=a75f6573";
-import { shiftMonth, monthKey, fmtMD } from "./dateutil.js?v=a75f6573";
-import { loadIndex } from "./data.js?v=a75f6573";
-import { renderInBody, setInBody } from "./inbody.js?v=a75f6573";
-import { initView } from "./view.js?v=a75f6573";
+import { store } from "./store.js?v=e9e11956";
+import { esc, $ } from "./utils.js?v=e9e11956";
+import { renderPage, setupDetailToggle, renderBriefLog } from "./metricgrid.js?v=e9e11956";
+import { shiftMonth, monthKey, fmtMD } from "./dateutil.js?v=e9e11956";
+import { loadIndex } from "./data.js?v=e9e11956";
+import { renderInBody, setInBody } from "./inbody.js?v=e9e11956";
+import { initView } from "./view.js?v=e9e11956";
 
 function setScale(scale) {
   store.scale = scale;
@@ -71,19 +71,32 @@ export function syncText(ix, dataFrom) {
   /* 「N 个数据日」这个措辞是错的：跨度 60 天，其中 22 天一个实测值都没有，
      却照样被算进「数据日」。改说「多少天真的有数」——分母是跨度，分子是实测。
      这是全站最显眼的一句话，它要是虚的，下面所有图表都跟着虚。 */
-  var measured = sum.ok;
-  var total = sum.n || span.n;
-  var bad = (sum.failed || 0) + (sum.missing || 0);
-  var text;
-  if (measured == null) {
-    text = "Garmin 已同步 · " + span.n + " 天跨度";
+  /* 主句只谈**一个有名字的近窗**（默认近 14 天）。
+     以前分母是整个跨度（「38/61 天有实测」）——61 天既不是本周也不是本月，
+     读到的人第一反应是「这 61 天从哪天算起？」，一句话问倒了整条状态。 */
+  var rec = col.recent;
+  var bad, text, title;
+  if (rec && rec.days) {
+    bad = (rec.failed || 0) + (rec.missing || 0);
+    text = "Garmin 已同步 · 近 " + rec.days + " 天实测 " + rec.ok + " 天";
+    if (bad) text += " · " + bad + " 天未采到";
+    title = "近 " + rec.days + " 天：" + rec.from + " ~ " + rec.to;
   } else {
-    text = "Garmin 已同步 · " + measured + "/" + total + " 天有实测";
+    bad = (sum.failed || 0) + (sum.missing || 0);
+    text = "Garmin 已同步 · " + (sum.ok == null ? span.n + " 天跨度" : sum.ok + " 天有实测");
+    if (bad) text += " · " + bad + " 天未采到";
+    title = "";
   }
-  if (bad) text += " · " + bad + " 天未采到";
+  /* 全长统计退到悬停：想看「一共多少天、断在哪」的人自然会指上去，
+     不需要在胶囊里挤进一句话。 */
+  if (sum.n && span.first && span.last) {
+    title += (title ? "；" : "") + "全部 " + span.first + " ~ " + span.last +
+      "（" + span.n + " 天）· 实测 " + (sum.ok || 0) +
+      " · 未采到 " + ((sum.failed || 0) + (sum.missing || 0));
+  }
   text += (ix.synced_at ? " · 更新于 " + ix.synced_at : "") + via;
   /* 管线问题用琥珀，不用红：它不是「身体出事了」，是「数据没到手」 */
-  return { text: text, warn: bad > 0, stale: dataFrom === "bundled" };
+  return { text: text, title: title, warn: bad > 0, stale: dataFrom === "bundled" };
 }
 
 function renderSync() {
@@ -96,7 +109,8 @@ function renderSync() {
   pill.classList.toggle("stale", r.stale);
   pill.classList.toggle("warn", r.warn);
   $("sync-text").textContent = r.text;
-  pill.title = "";
+  /* 悬停看全长：主句只回答「最近还好吗」，细节不占版面 */
+  pill.title = r.title || "";
   renderCollectBar(store.ix.collect || {}, (store.ix.collect || {}).summary || {});
 }
 

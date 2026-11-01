@@ -497,9 +497,12 @@ if (csSum.missing > 0) {
   ok(/title="[^"]*无原始数据/.test(calHtml), "缺失格的 title 写明「采集未运行」");
 }
 
-/* 胶囊：不能说「N 个数据日」——那是把空壳算成有数据 */
+/* 胶囊：不能说「N 个数据日」——那是把空壳算成有数据。
+   2026-11-01 起口径又收紧一层：分母必须是**有名字的近窗**（近 14 天），
+   不再是整个跨度——「38/61」既不是本周也不是本月，读到的人第一句就是「从哪天算起」。 */
 const pill = syncText(ix, "endpoint");
-ok(/\d+\/\d+ 天有实测/.test(pill.text), "胶囊按「有实测天数/跨度」报数", pill.text);
+ok(/近 \d+ 天实测 \d+ 天|\d+\/\d+ 天有实测/.test(pill.text),
+  "胶囊按「有名字的近窗 + 实测天数」报数", pill.text);
 ok(!/个数据日/.test(pill.text), "胶囊不再用「N 个数据日」这种含混口径");
 ok(pill.warn === ((csSum.failed || 0) + (csSum.missing || 0) > 0),
   "有未采到的日子时胶囊转警示态", "warn=" + pill.warn);
@@ -588,6 +591,61 @@ ok(!document.getElementById("day-matrix").hidden, "矩阵可见");
 ok(count(matHtml, /dm-c /g) > 40, "矩阵画出逐日格子", count(matHtml, /dm-c /g) + " 格");
 ok(/dm-c na/.test(matHtml), "无判定格与未达标格分开画（na 不等于 no）");
 ok(/dm-s/.test(matHtml), "每行给达标比");
+
+console.log("\n== 月尺度：序列撑不起粒度时降级 ==");
+const monthKeys = Object.keys((ix.units || {}).month || {});
+/* 锚到**倒数第二个月**：那时该指标只有 2 个月有值（<3），正是要降级的场景。 */
+store.scale = "month";
+store.anchor = monthKeys.length >= 2 ? monthKeys[monthKeys.length - 2] + "-28" : ix.default_day;
+renderPage();
+const monthGrid = html("metric-grid");
+if (monthKeys.length >= 2) {
+  ok(/月尺度只有 \d+ 个单元有数据，这里显示本月逐日/.test(monthGrid),
+    "月尺度只有两个月数据时，自动降级为「本月逐日」并说明", monthKeys.length + " 个月单元");
+} else {
+  ok(/这里显示本月逐日|只有 \d+ 个单元有数据/.test(monthGrid),
+    "月尺度单元不足时降级或明说看不出趋势", monthKeys.length + " 个月单元");
+}
+
+console.log("\n== 趋势图：x 轴只覆盖有数据的区间 ==");
+const { sparkline } = await import(mod("js/charts.js"));
+const fakeM = { key: "sleep_h", label: "睡眠", dir: "above", goal: () => 7,
+                band: () => ({ low: 0, high: 1 }), fmt: (v) => String(v) };
+/* 12 个槽位、只有最后 2 个有值 —— 正是「月尺度下项目才跑了两个月」的样子。
+   期望：轴上不再出现 2025 年，起点是第一个有值的单元。 */
+const slots = [];
+for (let i = 0; i < 12; i++) {
+  const mon = 11 + i;               // 2025-11 起步
+  const y = 2025 + Math.floor(mon / 12), m2 = (mon % 12) + 1;
+  slots.push({ label: y + " 年 " + m2 + " 月", v: i >= 10 ? 6.2 + i * 0.3 : null,
+               ok: i >= 10, partial: false });
+}
+const sp = sparkline(slots, fakeM, {}, { finer: "切到「日」看逐天" });
+ok(!/2025 年/.test(sp), "轴上不再出现空槽年份（2025 年）",
+  (sp.match(/[0-9]{4} 年 [0-9]+ 月/g) || []).join(" → "));
+ok(/2026 年 10 月/.test(sp) && /2026 年 11 月/.test(sp),
+  "起止取真实有值的单元", (sp.match(/[0-9]{4} 年 [0-9]+ 月/g) || []).join(" → "));
+ok(/只有 2 个单元有数据/.test(sp) && /看不出趋势/.test(sp),
+  "两个点明说「看不出趋势」，不拿一条斜线冒充走势");
+ok(/切到「日」/.test(sp), "并告诉用户换哪个尺度看得见");
+
+console.log("\n== 顶部胶囊：分母是有名字的近窗 ==");
+const ixRec = Object.assign({}, ix, {
+  span: { first: "2026-09-02", last: "2026-11-01", n: 61 },
+  collect: { summary: { n: 61, ok: 38, failed: 5, missing: 18 },
+             recent: { days: 14, from: "2026-10-19", to: "2026-11-01",
+                       ok: 12, failed: 1, missing: 1 } },
+  synced_at: "02:08"
+});
+const t1 = syncText(ixRec, "endpoint");
+ok(/近 14 天实测 12 天/.test(t1.text), "主句用「近 14 天」而不是 61 天跨度", t1.text);
+ok(!/61/.test(t1.text), "胶囊正文不再出现总跨度数字");
+ok(/2026-10-19 ~ 2026-11-01/.test(t1.title || ""), "悬停给出近窗起止", t1.title);
+ok(/2026-09-02 ~ 2026-11-01（61 天）/.test(t1.title || ""), "悬停里才有全长统计");
+const t2 = syncText(Object.assign({}, ix, { collect: { summary: { n: 3, ok: 3 } } }),
+                    "endpoint");
+ok(/天有实测/.test(t2.text) && !/近 14 天/.test(t2.text),
+  "没有 recent 时退回旧口径（兼容旧索引）", t2.text);
 
 console.log("\n== 查询视图（?view=）==");
 const { renderView, viewId, initView } = await import(mod("js/view.js"));

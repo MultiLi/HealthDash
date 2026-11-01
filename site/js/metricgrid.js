@@ -8,17 +8,17 @@
  *   ② 当前单元总览（综合指数 + Garmin 准备度 并排 + 四项达标计数）
  *   ③ 指标网格（8 张同构卡：主值 + 环比 + 单元序列 + 达标统计；日尺度下可展开当日细分）
  */
-import { store } from "./store.js?v=a75f6573";
-import { metrics, CHECKS, bandOf, BAND, READY, readyOf } from "./constants.js?v=a75f6573";
-import { esc, $ } from "./utils.js?v=a75f6573";
+import { store } from "./store.js?v=e9e11956";
+import { metrics, CHECKS, bandOf, BAND, READY, readyOf } from "./constants.js?v=e9e11956";
+import { esc, $ } from "./utils.js?v=e9e11956";
 import { metricValue, seriesPoints, judgeValue, unitRowsAll, rowsWith,
-         unitCell, cellJudge, okCount, VERDICT_TEXT } from "./aggregate.js?v=a75f6573";
-import { unitOf, prevUnitOf, unitSeries, scaleDef } from "./scope.js?v=a75f6573";
-import { renderMonth, renderHeatstrip } from "./calendar.js?v=a75f6573";
-import { sparkline } from "./charts.js?v=a75f6573";
-import { DETAILS, readinessTrail, briefHtml } from "./detail.js?v=a75f6573";
-import { ensureShard, dayOf, hasShard } from "./data.js?v=a75f6573";
-import { monthLabel, fmtMD, weekdayCN } from "./dateutil.js?v=a75f6573";
+         unitCell, cellJudge, okCount, VERDICT_TEXT } from "./aggregate.js?v=e9e11956";
+import { unitOf, prevUnitOf, unitSeries, scaleDef } from "./scope.js?v=e9e11956";
+import { renderMonth, renderHeatstrip } from "./calendar.js?v=e9e11956";
+import { sparkline } from "./charts.js?v=e9e11956";
+import { DETAILS, readinessTrail, briefHtml } from "./detail.js?v=e9e11956";
+import { ensureShard, dayOf, hasShard } from "./data.js?v=e9e11956";
+import { monthLabel, fmtMD, weekdayCN } from "./dateutil.js?v=e9e11956";
 
 function ix() { return store.ix; }
 
@@ -260,7 +260,30 @@ function cardHtml(m, unit, prevUnit) {
   var color = m.dir == null ? "var(--text)"
     : na ? "var(--text-3)" : ok ? "var(--green-deep)" : "var(--amber-deep)";
 
-  var pts = seriesPoints(unitSeries(store.anchor, store.scale, scaleDef(store.scale).seriesN), store.byDate, m, ix());
+  /* 序列粒度：默认跟全局尺度走（日→逐日、周→逐周、月→逐月）。
+     但**项目才跑了两个月时，「近 12 个月」里有 10 个空槽**——轴在宣称跨越一年，
+     线缩在最右边两点上，读起来就是「粒度不对」。数据撑不起这个粒度时，
+     降一级到「本月逐日」，并把降级说出来（不静默换口径）。 */
+  var serN = scaleDef(store.scale).seriesN;
+  var pts = seriesPoints(unitSeries(store.anchor, store.scale, serN), store.byDate, m, ix());
+  var have = pts.filter(function (p) { return p.v != null; }).length;
+  var finerNote = "";
+  if (have < 3 && (store.scale === "month" || store.scale === "week")) {
+    var dayPts = unit.dates.map(function (d) {
+      var r = store.byDate[d];
+      var v = r ? r[m.key] : null;
+      var jd = v == null ? null : judgeValue(v, m, ix());
+      return { label: fmtMD(d), v: v, ok: jd === "na" || jd == null ? null : jd,
+               partial: !!(r && r.morning) };
+    });
+    var dayHave = dayPts.filter(function (p) { return p.v != null; }).length;
+    if (dayHave >= 3) {
+      finerNote = '<p class="mini-note">' + (store.scale === "month" ? "月" : "周") +
+        "尺度只有 " + have + " 个单元有数据，这里显示" +
+        (store.scale === "month" ? "本月逐日" : "本周逐日") + "</p>";
+      pts = dayPts;
+    }
+  }
   var st = okStat(unit, m);
   var canDrill = store.scale === "day" && m.detail && DETAILS[m.detail];
 
@@ -290,7 +313,11 @@ function cardHtml(m, unit, prevUnit) {
     '<div class="mx-meta">' + esc(aggNoun(store.scale, m)) +
       deltaChip(cell, m.dir === "below" ? "down" : m.dir === "above" ? "up" : null,
         prevUnit.label) + "</div>" +
-    '<div class="mx-chart">' + sparkline(pts, m, ix(), {}) + "</div>" +
+    '<div class="mx-chart">' + sparkline(pts, m, ix(), {
+      /* 连逐日都凑不出三个点时才提示换尺度；正常情况下已经自动降级了 */
+      finer: store.scale === "month" ? "切到「日」或「周」看更细"
+        : store.scale === "week" ? "切到「日」看逐天" : ""
+    }) + finerNote + "</div>" +
     '<div class="mx-foot">' + stat +
       (canDrill ? '<button class="mx-more" type="button" data-detail="' + esc(m.detail) + '"><span>展开当日细分</span>' + caret() + "</button>" : "") +
     "</div>" +
