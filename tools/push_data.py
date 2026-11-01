@@ -178,7 +178,21 @@ def main():
 
     code, res = http("POST", base + "/api/push", token=token, payload={"files": files})
     if code != 200 or not res.get("ok"):
-        die("POST /api/push 返回 %s %s" % (code, res.get("error") or res))
+        # **线上还是旧服务端时，views/ 是它不认识的条目**——整包会被拒，连 index 都推不上去，
+        # 于是「加了一个新数据类型」直接变成「今天的数据没更新」。
+        # 这里降级为「只推它认识的部分」，并把降级说得足够响：
+        # 视图内容留在随包副本里，发布新版本后自然生效。
+        if any(k.startswith("views/") for k in files):
+            fallback = {k: v for k, v in files.items() if not k.startswith("views/")}
+            print("! 推送被拒（%s）。线上服务端可能还不认识 views/，"
+                  "本次只推 index 与分片；视图需重新发布后才会热更新。"
+                  % (res.get("error") or code), file=sys.stderr)
+            code, res = http("POST", base + "/api/push", token=token,
+                             payload={"files": fallback})
+            if code == 200 and res.get("ok"):
+                files = fallback
+        if code != 200 or not res.get("ok"):
+            die("POST /api/push 返回 %s %s" % (code, res.get("error") or res))
     print("\n已推送：%d 个文件 / %d 字节（快照回滚点 %s）"
           % (len(res.get("written") or {}), res.get("bytes") or 0, res.get("prev_snapshot")))
 
