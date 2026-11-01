@@ -86,6 +86,7 @@ docs/
   vision.md                ★ 愿景与数据模型总纲（流批关系、事件不可变）
   roadmap.md               现状到未来的推进排期（P0–P4 主线 + 工程债并行线）
   fragment-layer.md        片段层（小时/半区）：数据现实、白名单实测、只出值不算判
+  query-interface.md       查询层：任意窗口的查询定义、借尺子规则、等价性门
   operations.md            ★ 运维手册：每天/每周要做什么、怎么验证
   workflow.md              ★ 开发流程：分支模型、worktree 隔离、PR 门禁（改代码前先读）
   frontend.md              前端与主页参考
