@@ -204,6 +204,30 @@ def _provenance(con):
             "span": meta.get("span"), "events_hash": ev}
 
 
+def _trace(con, dates, metrics, limit=30):
+    """这次查询的**断言溯源**：窗口内与所查指标相关的断言 id。
+
+    agent 的回答必须能指回「哪条断言支持这个说法」（`verify_judgment` 的数值溯源
+    延伸到对话）。这里只给引用，不给新结论——判定仍然只在 L2/L3。
+    """
+    if not con or not dates:
+        return None
+    lo, hi = dates[0], dates[-1]
+    marks = ",".join("?" * len(metrics))
+    sql = ("SELECT date, id, verdict, level, subject FROM assertions "
+           "WHERE scale='day' AND date>=? AND date<=? AND subject IN (%s) "
+           "ORDER BY date DESC, id" % marks)
+    try:
+        rows = list(con.execute(sql, [lo, hi] + list(metrics)))
+    except Exception as e:                        # 库是派生层，读不到不该让查询失败
+        return {"error": str(e)[:120]}
+    return {"count": len(rows), "truncated": len(rows) > limit,
+            "items": [{"date": r["date"], "id": r["id"], "level": r["level"],
+                       "verdict": r["verdict"], "subject": r["subject"]}
+                      for r in rows[:limit]],
+            "note": "断言 id 可用于追问/回查；没列出的见 assertions 表"}
+
+
 def _specs_for(q, ctx, rules):
     """查询定义 → 目标 spec + （可选）上一窗 spec。尺度的日期数学全部复用 unit_specs。"""
     win = q["window"]
@@ -432,6 +456,7 @@ def run(qdef, con=None, rules=None, reg=None, ctx=None):
         "selection": selection,
         "min_n": ({"required": min_n} if selection is not None and min_n else None),
         "provenance": _provenance(con),
+        "trace": _trace(con, sp["dates"], q["metrics"]),
         "rows": rows,
         "empty": [m for m in q["metrics"] if m not in {r["metric"] for r in rows}],
     }
@@ -588,6 +613,8 @@ def main():
     ap.add_argument("--note", default="", help="视图备注（配合 --save）")
     ap.add_argument("--list-views", action="store_true")
     ap.add_argument("--rm-view", default="")
+    ap.add_argument("--explain", action="store_true",
+                    help="只打印规范化后的查询（不改任何东西），用于复述意图")
     a = ap.parse_args()
 
     if a.list_views:
@@ -645,6 +672,19 @@ def main():
     except QueryError as e:
         print("✗ %s" % e, file=sys.stderr)
         return 2
+    if a.explain:
+        q = res["query"]
+        w = q["window"]
+        span = ("最近 %d 天" % w["days"]) if "days" in w else (
+            "%s ~ %s" % (w["start"], w["end"]) if "start" in w else
+            "%s %s" % (w["scale"], w["key"]))
+        conds = "、".join(_cond_label(c) for c in q.get("conditions") or [])
+        print("理解：查 %s 的 %s%s" % (span, "、".join(q["metrics"]),
+                                     ("，只看 " + conds) if conds else ""))
+        print("窗口 %s ~ %s · 尺子 %s · 分母 %d"
+              % (res["window"]["first"], res["window"]["last"],
+                 res["ruler"], res["window"]["expected"]))
+        return 0
     if a.json:
         print(json.dumps(res, ensure_ascii=False, indent=1))
     else:

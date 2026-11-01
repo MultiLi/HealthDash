@@ -104,6 +104,69 @@ def scales_block(con, date):
     return out
 
 
+#: 报告预置查询：这些是「以前没法问」的问题（任意窗口 + 条件组合）。
+#: 一律走 query.run()——与主页、对话同一条路径，所以报告不再是独立管线。
+PRESET_QUERIES = (
+    ("recent14", {"days": 14}, "最近 14 天"),
+    ("late_bed", {"days": 60}, "晚睡日（入睡 ≥ 02:00）"),
+)
+
+
+def _query_row(r):
+    """报告只吃结论需要的字段：值 / 判定 / 覆盖 / 变化。"""
+    return {"metric": r["metric"], "v": r["value"], "judge": r["judge"],
+            "rate": r.get("judge_rate"), "cov": r["coverage"], "n": r["n"],
+            "delta": r["delta_v"], "verdict": r["delta_verdict"]}
+
+
+def queries_block(con, date, rules):
+    """由查询接口产出的预置查询（P4d）。**锚定目标日，不取全库最新**。"""
+    try:
+        import query as q_mod
+    except Exception as e:                        # 查询层不可用不阻断报告
+        return {"error": str(e)[:120]}
+    lex = json.load(open(LEXICON, encoding="utf-8"))
+    metrics = (lex.get("headline_metrics") or [])[:6]
+    if not metrics:
+        return {"error": "lexicon 没有 headline_metrics"}
+    out = {}
+    try:
+        # ① 最近 14 天（锚定目标日，回补历史日时窗口跟着目标日走）
+        res = q_mod.run({"window": {"start": (datetime.date.fromisoformat(date)
+                                             - datetime.timedelta(days=13)).isoformat(),
+                                    "end": date},
+                         "metrics": metrics}, con=con, rules=rules)
+        out["recent14"] = {"window": res["window"], "ruler": res["ruler"],
+                           "rows": [_query_row(r) for r in res["rows"]],
+                           "assertions": (res.get("trace") or {}).get("count")}
+    except Exception as e:
+        out["recent14"] = {"error": "%s: %s" % (type(e).__name__, e)}
+    try:
+        # ② 晚睡日 vs 非晚睡日：条件组合的正反两面（这是「看一类日子」的最小例子）
+        bank = {"window": {"start": (datetime.date.fromisoformat(date)
+                                     - datetime.timedelta(days=59)).isoformat(),
+                           "end": date},
+                "metrics": [m for m in ("rhr_bpm", "hrv_ms", "sleep_h") if m in metrics]}
+        cond = [{"kind": "metric", "metric": "sleep_bed_min", "op": ">=", "value": 120}]
+        pos = q_mod.run(dict(bank, conditions=cond), con=con, rules=rules)
+        neg = q_mod.run(dict(bank, conditions=[dict(cond[0], negate=True)]),
+                        con=con, rules=rules)
+        out["late_bed"] = {
+            "matched": pos["selection"]["matched"],
+            "undecidable": pos["selection"]["undecidable"],
+            "min_n": (pos.get("min_n") or {}).get("required"),
+            "positive": {r["metric"]: _query_row(r) for r in pos["rows"]},
+            "negative": {r["metric"]: _query_row(r) for r in neg["rows"]},
+        }
+    except Exception as e:
+        out["late_bed"] = {"error": "%s: %s" % (type(e).__name__, e)}
+    out["_note"] = ("由 query.py 产出：任意窗口 + 条件组合，与主页/对话同一条路径。"
+                    "v=值 judge=ok/no/na cov=覆盖 n=实测天数 verdict=五档。"
+                    "late_bed 的 positive/negative 是同一条件加 negate 的两面；"
+                    "judge=na 或 verdict=insufficient 时不引用该数字下结论。")
+    return out
+
+
 def build(date, days):
     rules = load_rules()
     bundle = get_adapter("garmin-cn").collect(date, days)
@@ -181,13 +244,14 @@ def build(date, days):
     # —— L3 断言快照（2026-10-25 接入）——
     # 判读的**判定来源**从这里读：哪条规则触发、证据是什么、过去 30 天是第几次。
     # 以前判读方直接读 computed 里的散数字自己推规则，那是「每晚重新执行一遍规则」的根源。
-    scales_snap = {}
+    scales_snap, queries_snap = {}, {}
     try:
         import db as _db
         import assertions as _asrt
         _con = _db.connect()
         assertions_snap = _asrt.snapshot(_con, date)
         scales_snap = scales_block(_con, date)
+        queries_snap = queries_block(_con, date, rules)
         _con.close()
     except Exception as e:                       # 物化层不可用不阻断事实包
         assertions_snap = {"date": date, "error": str(e),
@@ -204,6 +268,7 @@ def build(date, days):
         "thresholds_ref": os.path.join(_HERE, "..", "references", "rules.json"),
         "assertions": assertions_snap,
         "scales": scales_snap,
+        "queries": queries_snap,
         "trend": build_trend(all_days, rules),
         "target_day": day,
         "computed": {
@@ -254,6 +319,16 @@ def build(date, days):
                  len(assertions_snap["cross"]), len(assertions_snap["device"]),
                  len(assertions_snap["unit_scope"]),
                  "  ⚠ 物料过期，请先跑 index.py build" if assertions_snap.get("stale") else ""))
+    qs = (facts.get("queries") or {})
+    if qs.get("late_bed") and not qs["late_bed"].get("error"):
+        lb = qs["late_bed"]
+        pos = (lb.get("positive") or {}).get("rhr_bpm") or {}
+        neg = (lb.get("negative") or {}).get("rhr_bpm") or {}
+        print("queries: 晚睡日 %s 天（不可判定 %s）· RHR %s vs %s"
+              % (lb.get("matched"), lb.get("undecidable"),
+                 pos.get("v"), neg.get("v")))
+    elif qs.get("error"):
+        print("queries: ✗ %s" % qs["error"])
     if scales_snap.get("error"):
         print("scales: ✗ %s" % scales_snap["error"])
     else:
