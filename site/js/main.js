@@ -3,13 +3,14 @@
  * 观测状态只有两个自由度：**anchor（锚定日期）+ scale（尺度）**。
  * 没有「概览页」「某日页」之分——那两者是同一个视图在月尺度与日尺度下的样子。
  * 首屏只拉索引；单日细分在展开时才拉当月分片（取数链路见 data.js）。 */
-import { store } from "./store.js?v=4a0a4403";
-import { esc, $ } from "./utils.js?v=4a0a4403";
-import { renderPage, setupDetailToggle, renderBriefLog } from "./metricgrid.js?v=4a0a4403";
-import { shiftMonth, monthKey, fmtMD } from "./dateutil.js?v=4a0a4403";
-import { loadIndex } from "./data.js?v=4a0a4403";
-import { renderInBody, setInBody } from "./inbody.js?v=4a0a4403";
-import { initView } from "./view.js?v=4a0a4403";
+import { store } from "./store.js?v=4ed2490f";
+import { esc, $ } from "./utils.js?v=4ed2490f";
+import { renderPage, setupDetailToggle, renderBriefLog } from "./metricgrid.js?v=4ed2490f";
+import { shiftMonth, monthKey, fmtMD } from "./dateutil.js?v=4ed2490f";
+import { loadIndex } from "./data.js?v=4ed2490f";
+import { renderInBody, setInBody } from "./inbody.js?v=4ed2490f";
+import { initView } from "./view.js?v=4ed2490f";
+import { TREND_SPANS, TREND_GRAINS } from "./trend.js?v=4ed2490f";
 
 function setScale(scale) {
   store.scale = scale;
@@ -22,7 +23,29 @@ function selectDate(date) {
   renderPage();
 }
 
+/* 趋势线的两个参数（范围 × 粒度）：选项从 trend.js 的常量来，别在 html 里重复一份。 */
+function fillTrendCtl() {
+  var sp = $("trend-span"), gr = $("trend-grain");
+  if (!sp || !gr) return;
+  sp.innerHTML = TREND_SPANS.map(function (x) {
+    return '<option value="' + x.key + '"' + (x.key === store.trendSpan ? " selected" : "") +
+      ">" + x.label + "</option>";
+  }).join("");
+  gr.innerHTML = TREND_GRAINS.map(function (x) {
+    return '<option value="' + x.key + '"' + (x.key === store.trendGrain ? " selected" : "") +
+      ">" + x.label + "</option>";
+  }).join("");
+}
+
 function setupNav() {
+  /* 趋势参数：改了就重绘。它不碰 store.scale——两个自由度各走各的。 */
+  document.addEventListener("change", function (e) {
+    var t = e.target;
+    if (!t || !t.id) return;
+    if (t.id === "trend-span") { store.trendSpan = t.value; renderPage(); }
+    else if (t.id === "trend-grain") { store.trendGrain = t.value; renderPage(); }
+  });
+
   document.addEventListener("click", function (e) {
     if (!e.target.closest) return;
     var el = function (sel) { return e.target.closest(sel); };
@@ -236,6 +259,7 @@ function init(ixd) {
   store.scale = "month";
 
   setupNav();
+  fillTrendCtl();
   setupDetailToggle();
   setupNudge();
   /* 体成分是事件型数据，不随 anchor/scale 重绘——只在 boot 时渲染一次。

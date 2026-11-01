@@ -15,6 +15,11 @@ export var store = {
   pending: {},
   scale: "month",
   anchor: null,
+  /* 趋势线的两个独立参数（与 scale 无关）：
+     trendSpan 看多久、trendGrain 每个点多长。默认「近 1 月 × 逐日」——
+     既有形状又能看清日级波动；两个都能单独改。 */
+  trendSpan: "30d",
+  trendGrain: "day",
   month: null,      // 日历当前显示的月份，与 anchor 解耦（允许只翻月不选日）
   dataFrom: null,   // "endpoint" | "bundled"：本次取数走的是热更新端点还是随包静态副本
   lastEndpointError: null
