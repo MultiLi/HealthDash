@@ -47,9 +47,14 @@ SEVERITY = {BAD: 0, WARN: 1, GOOD: 2, INFO: 3}
 
 # ------------------------------------------------------------------ 读取
 def _day_values(con):
-    """date -> {metric: value}。断言只读 obs，不读 raw、不读 facts。"""
+    """date -> {metric: value}。断言只读 obs，不读 raw、不读 facts。
+
+    片段观测（`hour_*`）在这里被排除：断言是**日层及以上**的判断对象，
+    片段只出值。不过滤的话同一天会有 24 行同名字段，最后一行（23 点）静默胜出。
+    """
     out = {}
-    for r in con.execute("SELECT metric, substr(t,1,10) AS d, value FROM obs"):
+    for r in con.execute("SELECT metric, substr(t,1,10) AS d, value FROM obs "
+                         "WHERE metric NOT LIKE 'hour\\_%' ESCAPE '\\'"):
         out.setdefault(r["d"], {})[r["metric"]] = r["value"]
     return out
 

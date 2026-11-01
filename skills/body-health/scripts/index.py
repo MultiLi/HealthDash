@@ -32,13 +32,22 @@ import db                                                  # noqa: E402
 import units as units_mod                                  # noqa: E402
 import metricdefs                                          # noqa: E402
 import assertions as assert_mod                                # noqa: E402
+import fragments                                           # noqa: E402
+import eventbus                                            # noqa: E402
+from settings import EVENTS_LOG                            # noqa: E402
 from adapters import get_adapter                           # noqa: E402
 from daily_brief import compute_z2, detect_exercise        # noqa: E402
 
 RAW_DIR = os.path.join(_WORKSPACE, "data", "raw")
 INBODY_INDEX = os.path.join(_WORKSPACE, "data", "inbody", "index.json")
-DAILY_LOG = os.path.join(_WORKSPACE, "daily_log.jsonl")
 DEVICE = "garmin-venu4"
+
+#: 片段观测的 method。与日级的 garmin_usersummary / garmin_stress 等区分，
+#: 让「这条数是源给的日汇总还是我们切出来的小时」在库里有据可查。
+FRAG_METHOD = "garmin_hour"
+#: 睡眠分级（Garmin sleepLevels.activityLevel）→ 片段指标名
+SLEEP_STAGE_METRIC = {0: "hour_sleep_deep_min", 1: "hour_sleep_light_min",
+                      2: "hour_sleep_rem_min", 3: "hour_sleep_awake_min"}
 
 
 # ------------------------------------------------------------------ 小工具
@@ -231,37 +240,187 @@ def _day_grades(day):
     return out
 
 
+#: 主观事件 → obs 指标口径。field = events.payload.metric。
+#: 这里是 L1 读主观数据的**唯一入口**：真相是事件流，不是 daily_log 视图
+#: （视图是事件重推出来的派生物，见 daily_log_view.py）。
+SUBJECTIVE = {
+    "weight_kg":     {"method": "home_scale", "conditions": {"fasted": True,
+                                                             "same_scale": True}},
+    "sleep_quality": {"method": "self_report", "conditions": None},
+    "energy":        {"method": "self_report", "conditions": {"scale": "1-5"}},
+    "soreness":      {"method": "self_report", "conditions": {"scale": "1-5"}},
+    "bp_sys":        {"method": "cuff", "conditions": None},
+    "bp_dia":        {"method": "cuff", "conditions": None},
+}
+
+
 def _subjective_obs():
-    """daily_log：晨起空腹体重与睡眠自评。方法不同即不可比，故 method 单独记。"""
+    """主观事件 → 观测。method 不同即不可比，故 method 单独记。
+
+    **按事件归属日对齐 t**（`events.jsonl` 的 date 是归属日，ts 只是录入时刻）：
+    跨零点补记的事件归属前一天，若拿 ts 当 t，`substr(t,1,10)` 会把它算到录入那天。
+    体重只认 `part` 缺失或 `morning`——晚间体重的正式口径从来只有晨起一次。
+    """
     out = []
-    if not os.path.isfile(DAILY_LOG):
+    if not os.path.isfile(EVENTS_LOG):
         return out
-    with open(DAILY_LOG, encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                row = json.loads(line)
-            except Exception:
-                continue
-            d = row.get("date")
-            if not d:
-                continue
-            t = d + "T00:00:00"
-            w = row.get("weight_kg")
-            if w is None:
-                w = row.get("weight_extra_morning_kg")
-            if w is not None:
-                out.append(_obs("weight_kg", float(w), t, source="daily_log",
-                                method="home_scale", kind="point", coverage=1.0,
-                                conditions=json.dumps({"fasted": True, "same_scale": True}),
-                                raw_ref="daily_log.jsonl"))
-            if row.get("sleep_quality") is not None:
-                out.append(_obs("sleep_quality", float(row["sleep_quality"]), t,
-                                source="daily_log", method="self_report",
-                                kind="point", coverage=1.0, raw_ref="daily_log.jsonl"))
+    events = eventbus.read(EVENTS_LOG)
+    dead = eventbus.superseded_ids(events)
+    for e in events:
+        if e["_id"] in dead:
+            continue
+        p = e.get("payload") or {}
+        metric = p.get("metric")
+        if metric not in SUBJECTIVE or p.get("value") is None:
+            continue
+        if metric == "weight_kg" and p.get("part") not in (None, "morning"):
+            continue
+        try:
+            value = float(p["value"])
+        except (TypeError, ValueError):
+            continue
+        spec = SUBJECTIVE[metric]
+        conds = dict(spec["conditions"] or {})
+        conds["event_id"] = e["_id"]
+        if e.get("ts"):
+            conds["recorded_at"] = e["ts"]
+        out.append(_obs(metric, value, e["date"] + "T00:00:00", source="events",
+                        method=spec["method"], kind="point", coverage=1.0,
+                        conditions=json.dumps(conds, ensure_ascii=False),
+                        raw_ref="events.jsonl"))
     return out
+
+
+# ------------------------------------------------------------------ 片段（P2）
+def _bucket_points(points, interval_min):
+    """[(分钟序号, 值)] → {小时: ([值], 覆盖)]}。覆盖 = 实测点数 × 采样间隔 / 60。"""
+    buckets = {}
+    for m, v in points or []:
+        buckets.setdefault(int(m) // 60, []).append(v)
+    out = {}
+    for h, vals in buckets.items():
+        out[h] = (vals, min(1.0, len(vals) * float(interval_min) / 60.0))
+    return out
+
+
+def _split_by_hour(segments):
+    """睡眠分级段 → {(本地小时起点 datetime): {stage: 分钟}} 与覆盖分钟。
+
+    **按绝对本地时间切**，不按钟面猜：睡眠 23:00–07:00 跨零点，只有分钟序号
+    无法判断落在一年的哪一天。段长通常 10–15 分钟，短段只落在单个小时里；
+    长段（设备偶尔给整段）按小时边界劈开，保证逐小时合计等于原段时长。
+    """
+    alloc, covered = {}, {}
+    for seg in segments or []:
+        try:
+            s = datetime.datetime.strptime(seg[0], "%Y-%m-%dT%H:%M:%S")
+            e = datetime.datetime.strptime(seg[1], "%Y-%m-%dT%H:%M:%S")
+        except (ValueError, IndexError, TypeError):
+            continue
+        stage = int(seg[2])
+        while s < e:
+            hour = s.replace(minute=0, second=0)
+            stop = min(e, hour + datetime.timedelta(hours=1))
+            mins = (stop - s).total_seconds() / 60.0
+            alloc.setdefault(hour, {})
+            alloc[hour][stage] = alloc[hour].get(stage, 0.0) + mins
+            covered[hour] = covered.get(hour, 0.0) + mins
+            s = stop
+    return alloc, covered
+
+
+def _hour_obs(day):
+    """一个 canonical 日 → 片段观测（小时粒度，method=garmin_hour）。
+
+    **只做归组与覆盖率，不做判定**：片段层没有任何 judge/档位概念
+    （`docs/p2-fragment-layer.md` 不变式 2）。日值仍由日汇总那一行裁决，
+    本函数产出的一切都不回写日值。
+    """
+    d = day["date"]
+    sub = day.get("subday") or {}
+    common = dict(source="garmin", device=DEVICE, raw_ref=_raw_ref(d))
+    out = []
+
+    def add(metric, start, value, coverage, conditions=None):
+        t = start.strftime("%Y-%m-%dT%H:%M:%S")
+        t_end = (start + datetime.timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S")
+        out.append(_obs(metric, value, t, method=FRAG_METHOD, kind="interval",
+                        t_end=t_end, coverage=round(coverage, 3),
+                        conditions=json.dumps(conditions, ensure_ascii=False)
+                        if conditions else None, **common))
+
+    def hstart(hour):
+        return datetime.datetime.strptime(d, "%Y-%m-%d") + datetime.timedelta(hours=hour)
+
+    # —— 心率（2 分钟采样）：均 / 最低 / 最高 ——
+    hr = _bucket_points((sub.get("hr") or {}).get("points"),
+                        (sub.get("hr") or {}).get("interval_min") or 2)
+    for h, (vals, cov) in sorted(hr.items()):
+        add("hour_hr_bpm", hstart(h), round(sum(vals) / len(vals), 1), cov)
+        add("hour_hr_min", hstart(h), min(vals), cov)
+        add("hour_hr_max", hstart(h), max(vals), cov)
+
+    # —— 压力 / 身体电量（3 分钟采样）——
+    for key, metric in (("stress", "hour_stress"), ("bb", "hour_bb")):
+        ser = sub.get(key) or {}
+        for h, (vals, cov) in sorted(_bucket_points(
+                ser.get("points"), ser.get("interval_min") or 3).items()):
+            add(metric, hstart(h), round(sum(vals) / len(vals), 1), cov)
+
+    # —— 15 分钟活动桶：步数（可切）与久坐分钟（只作相对分布）——
+    act = sub.get("activity") or {}
+    per_hour = {}
+    for m, steps, level in act.get("buckets") or []:
+        h = int(m) // 60
+        cell = per_hour.setdefault(h, {"steps": 0, "sed": 0, "n": 0})
+        cell["steps"] += steps or 0
+        cell["n"] += 1
+        if level == "sedentary":
+            cell["sed"] += 15
+    for h, cell in sorted(per_hour.items()):
+        cov = min(1.0, cell["n"] * float(act.get("interval_min") or 15) / 60.0)
+        add("hour_steps", hstart(h), cell["steps"], cov)
+        add("hour_sedentary_min", hstart(h), cell["sed"], cov)
+
+    # —— 睡眠分级（按起床日归属，conditions 里写明是哪一夜）——
+    alloc, covered = _split_by_hour((sub.get("sleep") or {}).get("segments"))
+    for hour, stages in sorted(alloc.items()):
+        cov = min(1.0, covered.get(hour, 0.0) / 60.0)
+        for stage, metric in SLEEP_STAGE_METRIC.items():
+            add(metric, hour, round(stages.get(stage, 0.0), 1), cov,
+                conditions={"night": d})
+    return out
+
+
+def _annotate_fragments(day_obs, hour_obs):
+    """2c：白名单指标标记「日值可由片段聚合得出」，**绝不用片段改日值**。
+
+    只有实测恒等的指标进白名单（`references/fragments.json` 的 whitelist）。
+    恒等才标 `derived_from`；不等就什么都不做——一致性报告会把差值摆出来，
+    而不是让构建悄悄按片段覆盖日汇总。
+    """
+    sums = {}
+    for o in hour_obs:
+        sums.setdefault(o["metric"], []).append(o["value"])
+    by_metric = {o["metric"]: o for o in day_obs}
+    for pair in fragments.whitelist():
+        target = by_metric.get(pair.get("day"))
+        if target is None:
+            continue
+        vals = []
+        for m in fragments.fragments_of(pair):
+            vals.extend(sums.get(m) or [])
+        got = fragments.aggregate(vals, pair.get("agg"))
+        if got is None:
+            continue
+        div = float(pair.get("divisor") or 1)
+        got = round(got / div, 3)
+        tol = abs(float(pair.get("tolerance") or 0))
+        if abs(got - float(target["value"])) <= tol + 1e-9:
+            target["derived_from"] = json.dumps(
+                {"fragments": fragments.fragments_of(pair), "agg": pair.get("agg"),
+                 "method": FRAG_METHOD}, ensure_ascii=False)
+    return day_obs
 
 
 def _inbody_obs():
@@ -329,9 +488,13 @@ def build(since=None, quiet=False):
     bundle = get_adapter("garmin-cn").collect(last, span)
     days = bundle.get("days") or []
 
-    obs = []
+    obs, frags = [], []
     for day in days:
-        obs.extend(_day_obs(day, rules))
+        day_obs = _day_obs(day, rules)
+        hour_obs = _hour_obs(day)
+        frags.extend(hour_obs)
+        obs.extend(_annotate_fragments(day_obs, hour_obs))
+        obs.extend(hour_obs)
     obs.extend(_subjective_obs())
     obs.extend(_inbody_obs())
     grades = []
@@ -348,8 +511,8 @@ def build(since=None, quiet=False):
         "VALUES (:date,:level,:cutoff_min,:steps,:note)", _gates(raw))
     con.commit()
     if not quiet:
-        print("obs: %d 条（%d 个指标）· grades: %d 条（%d 种设备分档）"
-              % (len(obs), len({o["metric"] for o in obs}), len(grades),
+        print("obs: %d 条（%d 个指标，其中片段 %d 条）· grades: %d 条（%d 种设备分档）"
+              % (len(obs), len({o["metric"] for o in obs}), len(frags), len(grades),
                  len({g["metric"] for g in grades})))
 
     n_units = units_mod.rebuild(con, rules, quiet=True)
@@ -441,6 +604,22 @@ def cmd_verify(a):
     chk("units 里出现未登记的指标",
         "SELECT COUNT(*) c FROM (SELECT DISTINCT metric FROM units) u WHERE u.metric "
         "NOT IN (%s)" % ",".join("'%s'" % m for m in metricdefs.registry()))
+
+    # —— 片段层的三条结构性约束（P2）——
+    # 判定不下放不是靠自觉：hour / daypart 单元一旦带上 judge 或 delta_verdict，
+    # 就等于把「红了还是绿了」下放到小时级——那是 vision §三 明确禁止的。
+    _frag_in = ",".join("'%s'" % s for s in fragments.FRAGMENT_SCALES)
+    chk("片段单元不得有判定（judge 必须为空）",
+        "SELECT COUNT(*) c FROM units WHERE scale IN (%s) AND judge IS NOT NULL" % _frag_in)
+    chk("片段单元不得有变化结论（delta_verdict 必须为空）",
+        "SELECT COUNT(*) c FROM units WHERE scale IN (%s) AND delta_verdict IS NOT NULL"
+        % _frag_in)
+    chk("片段观测 coverage 必须在 (0,1]",
+        "SELECT COUNT(*) c FROM obs WHERE metric LIKE 'hour\\_%%' ESCAPE '\\' "
+        "AND (coverage IS NULL OR coverage<=0 OR coverage>1.0001)")
+    chk("片段指标不得出现在日及以上尺度",
+        "SELECT COUNT(*) c FROM units WHERE metric LIKE 'hour\\_%%' ESCAPE '\\' "
+        "AND scale NOT IN (%s)" % _frag_in)
 
     # 指标定义完整性：改 rules.json 键名、删键、改区间形态，都会在这里报出来。
     # 这是「定义唯一来源」真正兑现的地方——以前这类错误会静默变成「该指标没有达标判定」。

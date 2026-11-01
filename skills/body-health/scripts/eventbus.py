@@ -136,9 +136,16 @@ def append(ev, path=None):
 
 
 def supersede(old_id, ev, path=None):
-    """新增一条事件并作废 old_id（旧行永不改动）。"""
+    """新增一条事件并作废 old_id（旧行永不改动）。
+
+    id 在这里先定：校验要求「带 supersedes 的事件必须自带 id」，而 append 是
+    校验之后才派生 id 的——调用方因此必须自己生成，纯属多余的心智负担。
+    派生是确定性的（sha1(ts|type|content)），先派生与后派生等价。
+    """
     ev = dict(ev)
     ev["supersedes"] = old_id
+    if not ev.get("id"):
+        ev["id"] = derive_id(ev)
     return append(ev, path)
 
 

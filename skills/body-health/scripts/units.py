@@ -43,8 +43,10 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 import db  # noqa: E402
 import metricdefs  # noqa: E402
+import fragments  # noqa: E402
 
-SCALES = ("day", "week", "month", "roll7", "roll28", "roll90")
+#: 片段尺度由 fragments 模块定义（hour / daypart），只有出值权、没有判定权。
+SCALES = ("day", "week", "month", "roll7", "roll28", "roll90") + fragments.FRAGMENT_SCALES
 
 
 # ------------------------------------------------------------------ 日历
@@ -142,10 +144,15 @@ def unit_specs(first, last, today, rules):
 
 # ------------------------------------------------------------------ 取值
 def _read_obs(con, metrics):
-    """从 L1 读逐日值。L2 只读 L1，绝不回 raw——口径变更时只需重跑这一层。"""
+    """从 L1 读逐日值。L2 只读 L1，绝不回 raw——口径变更时只需重跑这一层。
+
+    **片段观测（metric 前缀 hour_）在这里被排除**：本函数产出的是「日值」，
+    而片段是按小时的多行；混进来会被「后写覆盖先写」静默取到 23 点那一条。
+    片段由 `_frag_units()` 走 hour / daypart 两个尺度，两条路互不交叉。
+    """
     day_vals, bands, cov = {}, {}, {}
     q = ("SELECT metric, substr(t,1,10) AS d, value, coverage FROM obs "
-         "ORDER BY t")
+         "WHERE metric NOT LIKE '%s%%' ORDER BY t" % fragments.PREFIX)
     for r in con.execute(q):
         m, d = r["metric"], r["d"]
         # 全部指标都进 day_vals：聚合指标用来算单元，参考量（sleep_need_h 等）
@@ -214,11 +221,74 @@ def _judge(metric, value, mdef, rules, band):
     return "ok" if ((value >= g) if direction == "above" else (value <= g)) else "no"
 
 
+# ------------------------------------------------------------------ 片段单元
+def frag_metrics(reg=None):
+    """只在片段尺度出现的指标（registry 里 scales 全落在 hour/daypart）。"""
+    reg = reg if reg is not None else db.load_metrics()
+    out = {}
+    for k, v in reg.items():
+        sc = v.get("scales") or []
+        if sc and set(sc) <= set(fragments.FRAGMENT_SCALES):
+            out[k] = v
+    return out
+
+
+def _frag_units(con, reg):
+    """hour / daypart 两个尺度。**只出值**：judge 与 delta_verdict 恒为 None。
+
+    小时单元 = 一条片段观测（片段已是该小时的聚合，不再二次平均）；
+    日分区单元 = 该窗口内小时的确定性聚合（sum 类求和、mean 类求均值）。
+    覆盖不足时 coverage 照样给（n / 窗口小时数），不插值、不补零。
+    """
+    rows = []
+    acc = {}
+    q = ("SELECT metric, t, value, coverage FROM obs "
+         "WHERE metric LIKE '%s%%' ORDER BY t" % fragments.PREFIX)
+    for r in con.execute(q):
+        m, t, v = r["metric"], r["t"], r["value"]
+        if m not in reg:
+            continue
+        agg = reg[m].get("agg")
+        hour = int(t[11:13])
+        start = t
+        end = (datetime.datetime.strptime(t, "%Y-%m-%dT%H:%M:%S")
+               + datetime.timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S")
+        rows.append({"scale": "hour", "key": fragments.hour_key(t), "metric": m,
+                     "value": v, "agg": agg, "n": 1, "coverage": r["coverage"],
+                     "judge": None, "judge_rate": None, "delta_v": None,
+                     "delta_mdc": None, "delta_verdict": None, "delta_vs": None,
+                     "delta_note": None, "start": start, "end": end, "expected": 1})
+        part = fragments.daypart_of(hour)
+        if part:
+            cell = acc.setdefault((t[:10], part, m), [])
+            cell.append(v)
+    for (date, part, m), vals in sorted(acc.items()):
+        hours = fragments.daypart_hours(part)
+        agg = (reg.get(m) or {}).get("agg")
+        d0 = datetime.datetime.strptime(date, "%Y-%m-%d")
+        rows.append({"scale": "daypart", "key": fragments.daypart_key(date, part),
+                     "metric": m, "value": fragments.aggregate(vals, agg),
+                     "agg": agg, "n": len(vals),
+                     "coverage": round(len(vals) / float(len(hours)), 3),
+                     "judge": None, "judge_rate": None, "delta_v": None,
+                     "delta_mdc": None, "delta_verdict": None, "delta_vs": None,
+                     "delta_note": None,
+                     "start": (d0 + datetime.timedelta(hours=hours[0])).strftime(
+                         "%Y-%m-%dT%H:%M:%S"),
+                     "end": (d0 + datetime.timedelta(hours=hours[-1] + 1)).strftime(
+                         "%Y-%m-%dT%H:%M:%S"),
+                     "expected": len(hours)})
+    return rows
+
+
 # ------------------------------------------------------------------ 重算
 def rebuild(con, rules=None, metrics=None, quiet=True):
     rules = rules or db.load_rules()
     reg = db.load_metrics()
-    metrics = metrics or {k: v for k, v in reg.items() if v.get("agg")}
+    _frag_only = frag_metrics(reg)
+    metrics = {k: v for k, v in (metrics or {k: v for k, v in reg.items()
+                                             if v.get("agg")}).items()
+               if k not in _frag_only}
     u = rules.get("units") or {}
     cov_min = u.get("coverage_min") or {}
     delta_min_n = u.get("delta_min_n", 2)
@@ -364,6 +434,13 @@ def rebuild(con, rules=None, metrics=None, quiet=True):
     con.executemany("DELETE FROM units WHERE scale=? AND key=?",
                     [(sp["scale"], sp["key"]) for sp in specs])
     db.upsert_units(con, rows)
+    frows = _frag_units(con, reg)
+    if frows:
+        con.execute("DELETE FROM units WHERE scale IN (%s)"
+                    % ",".join("?" * len(fragments.FRAGMENT_SCALES)),
+                    fragments.FRAGMENT_SCALES)
+        db.upsert_units(con, frows)
+        rows.extend(frows)
     con.commit()
     if not quiet:
         print("units: %d 行 / %d 个单元" % (len(rows), len(specs)))

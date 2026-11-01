@@ -55,6 +55,8 @@
 | 主观视图 | `python3 $S/daily_log_view.py sync`（文件→事件）/ `verify`（对账）/ `rebuild`（事件→文件） | `data/logs/daily_log.jsonl` 与事件流对齐 | **sync/rebuild 会写 jsonl**；rebuild 原子替换 |
 | 回测 | `python3 $S/backtest.py diff` | 口径变更前后改判清单 | 无 |
 | 金标 | `python3 $S/backtest.py golden` | 11 条锚点是否复现 | 无 |
+| 片段一致性 | `python3 tools/fragment_consistency.py` | 逐指标「片段回推 vs 日值」结论表；白名单未登记异常 → exit 1 | 无 |
+| 片段取值 | `python3 $S/units.py get --scale hour --key 2026-10-31T14`（或 `daypart --key 2026-10-31-afternoon`） | 该小时/半区的片段值（**只有值，没有判定**） | 无 |
 | 前端冒烟 | `node tools/smoke_site.mjs`（`SMOKE_DATA_DIR=<目录>` 可指向 fixture） | 129 项断言（fixture 路径 134 项） | 无 |
 | 交互探针 | `python3 tools/probe_interactions.py` | 8 用例真浏览器点击 | 无 |
 
@@ -95,6 +97,10 @@ site/index.json + site/daily/*.json   前端数据层
   ↓ push_data.py
 线上 .data/                           热更新，不需要重新发布
 ```
+
+`obs` 里除了日级指标，还有 **`hour_` 前缀的片段观测**（小时/半区，`method=garmin_hour`）：
+它们只出值，`units` 的 `hour`/`daypart` 两个尺度**没有 judge、没有 delta_verdict**。
+判读不要引用片段下结论——判定权只在 day 及以上（见 `docs/fragment-layer.md`）。
 
 **主观数据（补数）的写入口**：`data/logs/events.jsonl` 是真相源，`daily_log.jsonl`
 是它的**日层物化视图**（一行一天、有则更新），但视图由事件重推而来——不是第二个真相。
@@ -140,14 +146,15 @@ python3 tools/ci/check.py
 ```
 
 它依次验：数据守卫 / Python 语法与 3.9 下限 / JS 语法 / 路径锚点 / 数据边界结构 /
-前端冒烟 / 判读金标。exit 0 才继续。**它报 SKIP 不等于通过**——SKIP 是「这项没验」。
+事件 schema / 主观视图对账 / 片段一致性 / 前端冒烟 / 判读金标。exit 0 才继续。
+**它报 SKIP 不等于通过**——SKIP 是「这项没验」（CI 里恒 SKIP 的是依赖真实数据的几项）。
 
 跑完一轮判读，这三条必须同时成立：
 
 ```bash
 python3 $S/verify_judgment.py --date D   # 总评一致 / findings 覆盖 / 数字溯源 / 禁用词
-python3 $S/backtest.py golden            # 12 条历史锚点必须 12/12（check.py 已含）
-python3 $S/index.py verify               # 11 项一致性自检 exit 0
+python3 $S/backtest.py golden            # 11 条历史锚点必须 11/11（check.py 已含）
+python3 $S/index.py verify               # 15 项一致性自检 exit 0（含片段三条约束）
 ```
 
 改过前端再加：

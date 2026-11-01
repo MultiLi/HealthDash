@@ -15,7 +15,8 @@ import json
 import os
 
 from . import register
-from .gtime import TZ, gmt_ms_to_local_hhmm, iso_gmt_to_hhmm
+from .gtime import (TZ, gmt_ms_to_local_hhmm, iso_gmt_to_hhmm,
+                    iso_gmt_to_local_iso, iso_gmt_to_local_min)
 
 _HERE = os.path.dirname(os.path.abspath(__file__))            # adapters/
 _SKILLS = os.path.abspath(os.path.join(_HERE, "..", ".."))    # skills/
@@ -450,6 +451,15 @@ class GarminCN:
         if vo2_latest and vo2_latest.get("calendarDate") == d:
             day["vo2max"] = {"value": vo2_latest.get("vo2MaxValue"),
                              "updated": vo2_latest.get("calendarDate")}
+        # 子日序列（2026-11-01 建，roadmap P2）。**这是片段层的唯一原料**：
+        # 源给的原始采样按「本地当天分钟序号」归一，不在这里聚合、不切小时——
+        # 归组与覆盖率由 ETL（index.py::_hour_obs）统一做，避免两处各切一遍。
+        # 每类的 interval_min 是**源属性**（设备采样节奏），随 canonical 声明，
+        # 引擎不硬编码；覆盖率的分母靠它算，写死就会把「2 分钟一条」当「1 分钟一条」。
+        _sc = next((x for x in data.get("summary_chart", [])
+                    if x.get("calendarDate") == d), {})
+        day["subday"] = self._subday(dailyhr, _stress_anchor, stress_day,
+                                     _sc.get("values"), sleep_parent)
         # 采集健康度（2026-11-01 建）。**这是「这一天为什么没数」的唯一证据**：
         #   raw 未落盘 → 采集任务根本没为这天写文件（missing）
         #   有 raw 但有 sync_errors → 端点报错，数据没拉全（failed）
@@ -475,3 +485,55 @@ class GarminCN:
             hours.setdefault((t // 1000 - anchor) // 3600, []).append(v)
         return {h: {"avg": round(statistics.mean(v)), "max": max(v), "n": len(v)}
                 for h, v in hours.items()}
+
+    @staticmethod
+    def _subday(dailyhr, anchor, stress_day, grid, sleep_parent):
+        """子日序列 → canonical `subday` 块（分钟序号 / 本地绝对时间）。
+
+        只做**形态归一**：秒级时间戳换成「本地当天分钟序号」，血氧/电量那种
+        带状态码的元组换成纯数值。**不做任何聚合**——聚合只有一处（ETL）。
+        """
+        out = {}
+        if anchor is not None:
+            def _pts(pairs, pick=lambda x: x):
+                pts = []
+                for p in pairs:
+                    m = (p[0] // 1000 - anchor) // 60
+                    v = pick(p)
+                    if v is None or not (0 <= m < 1440):
+                        continue
+                    pts.append([m, v])
+                return pts
+
+            hr = _pts(dailyhr.get("heartRateValues") or [],
+                      lambda p: p[1] if p[1] is not None else None)
+            if hr:
+                out["hr"] = {"interval_min": 2, "points": hr}
+            st = _pts([p for p in (stress_day.get("stressValuesArray") or [])
+                       if p and len(p) >= 2 and p[1] is not None and p[1] >= 0],
+                      lambda p: p[1])
+            if st:
+                out["stress"] = {"interval_min": 3, "points": st}
+            # 电量数组是 [ms, 状态串, 值, 版本]，值在第 3 位；-1 表示无读数
+            bb = _pts([p for p in (stress_day.get("bodyBatteryValuesArray") or [])
+                       if isinstance(p, (list, tuple)) and len(p) >= 3],
+                      lambda p: p[2] if (p[2] is not None and p[2] >= 0) else None)
+            if bb:
+                out["bb"] = {"interval_min": 3, "points": bb}
+        buckets = []
+        for g in (grid or []):
+            m = iso_gmt_to_local_min(g.get("startGMT"))
+            if m is None:
+                continue
+            buckets.append([m, g.get("steps") or 0, g.get("primaryActivityLevel")])
+        if buckets:
+            out["activity"] = {"interval_min": 15, "buckets": buckets}
+        segs = []
+        for sg in (sleep_parent.get("sleepLevels") or []):
+            s = iso_gmt_to_local_iso(sg.get("startGMT"))
+            e = iso_gmt_to_local_iso(sg.get("endGMT"))
+            if s and e and s < e:
+                segs.append([s, e, int(sg.get("activityLevel") or 0)])
+        if segs:
+            out["sleep"] = {"segments": segs}
+        return out

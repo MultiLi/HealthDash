@@ -22,7 +22,7 @@
 ```
 L0  raw            不可变采集快照（JSON 文件，冷存，溯源）           真相
 L1  observations   指标 + 值 + 时间 + 来源 + 方法 + 条件 + 覆盖       派生·可重建
-L2  units          日 / 周 / 月 / 滚动 7·28·90 × 指标 → 统计量         派生·可重建
+L2  units          日 / 周 / 月 / 滚动 7·28·90 / 小时·半区 × 指标 → 统计量   派生·可重建
 L3  assertions     命题 + 布尔 + 证据 + 置信档（DAG，非平铺）          派生·可重建
 L4  compose        模板骨架（必产）+ LLM 叙述（可选、可校验）          产物
 L5  surface        主页 / 日报告 / 周期查询 / 对话                     展示
@@ -83,13 +83,23 @@ data/
 | `method` / `device` / `conditions` | 可比性判据。`comparable_on` 任一项不满足即判 `not-comparable` 且**不给差值** |
 | `derived_from` | 派生观测的溯源链，口径变更时可级联重算 |
 
-**Unit（L2）** — 一个尺度下的统计量。`scale ∈ {day, week, month, roll7, roll28, roll90}`。
+**Unit（L2）** — 一个尺度下的统计量。`scale ∈ {day, week, month, roll7, roll28, roll90, hour, daypart}`。
 
 | 铁律 | 内容 |
 |---|---|
 | 变化判定唯一在 L2 | `delta.verdict` 五档：`changed` / `within-noise` / `insufficient` / `uncalibrated` / `suppressed`。前端与报告只消费，不自己算 |
 | 滚动窗禁环比 | 相邻两步重叠 6/7，变化一律用**非重叠位移差** `v_t − v_(t−k)` |
 | 覆盖不足不给结论 | `coverage < 门槛` → `judge="na"`。门槛：周 4/7、月 15/当月天数、滚动 0.7×窗长 |
+| **片段只出值** | `hour` / `daypart` 两个尺度的 `judge` 与 `delta_verdict` **恒为空**（`index.py verify` 有断言守着）。判定权只在 day 及以上 |
+
+**片段层（hour / daypart）**（2026-11-01，P2）：L1 按小时落 `hour_*` 指标（`method=garmin_hour`），L2 直接出单元，`fragment_consistency.py` 每天核对「片段回推 vs 日值」。四条约束：
+
+| 约束 | 内容 |
+|---|---|
+| 指标名前缀 | 片段一律 `hour_` 前缀。日值读取（units / assertions）按 `substr(t,1,10)` **后写覆盖先写**，同名会让 23 点那行静默盖掉日值——前缀让误取不可能发生，不靠自觉加 WHERE |
+| 日值仍是日汇总裁决 | 片段与日值不等**不改日值**；恒等的指标才在白名单里标 `derived_from`（现为 `steps_daily` 37/40 天、`sleep_h` 38/38 天） |
+| 白名单靠实测 | `references/fragments.json` 的 `whitelist` 只在被实测证明恒等时打开；源自身不一致的日期写进 `known_exceptions`，未登记的不等一律让 CI 红 |
+| 不为缺失造假 | 没有原生粒度的指标（sedentary / intensity / kcal / floors）不建片段；有片段但覆盖不足的小时如实写 `coverage` |
 
 **单元级门槛必须按 `confidence.tier.change` 分级**——`mdc_change` 是单次读数门槛，直接套到周均会失真：
 
@@ -276,6 +286,9 @@ docs/        项目文档（人读）
 **存储与数据**
 
 - 不把 raw 迁进数据库（raw 是可读、可 diff、可人工核对的最后一道防线；派生层可随时重建）
+- 不新开 `fragments` 表：时段片段就住 `obs`（`t`/`t_end`/`kind`/`coverage` 本来就是片段形状，第二套结构必与 obs 漂）
+- 不给片段层任何判定权，包括「这小时算不算久坐」这类看似无害的判定（判定只在 day 及以上）
+- 不为没有原生粒度的指标伪造片段（sedentary / intensity / kcal / floors 都不摊派；片段回推与日值不等就登记，不改日值）
 - 不把 `daily_log` / `events` / 报告正文镜像进库（没人读的第二份拷贝必漂；要 SQL 就按事件建带对账的派生表）
 - 不保留云服务副本（全项目无写入方的死配置，只会让「数据存在哪」含糊并暴露密钥）
 - 定时任务不搬云服务、不在 server.py 自起 cron 线程（云服务无可执行环境；自起线程有冷启动回收、反代超时、无持久文件系统三个硬障碍。cron 不是瓶颈，判读才是）
