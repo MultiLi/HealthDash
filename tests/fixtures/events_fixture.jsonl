@@ -7,3 +7,4 @@
 {"ts":"2026-10-02T23:30:00+08:00","date":"2026-10-02","type":"note","content":"合成事件：更正本日 context 记录——当天实为休息日；旧条目作废","source":"conversation","supersedes":"01FIX0000000000000000000A02","id":"01FIX0000000000000000000A07"}
 {"ts":"2026-10-03T09:00:00+08:00","date":"2026-10-03","type":"checkup","content":"legacy 合成事件：无 id 的存量格式（校验器应记 warning 不报错）","source":"conversation"}
 {"ts":"2026-10-03T22:00:00+08:00","date":"2026-10-03","type":"activity","content":"合成事件：傍晚步行活动，来自设备判定","source":"device","id":"01FIX0000000000000000000A08"}
+{"ts":"2026-10-03T23:10:00+08:00","date":"2026-10-03","type":"note","content":"合成事件：更正上一条 legacy checkup 记录的时间口径；旧条目作废（legacy 无显式 id，按内容派生引用）","source":"conversation","supersedes":"evt_9887b7ab1711aa112846","id":"01FIX0000000000000000000A09"}

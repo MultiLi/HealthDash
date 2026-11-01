@@ -49,10 +49,12 @@
 | 发布后登记 | `python3 tools/deploy.py --mark-app-deployed` | 更新上线游标 | 只写本地游标 |
 | 主页推送 | `python3 tools/push_data.py` | 线上 `.data/` | 改线上数据 |
 | 推送核验 | `python3 tools/push_data.py --check` | exit 0 = 线上本地逐文件一致 | 无 |
-| 加密备份 | `python3 tools/backup_health.py --list`（只列）/ `--out <目录>`（打包） | `health_backup_<时间戳>.tar.gz.enc` | 写外部目录；口令走交互或 `HEALTH_BACKUP_PASS` |
+| 加密备份 | `python3 tools/backup_health.py --list`（只列）/ `--out <目录>`（打包）/ `--store-pass`（首次下发口令到钥匙串）/ `--show-pass`（打印口令） | `health_backup_<时间戳>.tar.gz.enc` | 写外部目录；口令自动从钥匙串读（env > 钥匙串 > 交互） |
+| 事件写入 | 代码里 `from eventbus import append, supersede`（`$S/eventbus.py`） | 追加一条事件到 `data/logs/events.jsonl` | **写事件流**；写前按 `references/event_schema.json` 校验 |
+| 事件体检 | `python3 $S/eventbus.py --ids`（看有效 id）/ `--check`（逐条校验）；`python3 tools/validate_events.py` | 有效 id 清单 / 逐行错误 | 无 |
 | 回测 | `python3 $S/backtest.py diff` | 口径变更前后改判清单 | 无 |
-| 金标 | `python3 $S/backtest.py golden` | 12 条锚点是否复现 | 无 |
-| 前端冒烟 | `node tools/smoke_site.mjs` | 113 项断言 | 无 |
+| 金标 | `python3 $S/backtest.py golden` | 11 条锚点是否复现 | 无 |
+| 前端冒烟 | `node tools/smoke_site.mjs`（`SMOKE_DATA_DIR=<目录>` 可指向 fixture） | 129 项断言（fixture 路径 134 项） | 无 |
 | 交互探针 | `python3 tools/probe_interactions.py` | 8 用例真浏览器点击 | 无 |
 
 **完整参数与坑见各脚本 `--help` 和 `docs/operations.md`。**
@@ -61,7 +63,7 @@
 
 ## 4. 硬边界
 
-以下六条**没有例外**。违反其中任何一条，产出的东西即使数字对也不可信。
+以下七条**没有例外**。违反其中任何一条，产出的东西即使数字对也不可信。
 
 | # | 禁止 | 原因 |
 |---|---|---|
@@ -71,6 +73,7 @@
 | 4 | **不许二次登录 Garmin**。token 在 `~/.config/garmin-cn/garth`，由 `sync.py` 自己管 | 会触发风控，且多套鉴权路径并存必出事故 |
 | 5 | **不许覆盖终版报告**。`compose.py --write` 只写 `.skeleton.md`；`--as-final` 才碰正式报告且需 `--force` | 终版报告是唯一的健康档案，没有软删除可退 |
 | 6 | **不许因「数据还没同步」就重出报告或催数**。先看 `lastSyncTimestampGMT` | 手表没同步 ≠ 拉数失败。提高拉数频率不会让云端凭空多出数据 |
+| 7 | **不许手拼 JSON 往 `events.jsonl` 追加，也不许改/删已有行**。写入一律 `eventbus.append()` / `eventbus.supersede()` | 事件流是不可变真相源；绕过校验手写会带进未声明字段与坏 supersede 链（见 `references/event_schema.json` 的 invariants） |
 
 ---
 
