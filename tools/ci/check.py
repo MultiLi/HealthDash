@@ -191,7 +191,7 @@ def check_structure():
     else:
         with open(gi, encoding="utf-8") as fh:
             body = fh.read()
-        for rule in ("data/*", "!data/README.md", "site/index.json", ".worktrees"):
+        for rule in ("data/*", "!data/README.md", "site/index.json", "site/views/", ".worktrees"):
             if rule not in body:
                 problems.append(".gitignore 缺规则 `%s`" % rule)
 

@@ -106,6 +106,13 @@ def collect():
     if not os.path.isfile(idx_path):
         die("site/index.json 不存在——先跑 tools/build_homepage_data.py")
     files = {"index.json": read_json(idx_path)}
+    # 保存视图的求值产物：与月度分片同性质（数据，不是代码），必须跟着热更新走，
+    # 否则线上视图会一直停在发布当天的数字。
+    views_dir = os.path.join(SITE, "views")
+    if os.path.isdir(views_dir):
+        for name in sorted(os.listdir(views_dir)):
+            if name.endswith(".json") and name != "index.json":
+                files["views/" + name] = read_json(os.path.join(views_dir, name))
     daily_dir = os.path.join(SITE, "daily")
     if os.path.isdir(daily_dir):
         for name in sorted(os.listdir(daily_dir)):

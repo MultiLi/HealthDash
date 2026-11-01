@@ -27,6 +27,7 @@ from homepage.build import build  # noqa: E402
 from homepage.paths import SITE, load_rules  # noqa: E402
 from homepage.indexlayer import write_index_layer  # noqa: E402
 from homepage.assetver import stamp_all  # noqa: E402
+from homepage.views import build_views  # noqa: E402
 
 DEPLOY_CFG = os.path.join(HERE, "deploy.json")
 
@@ -62,6 +63,10 @@ def main():
     print("fingerprint: 资源 v=%s（模块图 %d 个文件） 数据 b=%s（%d 个文件） index.html %s"
           % (ver["assets_version"], ver["import_files"], ver["data_token"],
              ver["data_files"], "已重写" if ver["index_changed"] else "无变化"))
+
+    # 保存视图：查询只能在后台算（判定权不下放），所以先求值成静态 JSON 再由页面渲染。
+    # 放在 stamp_all 之后：views/ 不在前端资源指纹里，改视图不需要动 js 版本号。
+    build_views(SITE)
 
     url = homepage_url()
     if url:

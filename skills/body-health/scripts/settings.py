@@ -85,6 +85,8 @@ DAILY_LOG = os.path.join(LOGS_DIR, "daily_log.jsonl")
 EVENTS_LOG = os.path.join(LOGS_DIR, "events.jsonl")
 PROFILE = os.path.join(DATA_ROOT, "profile.json")
 GOLDEN = os.path.join(DATA_ROOT, "tests", "golden.json")
+#: 保存的查询视图（个人配置，含口径定义不含身体数值）。构建时物化成 site/views/<id>.json。
+VIEWS = os.environ.get("HEALTH_VIEWS") or os.path.join(DATA_ROOT, "views.json")
 SITE_DIR = path("site")
 TOOLS_DIR = path("tools")
 

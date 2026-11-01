@@ -48,11 +48,12 @@ import db                                                    # noqa: E402
 import units                                                 # noqa: E402
 
 from settings import EVENTS_LOG                              # noqa: E402
+from settings import VIEWS                                   # noqa: E402
 
 SCALE_NAMES = ("day", "week", "month", "roll7", "roll28", "roll90")
 #: 查询定义允许的键。多一个都报错——静默忽略拼错的字段会让调用方以为查了。
 Q_KEYS = {"window", "metrics", "delta", "conditions", "logic"}
-WIN_KEYS = {"start", "end", "scale", "key"}
+WIN_KEYS = {"start", "end", "scale", "key", "days"}
 #: 条件对象的允许键（按 kind 细分，见 _check_cond）
 COND_KEYS = {
     "metric": {"kind", "metric", "op", "value", "range", "negate"},
@@ -91,7 +92,12 @@ def normalize(qdef, reg=None):
     wextra = set(win) - WIN_KEYS
     if wextra:
         raise QueryError("window 里有未知字段：%s" % "、".join(sorted(wextra)))
-    if "scale" in win:
+    if "days" in win:
+        if not isinstance(win["days"], int) or win["days"] <= 0:
+            raise QueryError("days 必须是正整数")
+        if set(win) - {"days"}:
+            raise QueryError("days 是相对窗口（截止最后一天数据），不能与 start/end/scale 混用")
+    elif "scale" in win:
         if win["scale"] not in SCALE_NAMES:
             raise QueryError("未知尺度：%s（允许：%s）" % (win["scale"], "、".join(SCALE_NAMES)))
         if not win.get("key"):
@@ -201,6 +207,19 @@ def _provenance(con):
 def _specs_for(q, ctx, rules):
     """查询定义 → 目标 spec + （可选）上一窗 spec。尺度的日期数学全部复用 unit_specs。"""
     win = q["window"]
+    if "days" in win:
+        # 相对窗口：截止最后一天数据往前数 N 天。保存视图要的是「最近 14 天」，
+        # 而不是「10-19 到 11-01」——后者存下来第二天就成了历史切片。
+        end = min(ctx["last"], ctx["today"])
+        start = (datetime.date.fromisoformat(end)
+                 - datetime.timedelta(days=int(win["days"]) - 1)).isoformat()
+        sp = units.window_spec(start, end, ctx, rules)
+        n = len(sp["dates"])
+        prev = units.window_spec(
+            (datetime.date.fromisoformat(start) - datetime.timedelta(days=n)).isoformat(),
+            (datetime.date.fromisoformat(start) - datetime.timedelta(days=1)).isoformat(),
+            ctx, rules) if n else None
+        return sp, prev
     if "scale" in win:
         idx = {(sp["scale"], sp["key"]): sp
                for sp in units.unit_specs(ctx["first"], ctx["last"], ctx["today"], rules)}
@@ -418,7 +437,61 @@ def run(qdef, con=None, rules=None, reg=None, ctx=None):
     }
 
 
-# ------------------------------------------------------------------ 展示
+# ------------------------------------------------------------------ 保存视图
+def _read_views(path=None):
+    path = path or VIEWS
+    if not os.path.isfile(path):
+        return []
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh) or {}
+    except ValueError as e:
+        raise QueryError("views.json 不是合法 JSON：%s" % e)
+    items = data.get("views") if isinstance(data, dict) else data
+    return [v for v in (items or []) if isinstance(v, dict) and v.get("id")]
+
+
+def _write_views(views, path=None):
+    path = path or VIEWS
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump({"views": views}, fh, ensure_ascii=False, indent=1)
+        fh.write("\n")
+    os.replace(tmp, path)
+
+
+def save_view(vid, qdef, title=None, note=None, path=None):
+    """存一条视图定义。**存的是查询定义，不是结果**——结果由构建时求值。
+
+    校验在这里做一次：存一个跑不通的查询，构建期它会变成一条 error 视图，
+    页面显示「算不出来」——那比存的时候就拒绝更晚、更难查。
+    """
+    if not vid or not all(c.isalnum() or c in "-_" for c in vid):
+        raise QueryError("视图 id 只能用字母/数字/-/_：%r" % vid)
+    normalize(qdef)                                    # 跑不通的定义不许存
+    views = _read_views(path)
+    item = {"id": vid, "title": title or vid, "note": note, "query": qdef}
+    for i, v in enumerate(views):
+        if v["id"] == vid:
+            views[i] = item
+            break
+    else:
+        views.append(item)
+    _write_views(views, path)
+    return item
+
+
+def remove_view(vid, path=None):
+    views = _read_views(path)
+    left = [v for v in views if v["id"] != vid]
+    if len(left) == len(views):
+        return False
+    _write_views(left, path)
+    return True
+
+
+
 def _fmt(v, mdef, m):
     if v is None:
         return "—"
@@ -510,7 +583,34 @@ def main():
     ap.add_argument("--no-delta", action="store_true")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--list-metrics", action="store_true")
+    ap.add_argument("--save", default="", help="把本次查询存成视图（需要 id）")
+    ap.add_argument("--title", default="", help="视图标题（配合 --save）")
+    ap.add_argument("--note", default="", help="视图备注（配合 --save）")
+    ap.add_argument("--list-views", action="store_true")
+    ap.add_argument("--rm-view", default="")
     a = ap.parse_args()
+
+    if a.list_views:
+        views = _read_views()
+        if not views:
+            print("还没有保存的视图（data/views.json 不存在或为空）")
+            return 0
+        for v in views:
+            w = (v.get("query") or {}).get("window") or {}
+            if "days" in w:
+                span = "最近 %d 天（相对）" % w["days"]
+            elif w.get("start"):
+                span = "%s~%s" % (w["start"], w["end"])
+            else:
+                span = "%s %s" % (w.get("scale"), w.get("key"))
+            conds = (v.get("query") or {}).get("conditions") or []
+            print("%-18s %-28s %s%s" % (v["id"], (v.get("title") or "")[:28], span,
+                                        " +%d 条件" % len(conds) if conds else ""))
+        return 0
+    if a.rm_view:
+        print("已删除 %s" % a.rm_view if remove_view(a.rm_view)
+              else "没有这个视图：%s" % a.rm_view)
+        return 0
 
     if a.list_metrics:
         pool = metrics_pool()
@@ -528,20 +628,19 @@ def main():
         elif a.scale:
             qdef = {"window": {"scale": a.scale, "key": a.key}}
         elif a.days:
-            con = db.connect()
-            ctx0 = units.context(con, db.load_rules(), {})
-            if ctx0 is None:
-                raise QueryError("obs 表为空：先跑 index.py build")
-            end = min(ctx0["last"], ctx0["today"])
-            start = (datetime.date.fromisoformat(end)
-                     - datetime.timedelta(days=a.days - 1)).isoformat()
-            qdef = {"window": {"start": start, "end": end}}
+            qdef = {"window": {"days": a.days}}
         else:
             qdef = {"window": {"start": a.start, "end": a.end}}
         if a.metrics and a.metrics != "all":
             qdef["metrics"] = a.metrics
         if a.no_delta:
             qdef["delta"] = False
+        if a.save:
+            item = save_view(a.save, qdef, title=a.title or a.save, note=a.note or None)
+            print("已保存视图 %s（%s）" % (item["id"], item["title"]))
+            print("物化下一版：python3 tools/build_homepage_data.py")
+            print("深链：?view=%s" % item["id"])
+            return 0
         res = run(qdef)
     except QueryError as e:
         print("✗ %s" % e, file=sys.stderr)
