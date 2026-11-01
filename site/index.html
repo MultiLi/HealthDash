@@ -6,11 +6,11 @@
 <title>健康主页 · 身体数据</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/base.css?v=4a0a4403">
-<link rel="stylesheet" href="css/calendar.css?v=4a0a4403">
-<link rel="stylesheet" href="css/page.css?v=4a0a4403">
-<link rel="stylesheet" href="css/detail.css?v=4a0a4403">
-<link rel="stylesheet" href="css/inbody.css?v=4a0a4403">
+<link rel="stylesheet" href="css/base.css?v=4ed2490f">
+<link rel="stylesheet" href="css/calendar.css?v=4ed2490f">
+<link rel="stylesheet" href="css/page.css?v=4ed2490f">
+<link rel="stylesheet" href="css/detail.css?v=4ed2490f">
+<link rel="stylesheet" href="css/inbody.css?v=4ed2490f">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%2310B981'/><path d='M16 26C16 26 5 19.5 5 12.2C5 8.2 8.1 5.5 11.4 5.5C13.3 5.5 15 6.4 16 8C17 6.4 18.7 5.5 20.6 5.5C23.9 5.5 27 8.2 27 12.2C27 19.5 16 26 16 26Z' fill='white'/></svg>">
 </head>
 <body>
@@ -86,13 +86,17 @@
       </div>
     </section>
 
-    <!-- ============ 指标网格：每张卡都是同一个量，粒度跟着尺度走 ============ -->
+    <!-- ============ 指标网格：主值口径跟尺度走；趋势线的范围与粒度是独立参数 ============ -->
     <section class="section sec-grid">
       <div class="container">
         <div class="section-head">
           <div>
             <h2>指标</h2>
-            <p class="section-sub">每一项都是同一个量，只是粒度随尺度变：日看波动，周看节奏，月看走向。序列的每个点就是当前尺度下的一个单元，绿=该单元达标、琥珀=未达标、灰=无判定线，空心点=该单元尚未结束。</p>
+            <p class="section-sub">主值 / 达标 / 环比按上方选的<b>尺度</b>（当前单元）算；下面这条趋势线由<b>范围</b>与<b>粒度</b>两个独立参数决定，与尺度互不影响。绿=达标、琥珀=未达标、灰=无判定线，空心=这一段还没结束。</p>
+          </div>
+          <div class="trend-ctl" id="trend-ctl">
+            <label>范围<select id="trend-span"></select></label>
+            <label>粒度<select id="trend-grain"></select></label>
           </div>
         </div>
         <!-- 分组渲染（恢复 / 行为 / 负荷）：外层只是纵向容器，
@@ -162,6 +166,6 @@
     </div>
   </footer>
 </div>
-<script type="module" src="js/main.js?v=4a0a4403"></script>
+<script type="module" src="js/main.js?v=4ed2490f"></script>
 </body>
 </html>

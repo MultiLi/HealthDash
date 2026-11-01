@@ -14,7 +14,7 @@
 import {
   addDays, weekDates, weekStart, isoWeekKey, weekRangeLabel,
   monthKey, monthLabel, shiftMonth, fmtMD, weekdayCN
-} from "./dateutil.js?v=4a0a4403";
+} from "./dateutil.js?v=4ed2490f";
 
 /* 六个尺度 = 两类单元：
  *  · 自然周期（日 / 周 / 月）：边界由日历决定，用来对齐「本月」「本周」这类复习惯例。
@@ -23,12 +23,12 @@ import {
  *    这也是为什么趋势判定优先看滚动窗：它的相邻两步重叠 6/7 天，环比必须用
  *    非重叠位移差（prevUnitOf 直接跳一整个窗长，见下）。 */
 export var SCALES = [
-  { key: "day", label: "日", unit: "天", seriesN: 30, seriesLabel: "近 30 天" },
-  { key: "week", label: "周", unit: "周", seriesN: 12, seriesLabel: "近 12 周" },
-  { key: "month", label: "月", unit: "月", seriesN: 12, seriesLabel: "近 12 个月" },
-  { key: "roll7", label: "7天", unit: "窗", seriesN: 12, seriesLabel: "近 12 个 7 天窗" },
-  { key: "roll28", label: "28天", unit: "窗", seriesN: 6, seriesLabel: "近 6 个 28 天窗" },
-  { key: "roll90", label: "90天", unit: "窗", seriesN: 4, seriesLabel: "近 4 个 90 天窗" }
+  { key: "day", label: "日", unit: "天" },
+  { key: "week", label: "周", unit: "周" },
+  { key: "month", label: "月", unit: "月" },
+  { key: "roll7", label: "7天", unit: "窗" },
+  { key: "roll28", label: "28天", unit: "窗" },
+  { key: "roll90", label: "90天", unit: "窗" }
 ];
 
 export function rollLen(scale) {

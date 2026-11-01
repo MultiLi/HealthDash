@@ -592,20 +592,51 @@ ok(count(matHtml, /dm-c /g) > 40, "矩阵画出逐日格子", count(matHtml, /dm
 ok(/dm-c na/.test(matHtml), "无判定格与未达标格分开画（na 不等于 no）");
 ok(/dm-s/.test(matHtml), "每行给达标比");
 
-console.log("\n== 月尺度：序列撑不起粒度时降级 ==");
-const monthKeys = Object.keys((ix.units || {}).month || {});
-/* 锚到**倒数第二个月**：那时该指标只有 2 个月有值（<3），正是要降级的场景。 */
-store.scale = "month";
-store.anchor = monthKeys.length >= 2 ? monthKeys[monthKeys.length - 2] + "-28" : ix.default_day;
+console.log("\n== 趋势线：与观测尺度无关 ==");
+/* 换尺度只允许改「当前单元」的口径（主值/判定/环比），**趋势图必须一模一样**。
+   早先粒度写在 SCALES 里（月→12 个「月点」），后果有两个：项目只有 3 个月时
+   月线就 3 个点、横铺全宽＝几段长直线；以及同一指标在周面板与月面板上是两张
+   互不相干的图，起止和粒度都不同，根本没法对照。 */
+const gridByScale = {};
+["day", "week", "month", "roll7", "roll28", "roll90"].forEach(function (sc) {
+  store.scale = sc;
+  store.anchor = ix.default_day;
+  renderPage();
+  /* 只取趋势图（sparkline 的 class="spark"）——卡片上别的东西（日尺度特有的
+     「展开当日细分」按钮）本来就会随尺度变，拿整块 HTML 比会误判。 */
+  gridByScale[sc] = (html("metric-grid").match(/<svg[^>]*class="spark"[\s\S]*?<\/svg>/g) || []).join("");
+});
+const uniqCharts = new Set(Object.keys(gridByScale).map(function (k) { return gridByScale[k]; }));
+ok(uniqCharts.size === 1, "六个尺度下指标卡趋势图完全一致（换尺度不换图）",
+  uniqCharts.size + " 种图形 · 长度 " +
+  Object.keys(gridByScale).map(function (k) {
+    return k + "=" + gridByScale[k].length;
+  }).join(" "));
+const monthCharts = gridByScale.month || "";
+const monthSegs = (monthCharts.match(/L[0-9.]+ [0-9.]+/g) || []).length;
+ok(monthSegs > 100, "月尺度画的是逐日折线，不是 3 个月点连成的直线",
+  monthSegs + " 段折线");
+ok(!/本月逐日|尺度只有 \d+ 个单元/.test(monthCharts), "不再有「月尺度降级」这类补丁文案");
+
+/* 范围与粒度是**两个独立参数**：同范围换粒度、同粒度换范围，都必须真的变。
+   早先只把它们绑在尺度上，于是「月」= 12 个「月点」，项目只有 3 个月就成直线。 */
+const { trendPoints } = await import(mod("js/trend.js"));
+/* 复用上面已声明的 mSleep —— 同一个模块里不能声明两次（第一次就是这条踩的） */
+const cnt = function (span, grain) {
+  return trendPoints(ix, store.byDate, mSleep, store.anchor, span, grain).length;
+};
+ok(cnt("30d", "day") === 30, "范围 30 天 × 逐日 = 30 个点", cnt("30d", "day") + " 点");
+ok(cnt("30d", "day") > cnt("30d", "week") && cnt("30d", "week") > cnt("30d", "month"),
+  "同范围下粒度越粗点越少（两个参数互不干扰）",
+  ["day", "week", "month"].map(function (g) { return g + "=" + cnt("30d", g); }).join(" "));
+ok(cnt("90d", "day") > cnt("30d", "day"), "同粒度下范围越大点越多",
+  "30d=" + cnt("30d", "day") + " 90d=" + cnt("90d", "day"));
+ok(cnt("all", "week") === cnt("90d", "week"),
+  "范围超过数据长度时自动收敛到实际天数（不画未来空槽）",
+  "all=" + cnt("all", "week") + " 90d=" + cnt("90d", "week"));
+store.scale = "day";
+store.anchor = ix.default_day;
 renderPage();
-const monthGrid = html("metric-grid");
-if (monthKeys.length >= 2) {
-  ok(/月尺度只有 \d+ 个单元有数据，这里显示本月逐日/.test(monthGrid),
-    "月尺度只有两个月数据时，自动降级为「本月逐日」并说明", monthKeys.length + " 个月单元");
-} else {
-  ok(/这里显示本月逐日|只有 \d+ 个单元有数据/.test(monthGrid),
-    "月尺度单元不足时降级或明说看不出趋势", monthKeys.length + " 个月单元");
-}
 
 console.log("\n== 趋势图：x 轴只覆盖有数据的区间 ==");
 const { sparkline } = await import(mod("js/charts.js"));

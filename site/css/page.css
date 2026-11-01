@@ -174,3 +174,15 @@
 .qv-prov { margin-top: 14px; font-size: 11.5px; color: var(--text-3); }
 .qv-error { margin-top: 12px; font-size: 13.5px; color: var(--red); }
 .qv-hint { margin-top: 8px; font-size: 12.5px; color: var(--text-3); }
+
+/* ---------- 趋势线的两个参数（范围 × 粒度） ----------
+   它们与尺度解耦：尺度决定「当前单元」，这两个决定「这张图怎么看」。
+   分开摆是因为它们是两个自由度，绑在一起就会画出一张只有 3 个点的「月线」。 */
+.trend-ctl { display: flex; gap: 16px; align-items: center; font-size: 12.5px; color: var(--text-2); }
+.trend-ctl label { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.trend-ctl select {
+  font: inherit; padding: 5px 9px; border: 1px solid var(--border);
+  border-radius: 7px; background: #fff; color: var(--text); cursor: pointer;
+}
+.trend-ctl select:focus { outline: none; border-color: var(--green); }
+@media (max-width: 640px) { .trend-ctl { width: 100%; } }
