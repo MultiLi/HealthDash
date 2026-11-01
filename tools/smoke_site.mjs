@@ -640,6 +640,9 @@ const ixRec = Object.assign({}, ix, {
 const t1 = syncText(ixRec, "endpoint");
 ok(/近 14 天实测 12 天/.test(t1.text), "主句用「近 14 天」而不是 61 天跨度", t1.text);
 ok(!/61/.test(t1.text), "胶囊正文不再出现总跨度数字");
+/* 正文讲近窗、警示讲全长：近 14 天没缺口，但全长有 23 天没采到 → 仍然转琥珀，
+   否则「两周前断过一次」会静默消失，图里那几格空白没人解释。 */
+ok(t1.warn === true, "警示仍按全长算（正文近窗 ≠ 警示近窗）", "warn=" + t1.warn);
 ok(/2026-10-19 ~ 2026-11-01/.test(t1.title || ""), "悬停给出近窗起止", t1.title);
 ok(/2026-09-02 ~ 2026-11-01（61 天）/.test(t1.title || ""), "悬停里才有全长统计");
 const t2 = syncText(Object.assign({}, ix, { collect: { summary: { n: 3, ok: 3 } } }),

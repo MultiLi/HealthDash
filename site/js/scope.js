@@ -14,7 +14,7 @@
 import {
   addDays, weekDates, weekStart, isoWeekKey, weekRangeLabel,
   monthKey, monthLabel, shiftMonth, fmtMD, weekdayCN
-} from "./dateutil.js?v=e9e11956";
+} from "./dateutil.js?v=4a0a4403";
 
 /* 六个尺度 = 两类单元：
  *  · 自然周期（日 / 周 / 月）：边界由日历决定，用来对齐「本月」「本周」这类复习惯例。

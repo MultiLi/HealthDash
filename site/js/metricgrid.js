@@ -8,17 +8,17 @@
  *   ② 当前单元总览（综合指数 + Garmin 准备度 并排 + 四项达标计数）
  *   ③ 指标网格（8 张同构卡：主值 + 环比 + 单元序列 + 达标统计；日尺度下可展开当日细分）
  */
-import { store } from "./store.js?v=e9e11956";
-import { metrics, CHECKS, bandOf, BAND, READY, readyOf } from "./constants.js?v=e9e11956";
-import { esc, $ } from "./utils.js?v=e9e11956";
+import { store } from "./store.js?v=4a0a4403";
+import { metrics, CHECKS, bandOf, BAND, READY, readyOf } from "./constants.js?v=4a0a4403";
+import { esc, $ } from "./utils.js?v=4a0a4403";
 import { metricValue, seriesPoints, judgeValue, unitRowsAll, rowsWith,
-         unitCell, cellJudge, okCount, VERDICT_TEXT } from "./aggregate.js?v=e9e11956";
-import { unitOf, prevUnitOf, unitSeries, scaleDef } from "./scope.js?v=e9e11956";
-import { renderMonth, renderHeatstrip } from "./calendar.js?v=e9e11956";
-import { sparkline } from "./charts.js?v=e9e11956";
-import { DETAILS, readinessTrail, briefHtml } from "./detail.js?v=e9e11956";
-import { ensureShard, dayOf, hasShard } from "./data.js?v=e9e11956";
-import { monthLabel, fmtMD, weekdayCN } from "./dateutil.js?v=e9e11956";
+         unitCell, cellJudge, okCount, VERDICT_TEXT } from "./aggregate.js?v=4a0a4403";
+import { unitOf, prevUnitOf, unitSeries, scaleDef } from "./scope.js?v=4a0a4403";
+import { renderMonth, renderHeatstrip } from "./calendar.js?v=4a0a4403";
+import { sparkline } from "./charts.js?v=4a0a4403";
+import { DETAILS, readinessTrail, briefHtml } from "./detail.js?v=4a0a4403";
+import { ensureShard, dayOf, hasShard } from "./data.js?v=4a0a4403";
+import { monthLabel, fmtMD, weekdayCN } from "./dateutil.js?v=4a0a4403";
 
 function ix() { return store.ix; }
 

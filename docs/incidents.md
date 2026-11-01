@@ -175,6 +175,15 @@ PR #10 引入的 fixture 生成器调 `build_index` 时，`units_block` 内的 `
 **根因**：两个叠加——① sqlite 连接的隐式建库副作用没有被 fixture 生成器隔离；② 合并动作没有以「检查结论全绿」为前置条件，只依赖了一个不可靠的命令退出码。
 **防线（三道）**：① 生成器把 `indexlayer.units_block` 短路成合成标记，杜绝读库副作用；② `check_golden` 守卫升级为「文件存在**且**有 assertions 表」，空库 SKIP 并说明原因；③ **合并 PR 前必须显式读 `statusCheckRollup` 确认全绿**——`--watch`/轮询命令的 rc 不算数。这条是给执行 agent 的：命令成功 ≠ 检查通过。
 
+**再犯一次（同日 PR #25）**：这次换了个坑——`gh pr view --json ... -q '... | all(...)'` 在结论为 false 时**只打印 `false`、退出码仍是 0**，`&& gh pr merge` 于是照样执行。防线③的前提是「false 必须变成非零退出」，所以合并门禁现在写成一条不会骗人的命令（`docs/workflow.md` §5.1）：
+
+```bash
+gh pr view N --json statusCheckRollup \
+  -q '[.statusCheckRollup[].conclusion] | all(. == "SUCCESS")' | grep -qx true
+```
+
+`grep -qx true` 拿到 false 就 exit 1。**任何「先打印再判断」的命令都不算门禁**，只有退出码算。
+
 ### 24. 个人健康数据被推到公开仓库（2026-10-31 发现）
 
 仓库是 **public** 且已推送，内容包括：`MEMORY.md`（体重、体成分、体脂率、骨骼肌）、
