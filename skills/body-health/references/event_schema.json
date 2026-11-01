@@ -26,7 +26,7 @@
   ],
 
   "legacy_rules": {
-    "missing_id": "warning 不报错（2026-11 之前的存量事件无 id，P1 事件化时统一补发）",
+    "missing_id": "legacy 事件（2026-11 之前）不改写文件：有效 id 由内容派生 evt_+sha1('ts|type|content')[:20]，supersede 可直接引用派生 id。算法唯一实现在 skills/body-health/scripts/eventbus.py 的 derive_id()，校验器复用它",
     "unknown_extra_fields": "报错——字段必须先入 schema 再使用，防止自由字段变成第二份无口径数据"
   }
 }

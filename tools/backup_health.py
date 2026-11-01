@@ -14,11 +14,18 @@ notes/events.jsonl——这三样**无法用代码重建**（LLM 叙述与主观
   daily_log.jsonl                  主观标量（体重等）
   notes/events.jsonl               健康事件原文
 
-加密：openssl aes-256-cbc + PBKDF2。口令不落盘、不进命令行参数，
-      从环境变量 HEALTH_BACKUP_PASS 读，或交互输入。
-      没有口令的备份等于明文，不要那样做。
+加密：openssl aes-256-cbc + PBKDF2。口令不落盘、不进命令行参数。
+      取口令的顺序：环境变量 HEALTH_BACKUP_PASS → **macOS 钥匙串** → 交互输入。
+      钥匙串条目：service=health-backup，account=当前用户（2026-11-01 起，
+      解决「没法挂定时任务」的缺口——口令不再需要人记也不再进 shell 历史）。
+
+      ⚠️ 钥匙串解决的是「自动化」，不是「灾难恢复」：这台机器连同钥匙串一起
+      没了，加密备份也解不开。所以首次 `--store-pass` 之后**务必把口令离线记
+      一份**（`--show-pass` 可随时打印）。
 
 用法：
+  python3 tools/backup_health.py --store-pass          # 生成并存入钥匙串（只做一次）
+  python3 tools/backup_health.py --show-pass           # 打印口令（离线抄一份）
   python3 tools/backup_health.py                     # 默认输出到 ~/Documents/HealthBackups/
   python3 tools/backup_health.py --out /Volumes/Ext  # 外部盘（推荐，抗硬件故障）
   python3 tools/backup_health.py --list              # 只看会打包什么，不打包
@@ -98,13 +105,58 @@ def inventory():
     return rows
 
 
+KC_SERVICE = "health-backup"
+
+
+def _kc_account():
+    return os.environ.get("USER") or os.environ.get("LOGNAME") or "healthdash"
+
+
+def kc_get():
+    """从 macOS 钥匙串读口令；读不到返回 None（非 macOS / 没存过）。"""
+    try:
+        r = subprocess.run(["security", "find-generic-password",
+                            "-s", KC_SERVICE, "-a", _kc_account(), "-w"],
+                           capture_output=True, text=True)
+    except OSError:
+        return None
+    if r.returncode != 0:
+        return None
+    return (r.stdout or "").strip() or None
+
+
+def kc_store(passphrase):
+    """写进钥匙串（-U 覆盖同名条目）。返回 (ok, 说明)。"""
+    try:
+        r = subprocess.run(["security", "add-generic-password", "-U",
+                            "-s", KC_SERVICE, "-a", _kc_account(),
+                            "-w", passphrase, "-T", "/usr/bin/security"],
+                           capture_output=True, text=True)
+    except OSError as e:
+        return False, "security 命令不可用：%s" % e
+    if r.returncode != 0:
+        return False, (r.stderr or "").strip()[:200]
+    return True, "已写入钥匙串（service=%s account=%s）" % (KC_SERVICE, _kc_account())
+
+
+def gen_pass():
+    """高熵口令：24 字节 url-safe base64，约 32 字符。"""
+    import base64
+    import secrets
+    return base64.urlsafe_b64encode(secrets.token_bytes(24)).decode().rstrip("=")
+
+
 def get_pass():
-    """口令：环境变量优先，否则交互输入（不落盘、不进 ps）。"""
+    """口令：环境变量 → 钥匙串 → 交互输入（不落盘、不进 ps）。"""
     p = os.environ.get("HEALTH_BACKUP_PASS")
     if p:
         return p
+    p = kc_get()
+    if p:
+        return p
     if not sys.stdin.isatty():
-        print("✗ 非交互环境且未设 HEALTH_BACKUP_PASS——拒绝生成明文备份", file=sys.stderr)
+        print("✗ 非交互环境且未设 HEALTH_BACKUP_PASS / 钥匙串无条目——拒绝生成明文备份",
+              file=sys.stderr)
         sys.exit(2)
     import getpass
     a = getpass.getpass("备份口令（不落盘，输错无法恢复）：")
@@ -176,7 +228,48 @@ def main():
                     help="输出目录（默认 ~/Documents/HealthBackups/；抗硬件故障请指向外部盘）")
     ap.add_argument("--list", action="store_true", help="只列清单，不打包")
     ap.add_argument("--no-confirm", action="store_true", help="跳过确认直接打包")
+    ap.add_argument("--store-pass", action="store_true",
+                    help="生成口令并存入 macOS 钥匙串（已有则覆盖；需先 --show-pass 抄一份离线）")
+    ap.add_argument("--show-pass", action="store_true",
+                    help="打印当前生效的口令（离线抄一份，这是唯一灾难恢复凭据）")
+    ap.add_argument("--pass-status", action="store_true", help="只报告口令来源")
     a = ap.parse_args()
+
+    if a.show_pass:
+        p = get_pass()
+        print(p)
+        print("\n⚠️ 离线抄一份并放进可信的地方：这台机器与钥匙串一起丢失时，"
+              "加密备份只有这一串能解开。", file=sys.stderr)
+        return 0
+
+    if a.pass_status:
+        src = ("环境变量 HEALTH_BACKUP_PASS" if os.environ.get("HEALTH_BACKUP_PASS")
+               else "macOS 钥匙串" if kc_get() else "未配置（会退回交互输入）")
+        print("口令来源：%s" % src)
+        return 0
+
+    if a.store_pass:
+        existing = kc_get()
+        if existing and not a.no_confirm:
+            print("⚠️ 钥匙串里已有口令，覆盖会让**已有备份全部解不开**。")
+            print("   若确要轮换：先 --show-pass 记下旧口令，再重跑 --store-pass --no-confirm。")
+            if not sys.stdin.isatty():
+                return 2
+            if input("确认覆盖？[y/N] ").strip().lower() not in ("y", "yes"):
+                print("已取消")
+                return 0
+        p = gen_pass()
+        ok, msg = kc_store(p)
+        print(("✓ " if ok else "✗ ") + msg)
+        if not ok:
+            print("  退路：把下面这串存进你自己的密码管理器，并每次用 "
+                  "HEALTH_BACKUP_PASS=… 调用。", file=sys.stderr)
+            print(p)
+            return 1
+        print("\n现在把下面的口令离线抄一份（之后可用 --show-pass 再取）：")
+        print("  %s" % p)
+        print("\n⚠️ 覆盖/丢失钥匙串 = 已有备份永久解不开。轮换前先解密验证旧备份。")
+        return 0
 
     rows = inventory()
     if a.list:

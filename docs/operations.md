@@ -265,7 +265,10 @@ git 管代码与口径，这三样管「实际发生了什么」。
 **加密备份脚本**（`tools/backup_health.py`）：
 
 ```bash
-# 交互式（提示输口令；口令不落盘、不进 ps）
+# 首次：生成口令并存入 macOS 钥匙串（只做一次），把打印出的口令离线抄一份
+python3 tools/backup_health.py --store-pass
+
+# 之后：口令自动从钥匙串读（不再需要人记、不进 shell 历史）
 python3 tools/backup_health.py --out ~/Documents/HealthBackups
 
 # 外部盘（推荐，抗硬件故障）
@@ -274,8 +277,8 @@ python3 tools/backup_health.py --out /Volumes/你的盘名/HealthBackups
 # 先看会打包什么、缺什么
 python3 tools/backup_health.py --list
 
-# 非交互（定时任务用）；口令从环境变量读
-HEALTH_BACKUP_PASS=... python3 tools/backup_health.py --no-confirm
+# 口令来源体检；--show-pass 打印口令（灾难恢复唯一凭据）
+python3 tools/backup_health.py --pass-status
 ```
 
 产出 `health_backup_<时间戳>.tar.gz.enc`（openssl aes-256-cbc + PBKDF2 20 万次迭代），明文压缩包生成后立即删除。解密：
@@ -292,7 +295,7 @@ HEALTH_BACKUP_PASS=<口令> openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
 1. **默认输出与项目在同一块盘**（`~/Documents/HealthBackups/）。这防误删、防「改错了想回退」，**不防硬件故障**。要抗硬件故障，`--out` 必须指向外部盘或另一台机器。
 2. **云存储只能当副本之一，不能是唯一一份。** 云服务可用性绑定订阅状态——官方文档明确「`billingStatus` 为 `credits_exhausted` 时数据库读写全部失败」。把唯一备份放在一个会因欠费而锁定的地方，不叫备份。
 
-**尚未自动化**：口令目前靠环境变量或交互输入，没进钥匙圈，所以还不能挂定时任务。要自动备份，需先把口令存进 macOS Keychain 并让脚本从那里读——见 `notes/backlog.md` B10。
+**钥匙串解决的是自动化，不是灾难恢复。** 口令存在 macOS 钥匙串（service=`health-backup`，2026-11-01 起），所以备份可以挂定时任务；但这台机器连同钥匙串一起丢失时，加密备份只有那串离线抄下的口令能解开。`--store-pass` 覆盖已有口令会让**所有旧备份永久解不开**——轮换前先解密验证旧包。
 
 ---
 

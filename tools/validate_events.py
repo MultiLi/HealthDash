@@ -24,6 +24,13 @@ from datetime import datetime
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCHEMA = os.path.join(ROOT, "skills", "body-health", "references", "event_schema.json")
 DEFAULT_LOG = os.path.join(ROOT, "data", "logs", "events.jsonl")
+SCRIPTS = os.path.join(ROOT, "skills", "body-health", "scripts")
+
+# id 的唯一算法在 eventbus（写入层），校验器复用它而不是复制一遍——
+# 「有效 id」的定义只允许有一处，否则 supersede 的指向判定会两套。
+if SCRIPTS not in sys.path:
+    sys.path.insert(0, SCRIPTS)
+from eventbus import effective_id  # noqa: E402
 
 
 def load_schema():
@@ -95,12 +102,12 @@ def validate(path, schema, quiet):
             if "content" in ev and (not isinstance(ev["content"], str) or not ev["content"].strip()):
                 errors.append("L%d content 必须是非空字符串" % lineno)
 
-            # id / supersede 语义
+            # id / supersede 语义（legacy 事件的有效 id 由内容派生，见 eventbus）
             eid = ev.get("id")
+            eff = effective_id(ev)
             if eid:
                 if eid in seen_ids:
                     errors.append("L%d 事件 id 重复：%s" % (lineno, eid))
-                seen_ids.add(eid)
             elif "supersedes" in ev:
                 errors.append("L%d 带 supersedes 的事件必须自带 id" % lineno)
             if "supersedes" in ev:
@@ -109,12 +116,13 @@ def validate(path, schema, quiet):
                     errors.append("L%d supersedes 指向的 id 不存在或在其后：%s" % (lineno, tgt))
                 elif tgt in superseded:
                     errors.append("L%d 旧事件被重复作废：%s" % (lineno, tgt))
-                elif tgt == eid:
+                elif tgt == eff:
                     errors.append("L%d 事件不能作废自己" % lineno)
                 else:
                     superseded.add(tgt)
-            if eid is None and n > 0:
-                warnings.append("L%d legacy 事件无 id（P1 事件化时补发）" % lineno)
+            seen_ids.add(eff)
+            if eid is None:
+                warnings.append("L%d legacy 事件无显式 id，派生为 %s" % (lineno, eff))
 
     if not quiet:
         print("事件校验 %s：%d 条" % (os.path.relpath(path, ROOT), n))
