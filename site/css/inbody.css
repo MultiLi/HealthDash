@@ -1,7 +1,7 @@
-/* 体成分（InBody）· 事件型数据区块
-   它不参与日/周/月尺度——一次体测一个截面，没有逐日序列。
-   所以样式上也刻意与指标网格不同构：网格是「同一种卡 × N 天」，
-   这里是「一份截面 × 若干视角」，用上下两层卡片承载。 */
+/* 体成分（InBody）· 事件型数据源
+   它出现在两处：指标区里的「体成分」分组（与日指标同构的稀疏卡片），
+   以及页尾的完整截面（一份截面 × 若干视角）。
+   两处都不参与日/周/月尺度——一次体测一个截面，没有逐日序列。 */
 
 .sec-body { padding: 64px 0 88px; }
 .sec-body .section-head { align-items: flex-start; }
@@ -92,3 +92,31 @@ table.ib-tbl .ib-flag { display: inline-block; margin-left: 6px; font-size: 10.5
 .ib-caveats span + span::before { content: " · "; color: var(--border); }
 
 .ib-empty { font-size: 14px; color: var(--text-3); background: var(--bg-alt); border: 1px dashed var(--border); border-radius: var(--radius); padding: 22px 26px; line-height: 1.7; }
+
+/* ---------- 指标区里的第四组：体成分 ----------
+   卡壳沿用 .mx-card，只补三处：单位小字、增长尾的链接、组标色。
+   外观必须与恢复/行为/负荷三组**看不出差别**——它要是长得像附录，
+   人还是会把它当成另一个数据源。 */
+.mx-group[data-group="body"] .mx-gh h3::before { background: #A78BFA; }
+.ib-mx .mx-value { display: flex; align-items: baseline; gap: 3px; }
+.ib-mx .mx-value em { font-style: normal; font-size: 12px; font-weight: 500; color: var(--text-3); }
+a.mx-more { text-decoration: none; }
+a.mx-more:hover { color: var(--green-deep); border-color: var(--green); background: var(--green-tint); }
+
+/* ---------- 扫描时间线 + 闸门判定 ---------- */
+.ib-timeline { margin-top: 26px; font-size: 13px; color: var(--text-2); line-height: 1.9; font-variant-numeric: tabular-nums; }
+.ib-timeline b { color: var(--text); font-weight: 600; margin-right: 6px; }
+.ib-verdict { margin-top: 14px; padding: 11px 14px; border-radius: 10px; background: var(--bg-alt); border-left: 3px solid var(--green); font-size: 12.5px; color: var(--text-2); line-height: 1.75; }
+.ib-verdict b { color: var(--text); font-weight: 600; margin-right: 4px; }
+
+/* ---------- 同期行为面：两个源放进同一个时间窗 ---------- */
+.ib-window { margin-top: 22px; }
+.ib-wtbl td, .ib-wtbl th { white-space: nowrap; }
+.ib-wtbl td em { font-style: normal; font-size: 11px; color: var(--text-3); margin-left: 2px; }
+.ib-wtbl td.prev, .ib-wtbl td.n { color: var(--text-3); font-size: 12.5px; }
+.ib-wtbl th:nth-child(3), .ib-wtbl th:nth-child(4) { text-align: right; }
+.ib-window .ib-caveats { margin-top: 14px; }
+@media (max-width: 560px) {
+  .ib-window { overflow-x: auto; }
+  .ib-wtbl { min-width: 420px; }
+}

@@ -6,11 +6,11 @@
 <title>健康主页 · 身体数据</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/base.css?v=4ed2490f">
-<link rel="stylesheet" href="css/calendar.css?v=4ed2490f">
-<link rel="stylesheet" href="css/page.css?v=4ed2490f">
-<link rel="stylesheet" href="css/detail.css?v=4ed2490f">
-<link rel="stylesheet" href="css/inbody.css?v=4ed2490f">
+<link rel="stylesheet" href="css/base.css?v=441b0678">
+<link rel="stylesheet" href="css/calendar.css?v=441b0678">
+<link rel="stylesheet" href="css/page.css?v=441b0678">
+<link rel="stylesheet" href="css/detail.css?v=441b0678">
+<link rel="stylesheet" href="css/inbody.css?v=441b0678">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%2310B981'/><path d='M16 26C16 26 5 19.5 5 12.2C5 8.2 8.1 5.5 11.4 5.5C13.3 5.5 15 6.4 16 8C17 6.4 18.7 5.5 20.6 5.5C23.9 5.5 27 8.2 27 12.2C27 19.5 16 26 16 26Z' fill='white'/></svg>">
 </head>
 <body>
@@ -92,7 +92,7 @@
         <div class="section-head">
           <div>
             <h2>指标</h2>
-            <p class="section-sub">主值 / 达标 / 环比按上方选的<b>尺度</b>（当前单元）算；下面这条趋势线由<b>范围</b>与<b>粒度</b>两个独立参数决定，与尺度互不影响。绿=达标、琥珀=未达标、灰=无判定线，空心=这一段还没结束。</p>
+            <p class="section-sub">主值 / 达标 / 环比按上方选的<b>尺度</b>（当前单元）算；下面这条趋势线由<b>范围</b>与<b>粒度</b>两个独立参数决定，与尺度互不影响。绿=达标、琥珀=未达标、灰=无判定线，空心=这一段还没结束。<b>体成分</b>是低频截面（一次体测一个点），不吃尺度，只看最近一次与上一次的差。</p>
           </div>
           <div class="trend-ctl" id="trend-ctl">
             <label>范围<select id="trend-span"></select></label>
@@ -135,9 +135,11 @@
       </div>
     </section>
 
-    <!-- ============ 体成分（事件型）============
+    <!-- ============ 体成分（事件型·完整截面）============
          不属于日/周/月尺度：一次体测一个截面，没有逐日序列。
-         放在最后是有意的——它回答的是慢变量问题，不与当日判读抢位置。 -->
+         **它不再是一个孤立的入口**——指标区里的「体成分」分组是摘要，
+         这里是完整截面：构成、区间、目标路径、节段分布、同期行为面。
+         两者同一份数据、同一套判定措辞。 -->
     <section class="section sec-body" id="inbody-zone" hidden>
       <div class="container">
         <div class="section-head">
@@ -162,10 +164,10 @@
           <span class="logo-text">健康主页</span>
         </span>
       </div>
-      <p class="footer-copy">数据来自 Garmin Connect 中国区，每晚 23:30 自动更新。仅供个人参考，不构成医疗建议。</p>
+      <p class="footer-copy">数据来自 Garmin Connect 中国区与 InBody H40，每日 02:00 出终版。仅供个人参考，不构成医疗建议。</p>
     </div>
   </footer>
 </div>
-<script type="module" src="js/main.js?v=4ed2490f"></script>
+<script type="module" src="js/main.js?v=441b0678"></script>
 </body>
 </html>

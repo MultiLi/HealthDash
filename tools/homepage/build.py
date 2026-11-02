@@ -118,5 +118,6 @@ def build():
         "days": days,
         # 事件型数据源（InBody）：不属于 days[]——它没有逐日序列，
         # 混进日粒度会凭空造出「月日均」这种不存在的口径。
+        # 「两次扫描之间」的 Garmin 行为面要索引行，由 indexlayer 挂上（attach_window）。
         "inbody": build_inbody(),
     }

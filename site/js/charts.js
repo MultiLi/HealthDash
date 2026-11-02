@@ -2,8 +2,8 @@
    单日页细分：折线 / 睡眠时间轴 / 堆叠条 / 逐时柱 / 范围条。
    指标卡序列：sparkline——x 轴粒度跟随全局尺度（日/周/月），
    同一个量在同一张卡上换粒度，而不是拆到不同页面。 */
-import { C } from "./constants.js?v=4ed2490f";
-import { esc } from "./utils.js?v=4ed2490f";
+import { C } from "./constants.js?v=441b0678";
+import { esc } from "./utils.js?v=441b0678";
 
 /* 折线图：pts [[label, v], ...]，band [lo,hi] 画参考区间 */
 export function lineChart(pts, o) {
@@ -122,8 +122,9 @@ export function sparkline(points, m, ix, o) {
     }
   });
 
-  /* 当前单元（最后一个点）的定位线 */
-  if (started) {
+  /* 当前单元（最后一个点）的定位线。稀疏事件型序列（体成分）关掉它：
+     一条近乎水平的线加一根竖直定位线，看起来像「最后一天跳了一下」。 */
+  if (started && o.cursor !== false) {
     s += '<line x1="' + X(last).toFixed(1) + '" x2="' + X(last).toFixed(1) + '" y1="' + PT +
       '" y2="' + (H - PB) + '" stroke="#10B981" stroke-width="1" opacity=".28"/>';
   }
@@ -136,7 +137,7 @@ export function sparkline(points, m, ix, o) {
   /* 两个点连起来是「一段」，不是「趋势」。低于三个单元就明说，
      与「覆盖不足不给结论」同一条纪律——不拿一条斜线冒充走势。 */
   if (n < 3) {
-    s += '<p class="mini-note">只有 ' + n + ' 个单元有数据，还看不出趋势' +
+    s += '<p class="mini-note">只有 ' + n + " 个" + (o.unitWord || "单元") + "有数据，还看不出趋势" +
       (o.finer ? '（' + esc(o.finer) + '）' : '') + "</p>";
   }
   return s;

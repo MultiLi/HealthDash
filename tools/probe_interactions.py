@@ -109,8 +109,12 @@ def build_cases(ix):
             ("点无数据的一天", "cell:%s" % no_data, r"没有采集记录", "过去的空日 → 明确空态（不是转圈）"),
             ("无数据日展开细分", "cell:%s,detail" % no_data, None, "细分给空态，不误报「加载失败」"),
         ]
+    # 上个月最后一天：它可能**有**记录（那份记录可能叫「数据缺失」的判读），
+    # 也可能真的是空格。这个用例验的是「跨月点一下不冻死、并给出明确的日视图
+    # 文案」，不是「必须是空态」——空态另有「点无数据的一天」专测。
+    prev_re = r"没有采集记录" if prev_last not in with_row else r"分析日|没有采集记录"
     cases += [
-        ("点跨月空格", "cell:%s" % prev_last, r"没有采集记录", "跨月空格 → 空态，不冻死"),
+        ("点跨月一天", "cell:%s" % prev_last, prev_re, "跨月一格 → 明确文案，不冻死"),
         ("有数据日展开细分", "cell:%s,detail" % with_data, r".", "细分正常产出"),
         ("连续狂点 尺/日/周/月/日", "cell:%s,scale:week,scale:month,scale:day,scale:day" % with_data,
          None, "连点不冻死，状态自洽"),

@@ -9,18 +9,19 @@
  *   ③ 指标网格（8 张同构卡：主值 + 环比 + 趋势线 + 达标统计；日尺度下可展开当日细分）
       趋势线的范围与粒度是两个独立参数（trend.js），与尺度无关——尺度只管主值口径。
  */
-import { store } from "./store.js?v=4ed2490f";
-import { metrics, CHECKS, bandOf, BAND, READY, readyOf } from "./constants.js?v=4ed2490f";
-import { esc, $ } from "./utils.js?v=4ed2490f";
+import { store } from "./store.js?v=441b0678";
+import { metrics, CHECKS, bandOf, BAND, READY, readyOf } from "./constants.js?v=441b0678";
+import { esc, $ } from "./utils.js?v=441b0678";
 import { metricValue, judgeValue, unitRowsAll, rowsWith,
-         unitCell, cellJudge, okCount, VERDICT_TEXT } from "./aggregate.js?v=4ed2490f";
-import { unitOf, prevUnitOf } from "./scope.js?v=4ed2490f";
-import { trendPoints } from "./trend.js?v=4ed2490f";
-import { renderMonth, renderHeatstrip } from "./calendar.js?v=4ed2490f";
-import { sparkline } from "./charts.js?v=4ed2490f";
-import { DETAILS, readinessTrail, briefHtml } from "./detail.js?v=4ed2490f";
-import { ensureShard, dayOf, hasShard } from "./data.js?v=4ed2490f";
-import { monthLabel, fmtMD, weekdayCN } from "./dateutil.js?v=4ed2490f";
+         unitCell, cellJudge, okCount, VERDICT_TEXT } from "./aggregate.js?v=441b0678";
+import { unitOf, prevUnitOf } from "./scope.js?v=441b0678";
+import { trendPoints } from "./trend.js?v=441b0678";
+import { renderMonth, renderHeatstrip } from "./calendar.js?v=441b0678";
+import { sparkline } from "./charts.js?v=441b0678";
+import { DETAILS, readinessTrail, briefHtml } from "./detail.js?v=441b0678";
+import { ensureShard, dayOf, hasShard } from "./data.js?v=441b0678";
+import { monthLabel, fmtMD, weekdayCN } from "./dateutil.js?v=441b0678";
+import { bodyGroupHtml } from "./inbody.js?v=441b0678";
 
 function ix() { return store.ix; }
 
@@ -348,6 +349,9 @@ function renderGrid(unit) {
         return groupHtml(m, unit, prev);
       }).join("") + "</div></section>";
   });
+  /* 体成分（InBody）：低频、稀疏、不进 units 聚合，但卡片与上面三组同构。
+     放在「其他」之前——它是**已归组**的第四组，不是兜底。 */
+  html += bodyGroupHtml();
   var rest = all.filter(function (m) { return !used[m.key]; });
   if (rest.length) {
     html += '<section class="mx-group" data-group="other">' +
@@ -426,7 +430,7 @@ function fillBriefEmpty(anchor) {
   $("brief-sub").textContent = fmtMD(anchor) + " " + weekdayCN(anchor) + " · 该日没有采集记录";
   $("brief-grid").innerHTML =
     '<p class="section-empty">这一天没有 Garmin 记录，因此也没有当日判读。' +
-    "可能是还没到（当天数据要等当晚 23:30 出终版），也可能是当天没戴表或没同步——" +
+    "可能是还没到（当天数据要等次日 02:00 出终版），也可能是当天没戴表或没同步——" +
     "日历上它是空心灰：<b>缺数据不等于没做到</b>。</p>";
   $("gaps").textContent = "";
   renderDayEvents(anchor);

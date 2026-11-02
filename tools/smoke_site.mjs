@@ -72,6 +72,9 @@ const { unitOf, prevUnitOf, unitSeries, unitRows } = await import(mod("js/scope.
 const { DETAILS } = await import(mod("js/detail.js"));
 const { metrics } = await import(mod("js/constants.js"));
 const { metricValue, rowsWith, unitRowsAll, unitCell, cellJudge } = await import(mod("js/aggregate.js"));
+/* 体成分的数据由 main.js 在 boot 时注入（setInBody）。冒烟关掉了 boot，
+   所以必须显式注入——否则体成分分组的断言全是「卡片数 0 == 卡片数 0」。 */
+const { setInBody, renderInBody } = await import(mod("js/inbody.js"));
 
 console.log("== 发布产物指纹 ==");
 ok(!!VER, "index.html 的资源引用已带内容指纹（CDN 免疫）", VER ? "v=" + VER : "缺失！");
@@ -120,6 +123,7 @@ store.ix = ix;
 store.rows = ix.days.slice();
 store.closed = ix.days.filter((r) => !r.morning);
 ix.days.forEach((r) => { store.byDate[r.date] = r; });
+setInBody(ix.inbody);
 /* 锚点必须复刻 main.js 的判定，不能简化成 `ix.today || ix.default_day`：
    今天常常**还没有行**（当晚才出终版），main.js 于是退回 default_day。
    测试若照抄简化版，每月 1 号就会去读「当月分片」——那天根本还没有这个月的数据，
@@ -214,8 +218,12 @@ for (const scale of ["day", "week", "month"]) {
   ok(html("unit-scope").length > 0 && html("unit-score").length > 0, `[${scale}] 当前单元总览有内容`);
   ok(count(html("unit-checks"), /class="uc[ "]/g) === 4, `[${scale}] 四项达标计数`);
   const nCards = metrics(ix).length;
-  ok(count(grid, /mx-card/g) === nCards, `[${scale}] 指标卡 ${nCards} 张`);
-  ok(count(grid, /class="spark"/g) === nCards, `[${scale}] 每卡一条单元序列`);
+  /* 体成分卡沿用 .mx-card 卡壳（class="mx-card ib-mx"），计数时要把它们摘掉。
+     注意日指标卡可能是 `class="mx-card is-warn"`，所以只能匹配前缀，
+     不能匹配 `class="mx-card"` 整串。 */
+  const nSparse = count(grid, /mx-card ib-mx/g);
+  ok(count(grid, /class="mx-card/g) - count(grid, /mx-card ib-mx/g) === nCards, `[${scale}] 指标卡 ${nCards} 张`);
+  ok(count(grid, /class="spark"/g) === nCards + nSparse, `[${scale}] 每卡一条单元序列`);
   ok(scale === "day" ? !hidden("brief-zone") : hidden("brief-zone"),
     `[${scale}] 当日判读区 ${scale === "day" ? "显示" : "隐藏（它一天一份）"}`);
   ok(scale === "day" ? drillable > 0 : drillable === 0,
@@ -287,7 +295,7 @@ for (const scale of ["roll7", "roll28", "roll90"]) {
   ok(prevUnitOf(store.anchor, scale).key === unitOf(store.anchor, scale).key ? false : true,
     `[${scale}] 环比对象是非重叠的上一窗`);
   const g = html("metric-grid");
-  ok(count(g, /mx-card/g) === metrics(ix).length, `[${scale}] 指标卡齐全`);
+  ok(count(g, /class="mx-card/g) - count(g, /mx-card ib-mx/g) === metrics(ix).length, `[${scale}] 指标卡齐全`);
   ok(/近 \d+ 天/.test(nodes.get("axis-note").textContent), `[${scale}] 时间轴说明点明窗口长度`);
 }
 
@@ -392,7 +400,7 @@ if (!liveRow) {
   ok(html("unit-scope").includes("进行中"), "明确标注进行中",
     html("unit-scope").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
   ok(/[0-9]+\.[0-9]h/.test(liveGrid), "昨夜睡眠仍给出实测值（不被整行排除）");
-  ok(count(liveGrid, /mx-card/g) === metrics(ix).length, "仍渲染全部指标卡");
+  ok(count(liveGrid, /class="mx-card/g) - count(liveGrid, /mx-card ib-mx/g) === metrics(ix).length, "仍渲染全部指标卡");
   const liveDay = store.byDate[store.anchor];
   ok(liveDay.steps == null, "当日步数本就为 null（未结束），不进步数分母");
 }
@@ -469,31 +477,40 @@ ok(!ix.days.filter((r) => r.cs !== "failed").some((r) => r.ce),
   "非 failed 行不下发端点名（不制造噪声）");
 
 /* 日历：状态必须落到 DOM，不能只停在数据层 */
+/* **日历一次只画一个月**，所以断言只能看「被画出来的那个月」。
+   以前用全跨度计数（failed=4 / missing=18 全在 9–10 月）去要求默认月的日历
+   画出这些格子，等于让测试宣布一个它自己造的错误。挑一个真的有异常状态的月，
+   再在这个月里数——规则（异常日必须带状态类与原因 title）才被真正验到。 */
+const monthWith = (state) => {
+  const ms = ix.days.filter((r) => r.cs === state).map((r) => r.date.slice(0, 7));
+  return ms.length ? ms[ms.length - 1] : null;
+};
+const calMonth = monthWith("failed") || monthWith("missing") || closedLast.slice(0, 7);
 store.scale = "month";
-store.anchor = closedLast.slice(0, 8) + "15";
-/* store.month 也要跟到代表日所在月：它停在 default_day 的月份（396 行设的），
-   换月 1 号两者就分家——日历画 11 月，csSum 却是 61 天全跨度，
-   missing/failed 全在 10 月，断言必挂。渲染哪个月，断言就必须限定哪个月。 */
-store.month = closedLast.slice(0, 7);
+store.anchor = calMonth + "-15";
+store.month = calMonth;
 renderPage();
 const calHtml = html("axis-cal");
+const inMonth = ix.days.filter((r) => r.date.slice(0, 7) === calMonth);
+const nFailedInMonth = inMonth.filter((r) => r.cs === "failed").length;
+const nMissingInMonth = inMonth.filter((r) => r.cs === "missing").length;
 store.month = ix.default_day.slice(0, 7);
 ok(/data-cs="ok"/.test(calHtml), "日历格带 data-cs 状态");
-if (csSum.failed > 0) {
+if (nFailedInMonth > 0) {
   ok(/cal-cell[^"]*cs-failed/.test(calHtml), "采集失败日渲染 cs-failed 类");
 } else {
-  console.log("  – 跳过：跨度内没有采集失败日");
+  console.log("  – 跳过：该月没有采集失败日");
 }
-if (csSum.missing > 0) {
+if (nMissingInMonth > 0) {
   ok(/cal-cell[^"]*cs-missing/.test(calHtml), "无原始数据日渲染 cs-missing 类（不是普通灰）");
 } else {
-  console.log("  – 跳过：跨度内没有 missing 日");
+  console.log("  – 跳过：该月没有 missing 日");
 }
 /* title 是唯一能说清「为什么这天是空的」的地方，必须带原因 */
-if (csSum.failed > 0) {
+if (nFailedInMonth > 0) {
   ok(/title="[^"]*采集失败/.test(calHtml), "失败格的 title 写明「采集失败」");
 }
-if (csSum.missing > 0) {
+if (nMissingInMonth > 0) {
   ok(/title="[^"]*无原始数据/.test(calHtml), "缺失格的 title 写明「采集未运行」");
 }
 
@@ -566,9 +583,18 @@ ok(/data-date="\d{4}-\d{2}-\d{2}"/.test(document.getElementById("bl-list").inner
 console.log("\n== 当日背景事件 ==");
 ok(Object.keys(evs).length > 0, "index.json 下发事件流", Object.keys(evs).length + " 天");
 const evDay = Object.keys(evs).sort().pop();
+/* 日尺度要读**当月分片**。init 只预载了锚点月（11 月），而事件最近一天常在
+   上个月——不预载就会走 ensureShard 的异步路径，断言在同一步里读到「加载中」，
+   验的是时序而不是渲染。这里按同一套规则把该月分片补上。 */
+const evMonth = evDay.slice(0, 7);
+if (!store.shards[evMonth]) {
+  const evShardPath = path.join(DATA_DIR, "daily", evMonth + ".json");
+  store.shards[evMonth] = fs.existsSync(evShardPath)
+    ? JSON.parse(fs.readFileSync(evShardPath, "utf8")).days : {};
+}
 store.scale = "day";
 store.anchor = evDay;
-store.month = evDay.slice(0, 7);
+store.month = evMonth;
 renderPage();
 ok(!document.getElementById("day-events").hidden, "有事件的日期显示背景事件区", evDay);
 ok(document.getElementById("day-events").innerHTML.includes("当日背景事件"), "事件区带标题");
@@ -580,10 +606,66 @@ console.log("\n== 指标分组 ==");
 const gridHtml = html("metric-grid");
 ok((gridHtml.match(/class="mx-group"/g) || []).length >= 3, "指标按恢复/行为/负荷分组",
   String((gridHtml.match(/class="mx-group"/g) || []).length) + " 组");
-ok(count(gridHtml, /mx-card/g) === metrics(ix).length, "分组后卡片总数不变（一张都没丢）",
-  count(gridHtml, /mx-card/g) + "/" + metrics(ix).length);
+/* 体成分卡与日指标卡共用 .mx-card 卡壳，所以计数时要把它单独摘出来比 */
+const nBodyCards = count(gridHtml, /mx-card ib-mx/g);
+ok(count(gridHtml, /mx-card/g) - nBodyCards === metrics(ix).length,
+  "分组后日指标卡片总数不变（一张都没丢）",
+  (count(gridHtml, /mx-card/g) - nBodyCards) + "/" + metrics(ix).length);
 ok(/data-group="recover"/.test(gridHtml) && /data-group="behave"/.test(gridHtml),
   "恢复组与行为组都在");
+
+console.log("\n== 体成分：低频卡片与日指标同构 ==");
+/* 这一节验的不是「有没有画出体成分」，而是**它是不是同一家人**：
+   同一套卡壳、同一套判定措辞、同一份后端判定；以及**它没有偷偷跟着尺度变**。 */
+const ibData = ix.inbody || {};
+ok(/data-group="body"/.test(gridHtml), "指标区里有「体成分」分组（不是页尾孤块）");
+ok(/不随上面的日期与尺度变化/.test(gridHtml), "组标题写明它不吃尺度");
+ok(nBodyCards === (ibData.cards || []).length && nBodyCards > 0,
+  "卡片数 = 后端下发的体成分指标数", nBodyCards + "/" + (ibData.cards || []).length);
+const bodyCards = gridHtml.split('class="mx-card ib-mx"').slice(1);
+ok(bodyCards.length > 0 && bodyCards.every(function (h) {
+  return /过门槛|在误差内|首次测量|跨时段不可比|闸门未覆盖/.test(h);
+}), "每张卡的变化文案都来自后端判定（过门槛/误差内/首次/跨条件/未过闸门）");
+ok(!/class="dl (good|bad)"/.test(bodyCards.join("")),
+  "体成分变化不给好/坏色（方向要判读层把去脂体重一起看才能说）");
+/* verdict 是后端 → 前端的契约：后端加了新状态而前端没文案，页面就会显示 undefined。
+   这条断言把契约钉在测试里，而不是钉在记忆里。 */
+const VERDICTS = ["changed", "within-noise", "no-baseline", "not-comparable", "pending-check"];
+ok((ibData.cards || []).every(function (c) { return VERDICTS.indexOf(c.verdict) >= 0; }),
+  "卡片 verdict 都在前端有文案的状态集内",
+  (ibData.cards || []).map(function (c) { return c.verdict; }).join("/"));
+/* 换尺度只改「当前单元」，体成分卡必须纹丝不动 */
+const bodyByScale = {};
+["day", "week", "month", "roll90"].forEach(function (sc) {
+  store.scale = sc;
+  renderPage();
+  const h = html("metric-grid");
+  bodyByScale[sc] = h.slice(h.indexOf('data-group="body"'));
+});
+ok(new Set(Object.keys(bodyByScale).map(function (k) { return bodyByScale[k]; })).size === 1,
+  "换尺度体成分卡完全一致（它不属于任何尺度）");
+store.scale = "month";
+renderPage();
+
+/* 页尾完整截面：同一份数据的另一种读法 */
+renderInBody();
+const ibHtml = html("ib-grid");
+ok(!document.getElementById("inbody-zone").hidden, "完整截面区可见");
+ok(/次扫描/.test(ibHtml), "扫描时间线写出次数与每次读数", String(ibData.history && ibData.history.length));
+if (ibData.window && (ibData.window.metrics || []).length) {
+  ok(/同期行为面/.test(ibHtml) && /前 \d+ 天/.test(ibHtml),
+    "同期行为面带本窗与前窗（两个源放进同一个时间窗）", ibData.window.from + "~" + ibData.window.to);
+  ok(/不判方向|只供对照/.test(ibHtml), "对照带明说不判方向");
+} else {
+  console.log("  – 跳过：只有一次扫描，没有可对照的窗口");
+}
+if (ibData.morning_weight) {
+  ok(/晨起空腹体重/.test(ibHtml) && /不可相减/.test(ibHtml),
+    "晨起空腹与体测仪并列，并写明不可相减",
+    ibData.morning_weight.kg + " / " + ibData.morning_weight.date);
+} else {
+  ok(/没有晨起空腹体重的记录/.test(ibHtml), "没有晨起体重时如实说明，不装作有");
+}
 
 console.log("\n== 逐日达标矩阵 ==");
 const matHtml = html("day-matrix");

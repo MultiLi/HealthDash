@@ -56,25 +56,60 @@
 
 ### 体成分（InBody）· 事件型数据源
 
-**它不在 `days[]` 里。** `site/index.json` 顶层多了一个 `inbody` 块，由
-`tools/homepage/inbody.py` 装配、`site/js/inbody.js` + `site/css/inbody.css` 渲染成独立一节
-「体成分 InBody」（位于当日判读之后、footer 之前）。
+**它不在 `days[]` 里，也不进日/周/月尺度。** 一次体测一个截面，间隔以周/月计；
+`references/metrics.json` 已把 weight_kg / body_fat_pct / ffm_kg 声明为「点观测、低频」，
+并写明「刻意不进 units 聚合——一旦合并就会把两个口径平均成一个不存在的数」。
+所以它**没有 units 单元、没有达标率**，只有扫描日的点。
 
-- **不进日/周/月尺度**：InBody 一次体测一个截面，间隔以周/月计。塞进指标网格会暗示「每天都有值」，
-  并让「月日均」这种不存在的口径凭空产生。所以它**不吃 anchor/scale，只在 boot 时渲染一次**。
+**两处渲染，一份数据**（`site/index.json.inbody`，由 `tools/homepage/inbody.py` 装配）
+
+- **① 指标区第四组「体成分」**（`inbody.js::bodyGroupHtml`，由 `metricgrid.renderGrid` 追加，
+  位置在恢复/行为/负荷之后、「其他」之前）：5 张卡 = 体重 / 体脂率 / 去脂体重 / 骨骼肌 / 内脏脂肪。
+  卡壳、`mx-*` 类名与前三组**完全同构**，差别只有时间语义。
+- **② 页尾完整截面**（`renderInBody`）：构成、参考区间、目标路径、节段分布、同期行为面。
+
+**这一组不吃 anchor/scale**——换尺度它纹丝不动（smoke 有断言）。它回答的是「最近一次 vs 上一次」，
+不是「这个月日均」；把它塞进 units 会立刻造出「月日均体重」这种不存在的口径。
+
+**判定只有一个来源：`data/inbody/status.json`。** `check_inbody.py` 过完 `rules.confidence`
+的门槛后写它，`homepage/inbody.py` **只读不算**——视图层重算一次门槛，就等于给同一个事实
+留下第二条路径（报告写「过门槛」、页面写「在误差内」，两边都不算错）。
+- 五档措辞：`changed` 过门槛 / `within-noise` 在误差内 / `no-baseline` 首次 / `not-comparable`
+  跨时段 / `pending-check` 闸门未覆盖。后端加状态而前端没文案会显示 `undefined`，
+  smoke 里有一条断言把这张契约钉住。
+- **`status.latest_datetime` 与最新扫描对不上时一律不给比较**（写「闸门未覆盖这次扫描，
+  暂不比较」）：status 里那组 deltas 讲的是上一对扫描，拿它当这次的变化就是张冠李戴。
+- **变化不给好/坏色。** 体重下降可能是掉脂肪，也可能是掉肌肉，方向要判读层把去脂体重
+  一起看才能说；卡片只报「变了多少、过没过门槛」，颜色留给判读。
+
+**同期行为面**（`inbody.window`）：本窗 = 上次扫描次日 → 本次扫描，前窗 = 紧邻的同长段，
+七项（步数 / 睡眠 / 中高强度 / 久坐 / 活动消耗 / 静息心率 / HRV）。
+由 `inbody.attach_window(ib, rows)` 在 indexlayer 挂上——它要**索引行**（扁平 date/steps），
+而 build 阶段手上只有嵌套 day；重造一份扁平化就是第二套口径。
+**只并置、不判方向、不给箭头**：跨源没有可过的因果门槛。步数按整数显示，每行带「有效天 n/窗口长」。
+
+**双口径体重**：`morning_weight()` 走 `settings.DAILY_LOG`（数据在 `data/logs/`；
+自己拼 `ROOT/daily_log.jsonl` 会永远读到 `None`——曾经如此，页面上「双口径并列」一次都没渲染过）。
+正式字段只有 `weight_kg`，**不回落 `weight_extra_*`**。
+晨起值超过 30 天必须写「已 N 天未称」：一个 57 天前的数与一个昨天的数并排，看上去同样「当前」。
+
+**扫描时间线按真实间隔排点**：10/18→10/21 是 3 天、10/21→10/31 是 10 天，等距排会把两者画成
+一样宽，看上去像「匀速下降」。跨度超过 180 天才退回等距。稀疏序列关掉 sparkline 的定位竖线
+（`cursor:false`）——一条近乎水平的线加一根竖线，看起来像「最后一天跳了一下」。
+
 - **只有 1 条记录时不画趋势**：页面明写「现在是截面，不是趋势」；`scan_count >= 2` 才谈变化。
 - **体重必须给构成**（去脂 + 脂肪堆叠条），并把**晨起空腹体重并列**、写明「两个口径不可相减/不取平均」。
-  不写这句，两个口径的数字摆在一起必然被读成「胖了 4.3kg」。
+  不写这句，两个口径的数字摆在一起必然被读成「胖了 2.3kg」。
 - **参考区间来自设备**（`MFA/BCA` 的 `*_MIN/_MAX`），前端不硬编码；每个数都给「相对区间站在哪」+ 越界量。
 - **目标路径现算**：`体重 = FFM ÷ (1 − 目标体脂率)`，禁止写死具体体重值。
-- 数据源：`data/inbody/{index,latest,profile}.json` + `raw/scan_*.json`，由
+- 数据源：`data/inbody/{index,latest,profile,status}.json` + `raw/scan_*.json`，由
   `body-health/scripts/sync_inbody.py` 采集（独立凭据，与佳明无关）。
 - 尺度按钮从 3 个变 6 个（日/周/月/7天/28天/90天），`.seg` 在 ≤620px 收窄（`base.css`），否则窄屏顶出卡片。
 - **改了 `js/` 或 `css/` 就必须重新发布**（数据推送不影响它）；新加 `inbody.css` 时记得在
   `index.html` 里加 `<link>`，否则样式静默失效。
 
 ### 前端改动的验证手段
-- `tools/smoke_site.mjs`：**改完 js/ 必跑**（零依赖，113 项断言，含取数链路 + 空日/冻死回归）。须按 index.html 里带指纹的地址 import 模块，否则拿到第二个模块实例直接崩。DOM 桩抓不到事件层问题。
+- `tools/smoke_site.mjs`：**改完 js/ 必跑**（零依赖，181 项断言，含取数链路 + 空日/冻死回归）。须按 index.html 里带指纹的地址 import 模块，否则拿到第二个模块实例直接崩。DOM 桩抓不到事件层问题。
 - `tools/probe_interactions.py`：**真浏览器真点**，抓「点完冻死」这类交互层问题（8 用例，约 30 秒）。⚠️ **给无头 Chrome 传 `--user-data-dir=<新建目录>` 会让它永不返回**，症状是「所有用例 HUNG」——**连基线都 HUNG 就是工具坏了**。默认复用默认 profile + `--incognito`。
 - **截图验证**：`"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --disable-gpu --no-sandbox --hide-scrollbars --window-size=1440,4200 --screenshot=out.png --virtual-time-budget=9000 <url>`。**起本地服务必须在同一条 bash 里「起→截图→kill」，或者用 `run_in_background=true` 起的常驻 server**——用 `(cmd &)` 子 shell 起的不行，进程会随命令退出被回收。看非默认尺度就把 index.html 复制成 `site/_probe_*.html` 换显式 boot，截完即删。**呈现层问题只能靠截图发现。**
 
@@ -101,7 +136,7 @@
 - 受容器宽度限制只画 30 天；更长的周期交给日历下方的热力条。
 
 **④ 指标分组**
-- `metric-grid` 由「8 张卡平铺」改为三组：**恢复**（睡眠 / HRV / 静息心率）、**行为**（步数 / 久坐 / 中高强度）、**负荷**（活动消耗 / 压力）。分组依据是「这个数回答什么问题」，不是医学分类。
+- `metric-grid` 由「8 张卡平铺」改为分组：**恢复**（睡眠 / HRV / 静息心率）、**行为**（步数 / 久坐 / 中高强度）、**负荷**（活动消耗 / 压力）、**体成分**（低频稀疏，见上一节）。分组依据是「这个数回答什么问题」，不是医学分类。
 - **组内才可比，跨组比较没有意义**（步数和 HRV 谁「更好」不是个问题）。
 - 未列入的指标自动落到「其他」组，**不静默丢弃**——新增指标时页面不会悄悄少一张卡。
 - 外层容器 class 从 `metric-grid` 改成 `mx-groups`，否则两层 grid 打架。
