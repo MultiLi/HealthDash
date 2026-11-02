@@ -13,8 +13,8 @@
  * 判定的唯一来源是后端 `status.json`（check_inbody 过了 rules.confidence 的门槛），
  * 本文件**不算门槛、不比大小**——只把 verdict 翻成人话。
  */
-import { esc, $ } from "./utils.js?v=fcec5116";
-import { sparkline } from "./charts.js?v=fcec5116";
+import { esc, $ } from "./utils.js?v=441b0678";
+import { sparkline } from "./charts.js?v=441b0678";
 
 function n(v, d) {
   if (v == null || isNaN(v)) return "–";

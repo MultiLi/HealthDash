@@ -256,7 +256,7 @@ def _mean(rows, key, div):
     return round(sum(vals) / len(vals) / div, 1 if div == 1 else 1), len(vals)
 
 
-def _window(days, prev_dt, latest_dt):
+def window_for(days, prev_dt, latest_dt):
     """两次扫描之间的 Garmin 行为面。
 
     **只并置，不判方向**：窗口对齐回答的是「体成分变化那段时间，行为面什么样」，
@@ -309,7 +309,7 @@ def attach_window(ib, rows):
     if len(hist) < 2:
         return ib
     out = dict(ib)
-    out["window"] = _window(rows, hist[-2].get("datetime"), hist[-1].get("datetime"))
+    out["window"] = window_for(rows, hist[-2].get("datetime"), hist[-1].get("datetime"))
     return out
 
 

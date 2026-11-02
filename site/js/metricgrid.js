@@ -9,19 +9,19 @@
  *   ③ 指标网格（8 张同构卡：主值 + 环比 + 趋势线 + 达标统计；日尺度下可展开当日细分）
       趋势线的范围与粒度是两个独立参数（trend.js），与尺度无关——尺度只管主值口径。
  */
-import { store } from "./store.js?v=fcec5116";
-import { metrics, CHECKS, bandOf, BAND, READY, readyOf } from "./constants.js?v=fcec5116";
-import { esc, $ } from "./utils.js?v=fcec5116";
+import { store } from "./store.js?v=441b0678";
+import { metrics, CHECKS, bandOf, BAND, READY, readyOf } from "./constants.js?v=441b0678";
+import { esc, $ } from "./utils.js?v=441b0678";
 import { metricValue, judgeValue, unitRowsAll, rowsWith,
-         unitCell, cellJudge, okCount, VERDICT_TEXT } from "./aggregate.js?v=fcec5116";
-import { unitOf, prevUnitOf } from "./scope.js?v=fcec5116";
-import { trendPoints } from "./trend.js?v=fcec5116";
-import { renderMonth, renderHeatstrip } from "./calendar.js?v=fcec5116";
-import { sparkline } from "./charts.js?v=fcec5116";
-import { DETAILS, readinessTrail, briefHtml } from "./detail.js?v=fcec5116";
-import { ensureShard, dayOf, hasShard } from "./data.js?v=fcec5116";
-import { monthLabel, fmtMD, weekdayCN } from "./dateutil.js?v=fcec5116";
-import { bodyGroupHtml } from "./inbody.js?v=fcec5116";
+         unitCell, cellJudge, okCount, VERDICT_TEXT } from "./aggregate.js?v=441b0678";
+import { unitOf, prevUnitOf } from "./scope.js?v=441b0678";
+import { trendPoints } from "./trend.js?v=441b0678";
+import { renderMonth, renderHeatstrip } from "./calendar.js?v=441b0678";
+import { sparkline } from "./charts.js?v=441b0678";
+import { DETAILS, readinessTrail, briefHtml } from "./detail.js?v=441b0678";
+import { ensureShard, dayOf, hasShard } from "./data.js?v=441b0678";
+import { monthLabel, fmtMD, weekdayCN } from "./dateutil.js?v=441b0678";
+import { bodyGroupHtml } from "./inbody.js?v=441b0678";
 
 function ix() { return store.ix; }
 

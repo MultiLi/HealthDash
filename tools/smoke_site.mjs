@@ -624,8 +624,8 @@ ok(nBodyCards === (ibData.cards || []).length && nBodyCards > 0,
   "卡片数 = 后端下发的体成分指标数", nBodyCards + "/" + (ibData.cards || []).length);
 const bodyCards = gridHtml.split('class="mx-card ib-mx"').slice(1);
 ok(bodyCards.length > 0 && bodyCards.every(function (h) {
-  return /过门槛|在误差内|首次测量|跨时段不可比/.test(h);
-}), "每张卡的变化文案都来自后端判定（过门槛/误差内/首次/跨条件）");
+  return /过门槛|在误差内|首次测量|跨时段不可比|闸门未覆盖/.test(h);
+}), "每张卡的变化文案都来自后端判定（过门槛/误差内/首次/跨条件/未过闸门）");
 ok(!/class="dl (good|bad)"/.test(bodyCards.join("")),
   "体成分变化不给好/坏色（方向要判读层把去脂体重一起看才能说）");
 /* verdict 是后端 → 前端的契约：后端加了新状态而前端没文案，页面就会显示 undefined。

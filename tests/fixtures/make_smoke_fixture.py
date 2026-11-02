@@ -33,6 +33,7 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 from homepage.paths import load_rules                    # noqa: E402
 import homepage.indexlayer as indexlayer                 # noqa: E402
 from homepage.indexlayer import shard_days               # noqa: E402
+from homepage.inbody import window_for                   # noqa: E402
 from homepage.timeutil import weekday_cn                 # noqa: E402
 
 # 关键防线（2026-11-01 CI 事故）：units_block 会 db.connect()，而 sqlite 在裸
@@ -249,6 +250,84 @@ def synth_units(days_rows):
     return out
 
 
+def synth_inbody(days_rows):
+    """合成体成分块（模拟 homepage.inbody.build + attach_window 的下发形态）。
+
+    形态必须与线上一致：cards[] 带 verdict（前端只翻文案、不判门槛）、
+    window 由**真实** window_for 从索引行算出（口径与线上同一份代码）。
+    数值全部虚构，两次扫描的差刚好一过门槛一在误差内，用来验两套措辞。
+    """
+    prev_dt, last_dt = "2026-10-10T09:12:00", "2026-10-24T11:05:00"
+    latest = {
+        "datetime": last_dt, "raw_datetime": "20261024110500",
+        "weight_kg": 88.6, "bmi": 26.6, "percent_body_fat": 25.0,
+        "skeletal_muscle_mass_kg": 37.9, "body_fat_mass_kg": 22.2,
+        "fat_free_mass_kg": 66.5, "total_body_water_kg": 48.5,
+        "protein_kg": 13.3, "mineral_kg": 4.7, "visceral_fat_level": 9.0,
+        "bmr_kcal": 1804.0, "whr": 0.94, "ffmi": 19.9,
+        "segmental_lean_kg": {"right_arm": 3.70, "left_arm": 3.66, "trunk": 29.0,
+                              "right_leg": 10.30, "left_leg": 10.28},
+        "segmental_fat_kg": {"right_arm": 1.3, "left_arm": 1.4, "trunk": 12.0,
+                             "right_leg": 3.1, "left_leg": 3.1},
+        "equipment": "H40", "serial": "FIXTURE0001",
+    }
+    ref = {"weight_kg": [62.3, 84.3], "skeletal_muscle_kg": [31.3, 38.3],
+           "percent_body_fat": [10.0, 20.0], "body_fat_kg": [8.8, 17.6],
+           "lean_mass_kg": [52.9, 64.7], "bmi": [18.5, 24.0],
+           "whr": [0.8, 0.9], "visceral_fat_level": 9}
+    ffm = latest["fat_free_mass_kg"]
+    targets = [{"pbf": p, "label": lab,
+                "weight_kg": round(ffm / (1 - p / 100.0), 1), "in_range": p <= 20}
+               for p, lab in ((20, "参考区间上限"), (18, "中间站"), (15, "有线条"))]
+    for t in targets:
+        t["fat_to_lose_kg"] = round(latest["weight_kg"] - t["weight_kg"], 1)
+
+    def card(key, label, unit, prec, value, prev, mdc, ref_v, series, target=None):
+        return {"key": key, "label": label, "unit": unit, "precision": prec,
+                "value": value, "ref": ref_v, "series": series,
+                "scans": len(series), "prev": prev, "prev_date": prev_dt[:10],
+                "delta": round(value - prev, 2), "mdc": mdc,
+                "exceeds": abs(value - prev) > mdc, "same_conditions": True,
+                "verdict": "changed" if abs(value - prev) > mdc else "within-noise",
+                "target": target}
+
+    cards = [
+        card("weight_kg", "体重", "kg", 1, 88.6, 90.0, 0.6, ref["weight_kg"],
+             [{"d": prev_dt[:10], "v": 90.0}, {"d": last_dt[:10], "v": 88.6}],
+             target=targets[0]["weight_kg"]),
+        card("body_fat_pct", "体脂率", "%", 1, 25.0, 24.0, 3.0, ref["percent_body_fat"],
+             [{"d": prev_dt[:10], "v": 24.0}, {"d": last_dt[:10], "v": 25.0}]),
+        card("ffm_kg", "去脂体重", "kg", 1, 66.5, 68.4, 1.5, ref["lean_mass_kg"],
+             [{"d": prev_dt[:10], "v": 68.4}, {"d": last_dt[:10], "v": 66.5}]),
+        card("skeletal_muscle_kg", "骨骼肌量", "kg", 1, 37.9, 39.0, 1.5,
+             ref["skeletal_muscle_kg"],
+             [{"d": prev_dt[:10], "v": 39.0}, {"d": last_dt[:10], "v": 37.9}]),
+        card("visceral_fat_level", "内脏脂肪等级", "级", 0, 9.0, 9.0, 2,
+             ref["visceral_fat_level"],
+             [{"d": prev_dt[:10], "v": 9.0}, {"d": last_dt[:10], "v": 9.0}]),
+    ]
+    return {
+        "available": True, "scan_count": 2, "updated": last_dt,
+        "latest": latest, "age_days": 2, "stale": False,
+        "equipment": "H40", "serial": "FIXTURE0001",
+        "profile": {"height_cm": 182.5, "age": "33", "gender": "M"},
+        "reference": ref, "targets": targets,
+        "morning_weight": {"kg": 86.2, "date": "2026-10-20", "age_days": 6},
+        "cards": cards,
+        "status": {"verdict": "OK", "checked_at": last_dt + "+08:00",
+                   "conditions": "合成用例：家用机型 + 非晨起空腹，绝对值只定区间。",
+                   "notes": ["与上一条比对：体重 -1.4kg 过门槛（合成用例）"]},
+        "window": window_for(days_rows, prev_dt, last_dt),
+        "history": [{"datetime": prev_dt, "weight_kg": 90.0,
+                     "percent_body_fat": 24.0, "skeletal_muscle_mass_kg": 39.0},
+                    {"datetime": last_dt, "weight_kg": 88.6,
+                     "percent_body_fat": 25.0, "skeletal_muscle_mass_kg": 37.9}],
+        "caveats": ["测量时点 11:05，非晨起空腹——受当日进食饮水影响",
+                    "机身 H40 为家用站立式，跨机型不可比",
+                    "生物电阻抗固有误差 ±3–5%：只定区间与通道归属"],
+    }
+
+
 def main():
     out_dir = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, ".smoke-fixture")
     today = datetime.date.today().isoformat()
@@ -267,6 +346,8 @@ def main():
     # CI 无库 / 无主观日志：这三个块由本脚本合成（见模块注释的分工说明）。
     # units 已在上面把读库口短路成 _fixture 标记，这里整体替换为合成判定。
     idx["units"] = synth_units(idx["days"])
+    # 体成分：CI 无 data/inbody，合成一份同形态的块，让前端两处渲染都被真跑到。
+    idx["inbody"] = synth_inbody(idx["days"])
     idx["events"] = {
         "2026-09-15": [{"t": "context", "c": "合成事件：当日为工作日、久坐为主（fixture 用例）",
                         "ts": "2026-09-15T09:00:00+08:00"}],
