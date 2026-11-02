@@ -224,6 +224,12 @@ n 天均值之间要除以 √n。不收缩的话，六周 6.7ms 的真实下行
 该结论强制 `state=不可判定` 且不给措辞，理由写进 `reason`。趋势的 `basis` 同时标成
 `selected_days`（斜率按命中日计，不是日历日）。
 
+### 消费端
+
+- **报告**：`facts.conclusions`（近 14 天，锚定目标日），跨日措辞只能引自这里。
+- **主页**：`index.json.conclusions`（周/月按单元全量、滚动窗只算最新），渲染成总览末尾的
+  「这一段的形状」。位置与三条纪律见 `docs/frontend.md` 同名章节。
+
 ### 门禁
 
 `tools/window_conclusions_check.py`（CI 项 `conclusions:window`）验五条恒真命题：
