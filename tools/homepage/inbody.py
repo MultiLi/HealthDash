@@ -35,18 +35,27 @@ INBODY = os.path.join(ROOT, "data", "inbody")
 # 目标路径的体脂率档位（展示用，不是判读阈值）
 _TARGET_PBF = [(20, "参考区间上限"), (18, "中间站"), (15, "有线条")]
 
-# 卡片顺序 = 从「最该先看的」到「补充」：(注册表 key, 扫描对象 key, 参考区间 key)
+# 进指标区「结构」组的三个量：(注册表 key, 扫描对象 key, 参考区间 key)
+#
+# 为什么只有三个：卡片的职责是「这个数在动、动得比噪声大」。骨骼肌量与去脂体重
+# 在三个扫描点上几乎共线（都是同一个瘦体重块的两种切法），分两张卡说两遍同一件事；
+# 内脏脂肪等级三次都是 9，画出来是一条水平线。这两个留在扫描报告里逐项列出，
+# 不进卡片——**一屏只放会动的量**。
 _CARDS = [
     ("weight_kg", "weight_kg", "weight_kg"),
     ("body_fat_pct", "percent_body_fat", "percent_body_fat"),
     ("ffm_kg", "fat_free_mass_kg", "lean_mass_kg"),
-    ("skeletal_muscle_kg", "skeletal_muscle_mass_kg", "skeletal_muscle_kg"),
-    ("visceral_fat_level", "visceral_fat_level", "visceral_fat_level"),
 ]
+
+# 「结构 × 行为」对照图的带回溯天数与最少跨度。
+# 体重只有扫描日有点，行为面逐日都有——两者要同框，靠的是**公共 x 轴**，
+# 不是把两个源各自的比例尺画在一张图里（双 y 轴那种图谁都能编出想要的结论）。
+_BAND_PAD_DAYS = 14       # 扫描跨度外各留两周，让「扫描前后来看」有参照
+_BAND_MIN_DAYS = 42       # 扫描只隔了几天时，窗口不至于缩成一条缝
 
 # 同期对照：两次扫描之间，Garmin 侧的行为面。(行字段, 标签, 单位, 精度, 除数)
 _CONTEXT = [
-    ("steps", "日步数", "步", 0, 1),
+    ("steps", "步数", "", 0, 1),
     ("sleep_h", "睡眠", "h", 1, 1),
     ("intensity_min", "中高强度", "min", 0, 1),
     ("sedentary_min", "久坐", "h", 1, 60),
@@ -296,8 +305,95 @@ def window_for(days, prev_dt, latest_dt):
     }
 
 
-def attach_window(ib, rows):
-    """把「扫描区间内的 Garmin 行为面」挂到索引块上。
+def _day(s):
+    try:
+        return datetime.date.fromisoformat((s or "")[:10])
+    except Exception:
+        return None
+
+
+def _shift(s, days):
+    d = _day(s)
+    return (d + datetime.timedelta(days=days)).isoformat() if d else None
+
+
+def bands_for(rows, hist):
+    """结构 × 行为的公共时间轴。
+
+    整合的判据只有一条：**这两个量能不能共享同一根日期轴**。
+
+      · 能共享的（体重 / 步数 / 睡眠 / 静息心率）—— 就该画在同一张图的同一条
+        x 轴上、垂直对齐，而不是两块各画一份、再靠一张「同期均值」的表格去连线。
+      · 共享不了的（节段分布 / 目标路径 / 参考区间 / 测量条件）—— 它们本来就是
+        「那一次扫描的报告」，一次性，进附件。
+
+    四带各自独立 y 轴，**不做双轴叠加**：把体重和步数塞进同一个坐标系，可以调出
+    任何想要的「相关性」。对齐的只是日期。
+
+    体重只有扫描日有点、行为面逐日都有——这是两条不同采样密度的线，图要如实
+    呈现这一点（扫描之外没有点，不插值、不补点）。
+    """
+    if not rows or not hist:
+        return None
+    scan_pts = []
+    for s in hist:
+        d = (s.get("datetime") or "")[:10]
+        v = _num(s.get("weight_kg"))
+        if _day(d) and v is not None:
+            scan_pts.append([d, v])
+    if not scan_pts:
+        return None
+
+    bydate = {r["date"]: r for r in rows if r.get("date")}
+    lo = _shift(scan_pts[0][0], -_BAND_PAD_DAYS)
+    hi = _shift(scan_pts[-1][0], _BAND_PAD_DAYS)
+    if not lo or not hi:
+        return None
+    if (_day(hi) - _day(lo)).days < _BAND_MIN_DAYS:
+        lo = _shift(hi, -_BAND_MIN_DAYS)
+    dates = [d for d in sorted(bydate) if lo <= d <= hi]
+    if len(dates) < 7:
+        return None
+
+    def band(key, label, unit, kind, prec, div=1, src=None):
+        pts = []
+        if src:
+            pts = [[d, v] for d, v in src if d in dates]
+        else:
+            for d in dates:
+                v = _num(bydate[d].get(key))
+                if v is not None:
+                    pts.append([d, round(v / div, prec)])
+        if len(pts) < 3:
+            return None
+        return {"key": key, "label": label, "unit": unit, "kind": kind,
+                "precision": prec, "points": pts}
+
+    behaviors = [
+        band("steps", "日均步数", "步", "bar", 0),
+        band("sleep_h", "睡眠", "h", "line", 1),
+        band("rhr", "静息心率", "bpm", "line", 0),
+    ]
+    behaviors = [b for b in behaviors if b]
+    if len(behaviors) < 2:
+        return None
+
+    return {
+        "from": dates[0],
+        "to": dates[-1],
+        "dates": dates,
+        "scan_dates": [d for d, _ in scan_pts],
+        # 体重放最上：它是「结构」这一侧唯一有连续意义的量，也是这张图的主语
+        "structure": {"key": "weight_kg", "label": "体重", "unit": "kg",
+                      "kind": "line", "precision": 1, "points": scan_pts},
+        "behaviors": behaviors,
+        "note": "四带共用同一根日期轴，各自独立纵轴——对齐的是日期，不是量纲。"
+                "扫描日打竖线；两次扫描之间没有体重读数，不插值。",
+    }
+
+
+def attach_context(ib, rows):
+    """把「同期行为面」与「结构 × 行为对齐带」挂到索引块上。
 
     单独一步，是因为它要的是**索引行**（扁平的 date/steps/sleep_h），
     那是 indexlayer 的产物；build 阶段手上只有完整 day（嵌套 recovery/activity）。
@@ -306,10 +402,12 @@ def attach_window(ib, rows):
     if not ib or not ib.get("available"):
         return ib
     hist = ib.get("history") or []
-    if len(hist) < 2:
-        return ib
     out = dict(ib)
-    out["window"] = window_for(rows, hist[-2].get("datetime"), hist[-1].get("datetime"))
+    out["bands"] = bands_for(rows, hist)
+    if len(hist) < 2:
+        return out
+    out["window"] = window_for(rows, hist[-2].get("datetime"),
+                               hist[-1].get("datetime"))
     return out
 
 

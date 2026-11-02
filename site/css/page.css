@@ -61,8 +61,11 @@
 
 /* ---------- 指标网格 ---------- */
 .sec-grid { padding: 64px 0 88px; }
-.metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; align-items: start; }
-@media (max-width: 1080px) { .metric-grid { grid-template-columns: repeat(2, 1fr); } }
+/* 四列：三组分别是 4 / 4 / 3 张。用三列的话，前两组各会甩下一张孤零零的卡，
+   看上去像「漏了一张」——那不是留白，是破格。四列时前两组整行、结构组 3/4。 */
+.metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 22px; align-items: start; }
+@media (max-width: 1280px) { .metric-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 980px) { .metric-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 680px) {
   /* `1fr` 的隐性下限是 min-content：sparkline 的 viewBox 宽 320，卡片内边距再加
      44，窄屏（<400px）时这一列会被撑得比视口宽。minmax(0,1fr) 把下限压到 0，
@@ -72,18 +75,17 @@
   .mx-chart { min-width: 0; }
 }
 
-/* 指标分组：恢复 / 行为 / 负荷 / 体成分。
-   每组内部才可比，跨组比较没有意义——所以用组标题把它们隔开，
-   而不是排成一条 8 张卡的流水线。
-   「体成分」是低频稀疏组（一次扫描一个点），卡壳与前三组一致，
-   差别只在时间语义（见 inbody.css 与 metrics.json 的点观测声明）。 */
+/* 指标分组：恢复 / 活动 / 结构。
+   三组是**三条互不重叠的轴**（身体在补 / 身体在耗 / 身体是什么），不是数据来源。
+   组内才可比，跨组比较没有意义——所以用组标题隔开，而不是排成一条流水线。
+   「结构」是慢变量组（一次扫描一个点），卡壳与前两组一致，差别只在时间语义
+   （见 inbody.css 与 metrics.json 的点观测声明）。 */
 .mx-groups { display: flex; flex-direction: column; gap: 30px; }
 .mx-group { display: flex; flex-direction: column; gap: 14px; }
 .mx-gh { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .mx-gh h3 { font-size: 15px; font-weight: 600; color: var(--text); }
 .mx-gh h3::before { content: ""; display: inline-block; width: 4px; height: 13px; border-radius: 2px; background: var(--green); margin-right: 9px; vertical-align: -1px; }
-.mx-group[data-group="behave"] .mx-gh h3::before { background: #38BDF8; }
-.mx-group[data-group="load"] .mx-gh h3::before { background: var(--amber); }
+.mx-group[data-group="activity"] .mx-gh h3::before { background: #38BDF8; }
 .mx-group[data-group="other"] .mx-gh h3::before { background: var(--text-3); }
 .mx-gh span { font-size: 12.5px; color: var(--text-3); }
 @media (max-width: 680px) { .mx-groups { gap: 24px; } }

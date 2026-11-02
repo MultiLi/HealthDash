@@ -6,15 +6,19 @@
    格内：日期 + 综合指数分档徽标 + 包边色条 + 四个达标点
    （实心绿=达标 / 实心琥珀=未达标 / 空心灰=该维度当日无实测）。
    数据满 60 天后自动出现长周期热力条。 */
-import { bandOf, BAND, CHECKS } from "./constants.js?v=441b0678";
-import { esc } from "./utils.js?v=441b0678";
-import { rowChecks } from "./aggregate.js?v=441b0678";
-import { monthMatrix, weekRangeLabel, addDays, fmtMD, weekStart } from "./dateutil.js?v=441b0678";
+import { bandOf, BAND, CHECKS } from "./constants.js?v=ae331b07";
+import { esc } from "./utils.js?v=ae331b07";
+import { rowChecks } from "./aggregate.js?v=ae331b07";
+import { monthMatrix, weekRangeLabel, addDays, fmtMD, weekStart } from "./dateutil.js?v=ae331b07";
 
 var WD = ["一", "二", "三", "四", "五", "六", "日"];
 
+/* 整格无数据时**不画**四个空心点：那四个点说的是「这四项都没有实测」，
+   而在一个根本没有采集记录的日子里，这句话没有信息量——它只是把空格
+   填满，让整张月历看起来像有事发生。空就是空。
+   （有行、只是某项缺测的日子仍然画：那时「哪一项缺」是有意义的。） */
 function dotsHtml(row, ix) {
-  if (!row) return '<span class="cal-dots"><i class="na"></i><i class="na"></i><i class="na"></i><i class="na"></i></span>';
+  if (!row) return "";
   var st = rowChecks(row, ix);
   return '<span class="cal-dots">' + CHECKS.map(function (c) {
     return '<i class="' + st[c.key] + '"></i>';
@@ -85,10 +89,18 @@ export function renderMonth(month, ctx) {
   var cells = monthMatrix(month);
   var weeks = [];
   for (var i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+
+  /* 整周都在今天之后 = 还没到，**压扁不删**。
+     月初打开时月历有一半是空壳，那是给网格凑整齐的占位，不是排期。
+     但也不能删——删掉之后「一个月」的形状就没了，两行的日历看起来像周视图。
+     压到只剩日期数字（CSS .is-future），既保住月形，又把一半的高度还回来。 */
+  var tod = ctx.today || "";
   var inner = '<div class="cal-grid">' +
     '<div class="cal-head">' + WD.map(function (w) { return "<span>" + w + "</span>"; }).join("") + "</div>" +
     weeks.map(function (w) {
-      return '<div class="cal-week">' + w.map(function (c) { return cellHtml(c, ctx); }).join("") + "</div>";
+      var future = tod && w.every(function (c) { return c.date > tod; });
+      return '<div class="cal-week' + (future ? " is-future" : "") + '">' +
+        w.map(function (c) { return cellHtml(c, ctx); }).join("") + "</div>";
     }).join("") +
     "</div>";
   return inner;

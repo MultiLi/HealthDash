@@ -1,33 +1,106 @@
-/* 体成分（InBody）· 事件型数据源
-   它出现在两处：指标区里的「体成分」分组（与日指标同构的稀疏卡片），
-   以及页尾的完整截面（一份截面 × 若干视角）。
-   两处都不参与日/周/月尺度——一次体测一个截面，没有逐日序列。 */
+/* 结构（体重 / 体脂率 / 去脂体重）· 慢变量维度
+ *
+ * 页面按信息维度分：身体在补（恢复）／身体在耗（活动）／身体是什么（结构）。
+ * InBody 只是「结构」这个维度的尺子，**所以这里没有「体成分专区」的样式**——
+ * 那是一个数据源的形状，不是信息维度的形状。
+ *
+ * 三处深度：
+ *   ① 指标区第三组「结构」—— 卡壳与其他组完全一致（样式在 page.css，此处只补组标色）
+ *   ② 结构 × 活动 —— 四带共享一根日期轴
+ *   ③ 测量报告 —— 折叠，只属于那一次测量
+ */
 
-.sec-body { padding: 64px 0 88px; }
-.sec-body .section-head { align-items: flex-start; }
-.ib-src { font-size: 12.5px; font-weight: 600; color: var(--text-3); letter-spacing: .06em; text-transform: uppercase; margin-left: 10px; }
+/* ---------- ① 指标区第三组：结构 ---------- */
+/* 组标色用紫，与恢复（绿）/活动（蓝）区分。颜色只分「这是哪一组」，
+   不表达好坏——体重上升不是坏事，它只是结构变了。 */
+.mx-group[data-group="structure"] .mx-gh h3::before { background: #A78BFA; }
+.ib-mx .mx-value { display: flex; align-items: baseline; gap: 3px; }
+.ib-mx .mx-value em { font-style: normal; font-size: 12px; font-weight: 500; color: var(--text-3); }
 
-/* 时间戳：这一节唯一的时间语义 */
-.ib-stamp { text-align: right; font-size: 12.5px; color: var(--text-3); line-height: 1.7; }
-.ib-stamp b { display: block; font-size: 15px; color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
-.ib-stamp .ib-age { display: block; width: fit-content; margin: 7px 0 0 auto; padding: 2px 8px; border-radius: 100px; background: var(--green-tint); color: var(--green-deep); font-size: 11.5px; font-weight: 600; }
-.ib-stamp .ib-age.stale { background: var(--amber-tint); color: var(--amber-deep); }
+/* ---------- ② 结构 × 活动：共享时间轴 ---------- */
+/* 紧接指标区：顶部不留 padding（指标区底部已有 88px），底部只留一个
+   呼吸位——再大就要和判读流水自己的 72px 顶距叠成一条鸿沟。 */
+.sec-struct { padding: 0 0 20px; }
+
+.abands {
+  background: #fff; border: 1px solid var(--border); border-radius: 14px;
+  box-shadow: var(--shadow-card); padding: 8px 22px 12px;
+}
+.ab-row {
+  display: grid; grid-template-columns: 104px 1fr; align-items: center;
+  gap: 16px; padding: 10px 0;
+}
+.ab-row + .ab-row { border-top: 1px dashed var(--border); }
+.ab-k { display: flex; align-items: baseline; gap: 5px; font-size: 12.5px; color: var(--text-2); }
+.ab-k b { font-size: 15px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.ab-k em { font-style: normal; font-size: 11px; color: var(--text-3); }
+.ab-t { min-width: 0; }
+/* height 固定 + preserveAspectRatio="none"：横向铺满，纵向保持 56px。
+   线宽由 vector-effect 守住，否则会跟着横向拉伸一起变粗。 */
+.ab-svg { width: 100%; height: 56px; display: block; }
+.ab-none { font-size: 12px; color: var(--text-3); }
+
+.ab-x { display: grid; grid-template-columns: 104px 1fr; gap: 16px; margin-top: 2px; }
+.ab-x-r { position: relative; height: 15px; }
+.ab-x-r span {
+  position: absolute; transform: translateX(-50%);
+  font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums;
+}
+.ab-x-r span:first-child { transform: none; }
+.ab-x-r span:last-child { transform: translateX(-100%); }
+
+/* 本窗均值一行：图给形状，这行给量级。两者都要，否则只能靠眼睛估。 */
+.ab-sum {
+  display: flex; align-items: baseline; gap: 20px; flex-wrap: wrap;
+  margin: 16px 0 0; font-size: 12.5px; color: var(--text-2);
+}
+.ab-sum em { font-style: normal; font-size: 11.5px; color: var(--text-3); }
+.ab-sum span { color: var(--text-3); }
+.ab-sum span i { font-style: normal; font-size: 11.5px; margin-right: 5px; }
+.ab-sum span b { font-size: 15px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.ab-x-r span.is-scan { color: var(--green-deep); font-weight: 600; }
+.ab-caveat { margin-top: 10px; font-size: 11.5px; color: var(--text-3); line-height: 1.7; }
+
+/* ---------- ③ 测量报告（折叠） ---------- */
+.sr-wrap {
+  margin-top: 16px; background: #fff; border: 1px solid var(--border);
+  border-radius: 14px; box-shadow: var(--shadow-card);
+}
+.sr-sum {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 15px 22px; cursor: pointer; list-style: none;
+}
+.sr-sum::-webkit-details-marker { display: none; }
+.sr-ico { font-size: 12.5px; font-weight: 600; color: var(--text-2); }
+.sr-ico::before {
+  content: ""; display: inline-block; width: 4px; height: 12px; border-radius: 2px;
+  background: #A78BFA; margin-right: 8px; vertical-align: -1px;
+}
+.sr-date { font-size: 12.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.sr-wt { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.sr-pbf, .sr-delta { font-size: 12px; color: var(--text-3); }
+.sr-age {
+  padding: 2px 8px; border-radius: 100px; background: var(--green-tint);
+  color: var(--green-deep); font-size: 11.5px; font-weight: 600;
+}
+.sr-age.stale { background: var(--amber-tint); color: var(--amber-deep); }
+.sr-more { margin-left: auto; font-size: 12px; color: var(--green-deep); font-weight: 500; }
+.sr-more::after { content: "展开"; }
+.sr-wrap[open] .sr-more::after { content: "收起"; }
+.sr-sum:hover .sr-more { text-decoration: underline; }
+.sr-body { border-top: 1px dashed var(--border); padding: 22px 22px 24px; }
 
 .ib-grid { display: grid; grid-template-columns: 1.05fr .95fr; gap: 22px; align-items: start; }
 .ib-grid + .ib-grid { margin-top: 22px; }
 @media (max-width: 1000px) { .ib-grid { grid-template-columns: 1fr; } }
 
-.ib-card { background: #fff; border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-card); padding: 22px 24px 20px; }
+.ib-card { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 22px 24px 20px; }
 .ib-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
 .ib-card-head h3 { font-size: 14px; font-weight: 600; color: var(--text-2); }
 .ib-card-head span { font-size: 12px; color: var(--text-3); }
 
 /* ---------- 体重分解：一条堆叠条，两个来源 ---------- */
-.ib-split-top { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
-.ib-split-top b { font-size: 40px; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1; }
-.ib-split-top em { font-style: normal; font-size: 14px; color: var(--text-3); }
-
-.ib-bar { display: flex; height: 30px; border-radius: 8px; overflow: hidden; margin: 18px 0 10px; background: var(--bg-alt); }
+.ib-bar { display: flex; height: 30px; border-radius: 8px; overflow: hidden; margin: 0 0 10px; background: var(--bg-alt); }
 .ib-bar i { display: flex; align-items: center; justify-content: center; font-size: 11.5px; font-weight: 600; color: #fff; font-style: normal; white-space: nowrap; transition: width .5s ease; }
 .ib-bar .ib-lean { background: var(--green); }
 .ib-bar .ib-fat { background: var(--amber); }
@@ -44,7 +117,7 @@
 
 /* ---------- 区间条：参考范围 + 实测位置 ---------- */
 .ib-rows { display: flex; flex-direction: column; gap: 16px; }
-.ib-row { display: grid; grid-template-columns: 64px 76px 1fr; align-items: center; gap: 12px; }
+.ib-row { display: grid; grid-template-columns: 74px 76px 1fr; align-items: center; gap: 12px; }
 .ib-k { font-size: 12.5px; color: var(--text-2); }
 .ib-v { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
 .ib-v em { font-style: normal; font-size: 11px; font-weight: 500; color: var(--text-3); margin-left: 2px; }
@@ -54,6 +127,10 @@
 .ib-track .ib-zone { position: absolute; top: 0; height: 8px; border-radius: 4px; background: var(--green-tint); }
 .ib-track .ib-dot { position: absolute; top: 50%; width: 11px; height: 11px; border-radius: 6px; background: var(--amber); border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(15,20,25,.08); transform: translate(-50%, -50%); }
 .ib-track .ib-dot.ok { background: var(--green); }
+/* 等级型指标没有区间可比，只有一句话——它和第 3 列对齐，不占一行轨道 */
+.ib-row-plain { align-items: baseline; }
+.ib-note-inline { grid-column: 3; font-size: 11.5px; color: var(--text-3); }
+.ib-note-inline.warn { color: var(--amber-deep); }
 .ib-note { grid-column: 3; font-size: 11.5px; color: var(--text-3); margin-top: -10px; }
 .ib-note.warn { color: var(--amber-deep); }
 
@@ -67,7 +144,6 @@ table.ib-tbl td.num { text-align: right; }
 table.ib-tbl td.num, table.ib-tbl th:nth-child(2), table.ib-tbl th:nth-child(3) { padding-right: 16px; }
 table.ib-tbl td.w { font-weight: 600; }
 table.ib-tbl td.loss { color: var(--amber-deep); font-weight: 600; }
-table.ib-tbl .ib-flag { display: inline-block; margin-left: 6px; font-size: 10.5px; padding: 1px 6px; border-radius: 4px; background: var(--green-tint); color: var(--green-deep); font-weight: 600; }
 
 /* ---------- 节段分布 ---------- */
 .ib-seg-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
@@ -90,18 +166,9 @@ table.ib-tbl .ib-flag { display: inline-block; margin-left: 6px; font-size: 10.5
 .ib-caveats { margin-top: 22px; font-size: 12px; color: var(--text-3); line-height: 1.8; }
 .ib-caveats b { color: var(--amber-deep); }
 .ib-caveats span + span::before { content: " · "; color: var(--border); }
+.ib-src { margin-top: 14px; font-size: 11.5px; color: var(--text-3); }
 
 .ib-empty { font-size: 14px; color: var(--text-3); background: var(--bg-alt); border: 1px dashed var(--border); border-radius: var(--radius); padding: 22px 26px; line-height: 1.7; }
-
-/* ---------- 指标区里的第四组：体成分 ----------
-   卡壳沿用 .mx-card，只补三处：单位小字、增长尾的链接、组标色。
-   外观必须与恢复/行为/负荷三组**看不出差别**——它要是长得像附录，
-   人还是会把它当成另一个数据源。 */
-.mx-group[data-group="body"] .mx-gh h3::before { background: #A78BFA; }
-.ib-mx .mx-value { display: flex; align-items: baseline; gap: 3px; }
-.ib-mx .mx-value em { font-style: normal; font-size: 12px; font-weight: 500; color: var(--text-3); }
-a.mx-more { text-decoration: none; }
-a.mx-more:hover { color: var(--green-deep); border-color: var(--green); background: var(--green-tint); }
 
 /* ---------- 扫描时间线 + 闸门判定 ---------- */
 .ib-timeline { margin-top: 26px; font-size: 13px; color: var(--text-2); line-height: 1.9; font-variant-numeric: tabular-nums; }
@@ -109,14 +176,15 @@ a.mx-more:hover { color: var(--green-deep); border-color: var(--green); backgrou
 .ib-verdict { margin-top: 14px; padding: 11px 14px; border-radius: 10px; background: var(--bg-alt); border-left: 3px solid var(--green); font-size: 12.5px; color: var(--text-2); line-height: 1.75; }
 .ib-verdict b { color: var(--text); font-weight: 600; margin-right: 4px; }
 
-/* ---------- 同期行为面：两个源放进同一个时间窗 ---------- */
-.ib-window { margin-top: 22px; }
-.ib-wtbl td, .ib-wtbl th { white-space: nowrap; }
-.ib-wtbl td em { font-style: normal; font-size: 11px; color: var(--text-3); margin-left: 2px; }
-.ib-wtbl td.prev, .ib-wtbl td.n { color: var(--text-3); font-size: 12.5px; }
-.ib-wtbl th:nth-child(3), .ib-wtbl th:nth-child(4) { text-align: right; }
-.ib-window .ib-caveats { margin-top: 14px; }
-@media (max-width: 560px) {
-  .ib-window { overflow-x: auto; }
-  .ib-wtbl { min-width: 420px; }
+/* ---------- 窄屏 ---------- */
+@media (max-width: 680px) {
+  .ab-row, .ab-x { grid-template-columns: 72px 1fr; gap: 10px; }
+  /* 标签列 72px：竖排会让「体重 / 88.2 / kg」占三行，把每条带撑高。
+     横排放不下就换行，但数值和单位始终挨着。 */
+  .ab-k { flex-wrap: wrap; gap: 3px; font-size: 11.5px; }
+  .ab-k b { font-size: 13px; }
+  .abands { padding: 6px 14px 10px; }
+  .sr-sum { padding: 13px 16px; gap: 10px; }
+  .sr-body { padding: 18px 16px 20px; }
+  .ib-row { grid-template-columns: 62px 62px 1fr; gap: 8px; }
 }

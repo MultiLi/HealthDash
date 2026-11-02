@@ -3,14 +3,14 @@
  * 观测状态只有两个自由度：**anchor（锚定日期）+ scale（尺度）**。
  * 没有「概览页」「某日页」之分——那两者是同一个视图在月尺度与日尺度下的样子。
  * 首屏只拉索引；单日细分在展开时才拉当月分片（取数链路见 data.js）。 */
-import { store } from "./store.js?v=441b0678";
-import { esc, $ } from "./utils.js?v=441b0678";
-import { renderPage, setupDetailToggle, renderBriefLog } from "./metricgrid.js?v=441b0678";
-import { shiftMonth, monthKey, fmtMD } from "./dateutil.js?v=441b0678";
-import { loadIndex } from "./data.js?v=441b0678";
-import { renderInBody, setInBody } from "./inbody.js?v=441b0678";
-import { initView } from "./view.js?v=441b0678";
-import { TREND_SPANS, TREND_GRAINS } from "./trend.js?v=441b0678";
+import { store } from "./store.js?v=ae331b07";
+import { esc, $ } from "./utils.js?v=ae331b07";
+import { renderPage, setupDetailToggle, renderBriefLog } from "./metricgrid.js?v=ae331b07";
+import { shiftMonth, monthKey, fmtMD } from "./dateutil.js?v=ae331b07";
+import { loadIndex } from "./data.js?v=ae331b07";
+import { renderStructure, setInBody } from "./inbody.js?v=ae331b07";
+import { initView } from "./view.js?v=ae331b07";
+import { TREND_SPANS, TREND_GRAINS } from "./trend.js?v=ae331b07";
 
 function setScale(scale) {
   store.scale = scale;
@@ -262,10 +262,11 @@ function init(ixd) {
   fillTrendCtl();
   setupDetailToggle();
   setupNudge();
-  /* 体成分是事件型数据，不随 anchor/scale 重绘——只在 boot 时渲染一次。
-     把它塞进 renderPage 会让每点一次日历都重算一遍慢变量，且暗示它跟着日期变。 */
+  /* 结构这一维是慢变量，不随 anchor/scale 重绘——只在 boot 时渲染一次。
+     把它塞进 renderPage 会让每点一次日历都重算一遍慢变量，且暗示它跟着日期变。
+     （「结构」组的卡片由 renderPage → renderGrid 装配，那是同一份数据的两处深度。） */
   setInBody(ixd.inbody);
-  renderInBody();
+  renderStructure();
   renderPage();
   renderSync();
   /* 待补提示只依赖「今天」这个事实，不随尺度/锚点变化，故不进 renderPage */
