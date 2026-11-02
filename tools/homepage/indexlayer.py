@@ -24,6 +24,7 @@ from homepage.scoring import hrv_state
 from homepage.nudge import nudge_block
 from homepage.events import events_block
 from homepage.inbody import attach_context
+from homepage.conclusions_layer import block as conclusions_block
 
 import sys as _sys
 if SCRIPTS not in _sys.path:
@@ -294,6 +295,11 @@ def build_index(data, rules):
         # 前端的环比箭头与达标色从**这里**读，不再自己比大小（2026-10-25）。
         # 传 rows 是为了给每格附上「采集缺口 g」——说明覆盖为什么不足，不改判定。
         "units": units_block(rules, rows),
+        # 窗口结论（2026-11-03）：{scale: {key: {w, na, rows}}}，周/月全量 + 滚动窗只算最新。
+        # 卡片答「这个单元多少」，判读区答「这一天怎样」，这里是两句之间缺的那句
+        # 「这一段是什么形状」——同样 26 天超标，4 段和 26 段是两种生活。
+        # 判定来自 conclusions.py，本层只压缩字段（见 conclusions_layer.py）。
+        "conclusions": conclusions_block(rules),
         "trend_windows": hp.get("trend_windows", [7, 30, 90]),
         "span": {"first": days[0]["date"], "last": days[-1]["date"], "n": len(days)},
         # 采集健康度：哪里没数、为什么没数。**加这个块的原因很直接**——
