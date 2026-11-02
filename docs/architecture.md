@@ -71,6 +71,8 @@ data/
 
 **L3 是心脏**。它把「今天 HRV 低于基线带下沿、偏移超过 mdc_single，所以是正式破位」从散文变成一条可查询记录。没有它，「过去 90 天红灯出现在哪些维度」只能靠重读 90 份报告。
 
+**L3 的窗口投影**：`conclusions.py` 把日级布尔按任意窗口聚成定性陈述（`rate` / `run`，附加 `integral` / `trend`），**不产生新判定**——分母由每条断言的 `inputs` 推导，措辞与算子登记在 `references/conclusions.json`。它回答的是「这一段的形状是什么」，日级断言（「昨晚怎么样」）与 L2（「这一段是多少」）都答不了。规格见 `docs/query-interface.md` §九。
+
 ### 2.3 三个核心对象的规格
 
 字段实现见 `scripts/db.py` 的建表语句与 `references/metrics.json`；这里只钉不可协商的语义。

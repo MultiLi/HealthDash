@@ -1,6 +1,6 @@
 # 查询层（任意窗口）
 
-> L2 的第二个消费端。目标：**任意窗口、任意粒度的提问**，而判定与口径仍只有一份。现状覆盖「窗口 + 指标 + 环比」；条件组合、保存视图、报告接入见 §六（未落地）。
+> L2 的第二个消费端。目标：**任意窗口、任意粒度的提问**，而判定与口径仍只有一份。覆盖「窗口 + 指标 + 环比」「条件组合」「保存视图」「定性结论」四个自由度。
 
 ## 一、两条硬约束
 
@@ -122,8 +122,11 @@ P4a 落地前的重构本身也过了同一把尺子：抽 `compute_cell` / `app
 | `query.py` | 查询定义的校验、解析、求值与展示；`run()` 是库入口，CLI 是壳 |
 | `query.py::select_days` | 条件 → 命中日集合（三态：命中/未命中/不可判定） |
 | `query.py::apply_min_n` | 条件筛选后的最小样本门（判定权在这里，不在调用方） |
+| `conclusions.py` | 窗口结论：注册表、`rate`/`run` 算子、`integral`/`trend` 附加量、措辞 |
+| `references/conclusions.json` | 每条断言的 `kind` / `operator` / `inputs` / 措辞（窗口语义的唯一来源） |
 | `tools/query_equivalence.py` | 等价性门（CI 项 `query:equivalence`） |
 | `tools/query_checks.py` | 条件不变量检查（CI 项 `query:conditions`） |
+| `tools/window_conclusions_check.py` | 窗口结论不变量（CI 项 `conclusions:window`） |
 
 命令：
 
@@ -132,6 +135,10 @@ python3 skills/body-health/scripts/query.py --days 14 --metrics hrv_ms,rhr_bpm
 python3 skills/body-health/scripts/query.py --start 2026-10-01 --end 2026-10-20 --json
 python3 skills/body-health/scripts/query.py --scale week --key 2026-W44
 python3 skills/body-health/scripts/query.py --list-metrics
+python3 skills/body-health/scripts/query.py --days 30 --conclusions sleep.duration.short,activity.sedentary.over
+python3 skills/body-health/scripts/query.py --list-conclusions
+python3 skills/body-health/scripts/conclusions.py --days 30          # 只看结论，不看数值
+python3 skills/body-health/scripts/conclusions.py --list            # 注册表全表
 ```
 
 ## 八、报告与 agent 怎么用它
@@ -155,9 +162,88 @@ python3 skills/body-health/scripts/query.py --list-metrics
 对话里的每个数字都能指回「哪条断言支持它」——这是 `verify_judgment` 的数值溯源在对话侧的延伸。
 trace 只给引用，不产生新结论。
 
-## 九、明确不做
+## 九、定性结论的窗口化
+
+数值可以任意窗口聚合，判断原先只能按天。这一节把「这一段的形状是什么」补上：
+`assertions` 的日级布尔 → `conclusions.py` 的窗口陈述。**不重算任何日判定**，只数。
+
+```json
+{"window": {"days": 30},
+ "metrics": ["hrv_ms"],
+ "conclusions": ["sleep.duration.short", "activity.sedentary.over"]}
+```
+
+### 三种断言，三种命运
+
+| kind | 里子 | 窗口化的形态 |
+|---|---|---|
+| `judge` | 当天阈值越线 | `rate`（命中÷可判定）或 `run`（段结构），加措辞 |
+| `cross` | 两个 L1 条件同时成立 | 只做**共现计数**，`--conclusions` 直接拒绝 |
+| `status` / `passthrough` / `point` | 采集状态 / 设备透传 / 点测量 | 不窗口化（分别是 coverage、无独立含义、取最新） |
+
+登记在 `references/conclusions.json`：`kind`、`operator`、`inputs`（分母来源）、`words`（措辞）。
+**未登记的 id 会让 `assertions.py rebuild` 直接报错**——新增一条断言却没定义它跨日怎么读，是契约破坏。
+
+### 四条语义（决定了答案可不可信）
+
+**① 分母 = 可判定天数，不是行数，也不是窗口天数。** 可判定 = 该断言的 `inputs` 当天都有值。
+行数当分母会把「没测到」算成「没发生」；窗口天数当分母会把「没数据」算成「没触发」。
+`tools/window_conclusions_check.py` 的 `denominator` 项逐日核对「有行 ⟺ 可判定」。
+
+**② 门槛一个不新造。** 发生率分界读 `rules.units.daily_ok_rate`（0.6），样本门读
+`rules.query.min_n_selected`（5），趋势门槛读 `confidence.<metric>.mdc_change`。
+唯一的换算是**趋势门槛按 √n 收缩**：`mdc_change` 是两次单次读数之间的门槛，
+n 天均值之间要除以 √n。不收缩的话，六周 6.7ms 的真实下行会被 20ms 判定成「在误差内」。
+
+**③ 措辞按状态取，状态按数字定。** 成立 / 参半 / 不成立 / 不可判定。参半是独立的：
+发生率 55% 既不是「常态」也不是「偶发」，说任一都是编。不可判定专指样本不足，
+**不指「说不准」**——那正是参半。
+
+**④ 精度是声明，不是门禁。** 结果带 Wilson 区间，但判定用点估计。
+拿「CI 下界必须高过 0.6」当门禁，实测会让 7 天窗口 5 条结论里 4 条变成「不确定」，
+功能等于没有。区间用来防止把 77% 说成「全部」。
+
+### 算子
+
+| 算子 | 输出 | 例 |
+|---|---|---|
+| `rate` | 命中/可判定 + CI + 段数 + 最长段 | 久坐 22/23、2 段、最长 20 天 |
+| `run` | 段数与最长段，门槛由 `min_run_ref` 指向 rules | 连续欠觉最长 5 天（门槛 2） |
+| `integral`（附加） | Σ 越过逐日判读线的部分 | 睡眠欠账 10.6 h |
+| `trend`（附加） | 斜率 + 总变化 + `mdc/√n` 门槛 | HRV −0.37/天，累计 −7.7，可判 |
+
+`integral` / `trend` 不单独成 id：它们是同一条结论的另一个时间面，挂在结论上。
+
+### 与条件正交
+
+`conditions` 筛完日子后，结论只在命中的日子上求值（分母随之变小，样本门自动更严）。
+「熬夜日之后的恢复结论」因此不需要新接口。
+
+**但条件不许碰到结论自己的输入。** 筛「睡眠 < 6.5h 的日子」再算「睡眠不足发生率」，
+结果必然是 100%——数字没错，它什么都没说。`cond_metrics` 与结论 `inputs` 有交集时，
+该结论强制 `state=不可判定` 且不给措辞，理由写进 `reason`。趋势的 `basis` 同时标成
+`selected_days`（斜率按命中日计，不是日历日）。
+
+### 门禁
+
+`tools/window_conclusions_check.py`（CI 项 `conclusions:window`）验五条恒真命题：
+
+| 项 | 抓什么 |
+|---|---|
+| `registry` | 库里的 id 没登记 / 登记了没中文名 / judge 缺 operator 或 inputs |
+| `denominator` | 只在触发时落库（分母偏小）或缺失被当成未触发（分母偏大） |
+| `degenerate` | 窗长 1 时窗口结论 ≠ 当日断言（第二套日判定，或聚合错位） |
+| `closure` | 计数不闭合、发生率越界、状态有而措辞缺、有命中却不可判定 |
+| `additive` | 窗口命中 ≠ 单日命中之和（日期错位一天） |
+
+`degenerate` 只查 `rate` 类：`run` 的日级 verdict 已含历史（streak），单日窗口重建不出同一语义。
+
+## 十、明确不做
 
 - 不做「原始序列导出让你自己算」——判定权不下放，这一条在 P4 不松口
 - 不做报表编辑器 / 看板自由布局（视图是查询定义，不是画布）
 - 不让调用方指定覆盖门槛或最小样本（那是「选到能过线的门槛」）
+- 不做**窗口级红黄绿总评**：30 天压成一个档位，丢掉的正是「哪几天差」，还比日级总评更像权威结论
+- 不做**窗口级归因**（「这 30 天 HRV 低是因为熬夜」）：日级共现是同一时点的事实，窗口级共现是跨时间的巧合
+- 不开放任意聚合函数：算子只能是 `rate`/`run`/`integral`/`trend` 四个，与「数学只有一份」同一条纪律
 - 片段指标（`hour_*`）不进任意窗口口径：它们没有跨尺度的合格门槛，且日值仍由日汇总裁决（见 `fragment-layer.md`）

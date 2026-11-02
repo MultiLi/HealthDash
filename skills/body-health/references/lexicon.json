@@ -60,6 +60,7 @@
   "cross.sedentary_high_energy": "久坐但能量有余",
   "data.day.partial": "当日数据截断",
   "data.day.no_data": "当日无输入",
+ "data.day.no_observations": "当日无任何观测",
   "data.reference.missing": "动态参考量缺失",
   "data.unit.coverage_low": "单元覆盖不足",
   "device.readiness.grade": "设备准备度分档",

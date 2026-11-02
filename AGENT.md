@@ -66,6 +66,9 @@
 | 查询溯源 | `python3 $S/query.py --json ...` 的 `trace` 段 | 窗口内相关断言 id + 档位，回答可指回断言 | 无 |
 | 查询等价性 | `python3 tools/query_equivalence.py` | 查询层与 units 表逐格比对（CI 项 `query:equivalence`） | 无 |
 | 条件不变量 | `python3 tools/query_checks.py` | 三类条件的正/反用例 + 三桶闭合 + 最小样本门（CI 项 `query:conditions`） | 无 |
+| **窗口结论** | `python3 $S/conclusions.py --days 30`（或 `--start/--end`、`--ids a,b`、`--json`、`--list`） | 每条定性结论的：命中/可判定、发生率 + 精度区间、段数与最长段、状态与措辞；带 integral/trend 时一并给 | 无（只读）；**措辞只能引用后端给的 `word`**，不许自己造「持续」「恶化」 |
+| 查询带结论 | `python3 $S/query.py --days 30 --conclusions sleep.duration.short,activity.sedentary.over`（或 `all`、`--list-conclusions`） | 同一窗口的数值行 + 定性结论行 | 无（只读）；`cross.*` 等归因型/状态型会被拒绝（不是遗漏） |
+| 结论不变量 | `python3 tools/window_conclusions_check.py` | 分母可知、单日聚合恒等、计数闭合、加性（CI 项 `conclusions:window`） | 无 |
 | 前端冒烟 | `node tools/smoke_site.mjs`（`SMOKE_DATA_DIR=<目录>` 可指向 fixture） | 129 项断言（fixture 路径 134 项） | 无 |
 | 交互探针 | `python3 tools/probe_interactions.py` | 8 用例真浏览器点击 | 无 |
 
