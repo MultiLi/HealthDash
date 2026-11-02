@@ -13,8 +13,8 @@
  *
  * 现在两者正交：范围可换、粒度可换、二者任意组合；观测尺度怎么切都不影响这张图。
  */
-import { addDays, isoWeekKey, monthKey, fmtMD } from "./dateutil.js?v=4ed2490f";
-import { metricValue, rowsWith, judgeValue, unitCell, cellJudge } from "./aggregate.js?v=4ed2490f";
+import { addDays, isoWeekKey, monthKey, fmtMD } from "./dateutil.js?v=fcec5116";
+import { metricValue, rowsWith, judgeValue, unitCell, cellJudge } from "./aggregate.js?v=fcec5116";
 
 /* 范围：往回看多久。days=0 表示「全部」（从最早一天算起）。 */
 export var TREND_SPANS = [

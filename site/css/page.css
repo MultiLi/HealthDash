@@ -63,11 +63,20 @@
 .sec-grid { padding: 64px 0 88px; }
 .metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; align-items: start; }
 @media (max-width: 1080px) { .metric-grid { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 680px) { .metric-grid { grid-template-columns: 1fr; } }
+@media (max-width: 680px) {
+  /* `1fr` 的隐性下限是 min-content：sparkline 的 viewBox 宽 320，卡片内边距再加
+     44，窄屏（<400px）时这一列会被撑得比视口宽。minmax(0,1fr) 把下限压到 0，
+     卡片才会真的收缩、图跟着缩。桌面与 500px 以上量不出差别，是给更窄的屏留的。 */
+  .metric-grid { grid-template-columns: minmax(0, 1fr); }
+  .mx-card { min-width: 0; }
+  .mx-chart { min-width: 0; }
+}
 
-/* 指标分组（2026-11-01）：恢复 / 行为 / 负荷。
+/* 指标分组：恢复 / 行为 / 负荷 / 体成分。
    每组内部才可比，跨组比较没有意义——所以用组标题把它们隔开，
-   而不是排成一条 8 张卡的流水线。 */
+   而不是排成一条 8 张卡的流水线。
+   「体成分」是低频稀疏组（一次扫描一个点），卡壳与前三组一致，
+   差别只在时间语义（见 inbody.css 与 metrics.json 的点观测声明）。 */
 .mx-groups { display: flex; flex-direction: column; gap: 30px; }
 .mx-group { display: flex; flex-direction: column; gap: 14px; }
 .mx-gh { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }

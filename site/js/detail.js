@@ -5,10 +5,10 @@
  * 于是「看某天」不需要换页面，只需要在日尺度下把卡展开。
  * 每个函数返回 HTML 字符串，数据取自按月分片的完整 day 对象。
  */
-import { C } from "./constants.js?v=4ed2490f";
-import { esc, dash, fm } from "./utils.js?v=4ed2490f";
-import { lineChart, hypnoSvg, stackBar, hourBars, rangeBar } from "./charts.js?v=4ed2490f";
-import { facts, subChips } from "./components.js?v=4ed2490f";
+import { C } from "./constants.js?v=fcec5116";
+import { esc, dash, fm } from "./utils.js?v=fcec5116";
+import { lineChart, hypnoSvg, stackBar, hourBars, rangeBar } from "./charts.js?v=fcec5116";
+import { facts, subChips } from "./components.js?v=fcec5116";
 
 function t(title) { return '<h4 class="detail-title">' + esc(title) + "</h4>"; }
 
@@ -194,9 +194,9 @@ export function briefHtml(d) {
   var empty = !b || !((b.sections && b.sections.length) || (b.cross && b.cross.length));
   if (empty) {
     return { sub: "分析日 " + d.label + " " + d.weekday, html: '<p class="section-empty">' +
-      (b ? "本日简报尚未生成——简报每晚 23:30 为当日写入正文，当前只有占位。" :
-        "该日无判读简报存档（简报每晚 23:30 为分析日生成）。") +
-      (d.morning ? "本日数据仍在进行中，今晚 23:30 出终版。" : "") + "</p>", gaps: "" };
+      (b ? "本日简报尚未生成——简报每日 02:00 写入，当前只有占位。" :
+        "该日无判读简报存档（简报每日 02:00 为前一天生成）。") +
+      (d.morning ? "本日数据仍在进行中，次日 02:00 出终版。" : "") + "</p>", gaps: "" };
   }
   var html = "";
   if (b.cross && b.cross.length) {
@@ -212,7 +212,7 @@ export function briefHtml(d) {
       }).join("") + "</ul></div>";
   }).join("");
   return {
-    sub: "分析日 " + d.label + " " + d.weekday + " · 每晚 23:30 自动生成 · 交叉判读先行",
+    sub: "分析日 " + d.label + " " + d.weekday + " · 每日 02:00 自动生成 · 交叉判读先行",
     html: html,
     gaps: b.gaps && b.gaps.length ? "数据缺口：" + b.gaps.join("；") : ""
   };

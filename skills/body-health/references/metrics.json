@@ -15,6 +15,7 @@
   "weight_kg": {
    "label": "体重",
    "unit": "kg",
+   "precision": 1,
    "kind": "point",
    "cadence": "daily",
    "role": "anchor",
@@ -30,6 +31,7 @@
   "body_fat_pct": {
    "label": "体脂率",
    "unit": "%",
+   "precision": 1,
    "kind": "point",
    "cadence": "monthly",
    "role": "proxy",
@@ -45,6 +47,7 @@
   "ffm_kg": {
    "label": "去脂体重",
    "unit": "kg",
+   "precision": 1,
    "kind": "derived",
    "cadence": "monthly",
    "role": "proxy",
@@ -59,6 +62,7 @@
   "skeletal_muscle_kg": {
    "label": "骨骼肌量",
    "unit": "kg",
+   "precision": 1,
    "kind": "point",
    "cadence": "monthly",
    "role": "proxy",
@@ -72,6 +76,7 @@
   "visceral_fat_level": {
    "label": "内脏脂肪等级",
    "unit": "级",
+   "precision": 0,
    "kind": "point",
    "cadence": "monthly",
    "role": "proxy",

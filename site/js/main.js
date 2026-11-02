@@ -3,14 +3,14 @@
  * 观测状态只有两个自由度：**anchor（锚定日期）+ scale（尺度）**。
  * 没有「概览页」「某日页」之分——那两者是同一个视图在月尺度与日尺度下的样子。
  * 首屏只拉索引；单日细分在展开时才拉当月分片（取数链路见 data.js）。 */
-import { store } from "./store.js?v=4ed2490f";
-import { esc, $ } from "./utils.js?v=4ed2490f";
-import { renderPage, setupDetailToggle, renderBriefLog } from "./metricgrid.js?v=4ed2490f";
-import { shiftMonth, monthKey, fmtMD } from "./dateutil.js?v=4ed2490f";
-import { loadIndex } from "./data.js?v=4ed2490f";
-import { renderInBody, setInBody } from "./inbody.js?v=4ed2490f";
-import { initView } from "./view.js?v=4ed2490f";
-import { TREND_SPANS, TREND_GRAINS } from "./trend.js?v=4ed2490f";
+import { store } from "./store.js?v=fcec5116";
+import { esc, $ } from "./utils.js?v=fcec5116";
+import { renderPage, setupDetailToggle, renderBriefLog } from "./metricgrid.js?v=fcec5116";
+import { shiftMonth, monthKey, fmtMD } from "./dateutil.js?v=fcec5116";
+import { loadIndex } from "./data.js?v=fcec5116";
+import { renderInBody, setInBody } from "./inbody.js?v=fcec5116";
+import { initView } from "./view.js?v=fcec5116";
+import { TREND_SPANS, TREND_GRAINS } from "./trend.js?v=fcec5116";
 
 function setScale(scale) {
   store.scale = scale;

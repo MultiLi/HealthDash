@@ -7,8 +7,8 @@
  * 空态纪律沿用：`na` 是「不给结论」，不是「没达标」；两者在表格里必须长得不一样
  * （一个是灰字「不给结论」，一个是红字「未达标」）。看不清这两者的区别，
  * 就会把「没测到」读成「没做到」。 */
-import { esc } from "./utils.js?v=4ed2490f";
-import { loadJSON } from "./data.js?v=4ed2490f";
+import { esc } from "./utils.js?v=fcec5116";
+import { loadJSON } from "./data.js?v=fcec5116";
 
 var JUDGE = {
   ok: ["达标", "q-ok"],
