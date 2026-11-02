@@ -40,6 +40,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 import db  # noqa: E402
 import metricdefs  # noqa: E402
+import conclusions  # noqa: E402  只用来做「id 必须登记」的契约检查
 
 BAD, WARN, GOOD, INFO = "BAD", "WARN", "GOOD", "NEUTRAL"
 SEVERITY = {BAD: 0, WARN: 1, GOOD: 2, INFO: 3}
@@ -161,20 +162,24 @@ def build_day(date, v, rules, ctx):
                                                    {"bed_window_end_min": bw_end}),
                       "offset_from_window_min": (bed - bw_end) if bw_end else None},
                      None, "入睡提前比任何补剂都有效"))
-        if severe_bed is not None and bed >= severe_bed:
-            out.append(A("sleep.bedtime.very_late", date, "sleep", "sleep_bed_min",
-                         "ref:bed_window_end_min + sleep.bed_severe_offset_min",
-                         True, BAD,
-                         {"bed_min": bed, "bed_severe_min": severe_bed,
-                          "ruler": metricdefs.ruler_of("sleep_bed_min",
-                                                       {"bed_window_end_min": bw_end}),
-                          "offset_from_window_min": bed - bw_end if bw_end else None},
-                         None, "超过 2 小时就不是『晚一点』，是作息整体后移"))
-    out.append(A("sleep.debt.streak_ge_2", date, "sleep", "sleep_h",
-                 "cross.sleep_debt_nights", ctx.get("short_streak", 0) >= 2, WARN,
-                 {"streak": ctx.get("short_streak", 0),
-                  "min_nights": rules["cross"]["sleep_debt_nights"]}, conf("sleep_h"),
-                 "睡眠债按周计，一晚还不清"))
+        # 未触发也要落库：窗口层要算「发生率」，分母是可判定天数。写在 if 里
+        # 就等于只在触发时记一笔，分母永久丢失，发生率会被算成 100%。
+        out.append(A("sleep.bedtime.very_late", date, "sleep", "sleep_bed_min",
+                     "ref:bed_window_end_min + sleep.bed_severe_offset_min",
+                     severe_bed is not None and bed >= severe_bed, BAD,
+                     {"bed_min": bed, "bed_severe_min": severe_bed,
+                      "ruler": metricdefs.ruler_of("sleep_bed_min",
+                                                   {"bed_window_end_min": bw_end}),
+                      "offset_from_window_min": bed - bw_end if bw_end else None},
+                     None, "超过 2 小时就不是『晚一点』，是作息整体后移"))
+    # 与 bb.net_negative_streak 同一条：没测到的那天不落库，否则分母把缺失算成
+    # 「没有连续欠觉」。streak 本身遇缺口即断（_streak 用 99h 触发 break），两者一致。
+    if sh is not None:
+        out.append(A("sleep.debt.streak_ge_2", date, "sleep", "sleep_h",
+                     "cross.sleep_debt_nights", ctx.get("short_streak", 0) >= 2, WARN,
+                     {"streak": ctx.get("short_streak", 0),
+                      "min_nights": rules["cross"]["sleep_debt_nights"]}, conf("sleep_h"),
+                     "睡眠债按周计，一晚还不清"))
 
     # ---- activity ----
     st = v.get("steps_daily")
@@ -265,11 +270,15 @@ def build_day(date, v, rules, ctx):
         out.append(A("stress_energy.bb.low", date, "stress_energy", "bb_low",
                      "bb.critical_low", bbl <= rules["bb"]["critical_low"], WARN,
                      {"bb_low": bbl, "critical": rules["bb"]["critical_low"]}, None))
-    out.append(A("stress_energy.bb.net_negative_streak", date, "stress_energy", "bb_net",
-                 "cross.bb_net_negative_days", ctx.get("bb_neg_streak", 0) >= 2, WARN,
-                 {"streak": ctx.get("bb_neg_streak", 0),
-                  "min_days": rules["cross"]["bb_net_negative_days"]}, None,
-                 "收支倒挂的源头通常在入睡时间"))
+    # 只在 bb_net 有值的那天落库。无条件写会让缺失日也留一条 verdict=0，
+    # 「没测到」被静默算成「没倒挂」——那正是 query 层三桶纪律要防的错。
+    if v.get("bb_net") is not None:
+        out.append(A("stress_energy.bb.net_negative_streak", date, "stress_energy",
+                     "bb_net", "cross.bb_net_negative_days",
+                     ctx.get("bb_neg_streak", 0) >= 2, WARN,
+                     {"streak": ctx.get("bb_neg_streak", 0), "bb_net": v.get("bb_net"),
+                      "min_days": rules["cross"]["bb_net_negative_days"]}, None,
+                     "收支倒挂的源头通常在入睡时间"))
     sa = v.get("stress_avg")
     good = _th("stress_avg", "judge", rules)
     if sa is not None and good is not None:
@@ -332,46 +341,55 @@ def build_day(date, v, rules, ctx):
                      {"acwr": v["acwr"], "under": rules["acwr"]["under"]}, None))
 
     # ---- cross（只吃 L1 的布尔，不自己算数）----
+    # 交叉断言**只要输入齐就落库**，不论是否触发。只在触发时记一笔，分母就永久
+    # 丢失——窗口层会把「8 条命中」读成「8/8 成立」，那是最坏的一种假结论。
     trg = {x["id"]: bool(x["verdict"]) for x in out}
+
+    def cross(aid, cond, inputs, evidence, level=WARN, conf_=None, hint=None):
+        if any(v.get(m) is None for m in inputs):
+            return
+        out.append(A(aid, date, "cross", ",".join(inputs), aid, bool(cond), level,
+                     evidence, conf_, hint))
+
     hrv_hit = trg.get("autonomic.hrv.below_band") or \
         trg.get("autonomic.hrv.change_beyond_mdc")
     no_load = (win in (0, None)) and (z2 in (0, None))
-    if hrv_hit and no_load:
-        out.append(A("cross.recovery_break_no_load", date, "cross",
-                     "hrv_ms,z2_min,exercise_window_n", "cross.recovery_break_no_load",
-                     True, WARN,
-                     {"hrv": hrv, "prev_hrv": prev, "z2_min": z2, "windows": win},
-                     conf("hrv_ms"),
-                     "无负荷可挂 → 负荷只能落在睡眠破碎或晚间应激，先查这两个"))
-    if trg.get("sleep.debt.streak_ge_2") and \
-            (trg.get("autonomic.hrv.below_band") or trg.get("autonomic.rhr.elevated")):
-        out.append(A("cross.sleep_debt_autonomic", date, "cross", "sleep_h,hrv_ms,rhr_bpm",
-                     "cross.sleep_debt_nights", True, BAD,
-                     {"short_streak": ctx.get("short_streak", 0), "hrv": hrv, "rhr": rhr},
-                     conf("hrv_ms"),
-                     "累积恢复不足，交感张力在升高——此状态不安排高强度"))
-    if trg.get("activity.sedentary.over") and v.get("bb_net") is not None \
-            and v["bb_net"] <= -30:
-        out.append(A("cross.sedentary_high_energy", date, "cross",
-                     "sedentary_min,bb_net", "cross.sedentary_high_energy", True, WARN,
-                     {"sedentary_min": sed, "bb_net": v["bb_net"], "stress_avg": sa}, None,
-                     "久坐日的疲劳是真实的，但不产生训练适应"))
-    if trg.get("load.exercise.window_detected") and trg.get("sleep.duration.very_short"):
-        out.append(A("cross.load_after_short_sleep", date, "cross",
-                     "exercise_window_n,sleep_h", "cross.short_sleep_min", True, BAD,
-                     {"windows": win, "sleep_h": sh}, conf("sleep_h"),
-                     "睡眠剥夺下做高强度：皮质醇放大、损伤风险上升"))
+    cross("cross.recovery_break_no_load", hrv_hit and no_load,
+          ["hrv_ms", "z2_min", "exercise_window_n"],
+          {"hrv": hrv, "prev_hrv": prev, "z2_min": z2, "windows": win},
+          WARN, conf("hrv_ms"),
+          "无负荷可挂 → 负荷只能落在睡眠破碎或晚间应激，先查这两个")
+    cross("cross.sleep_debt_autonomic",
+          trg.get("sleep.debt.streak_ge_2")
+          and (trg.get("autonomic.hrv.below_band") or trg.get("autonomic.rhr.elevated")),
+          ["sleep_h", "hrv_ms", "rhr_bpm"],
+          {"short_streak": ctx.get("short_streak", 0), "hrv": hrv, "rhr": rhr},
+          BAD, conf("hrv_ms"),
+          "累积恢复不足，交感张力在升高——此状态不安排高强度")
+    cross("cross.sedentary_high_energy",
+          trg.get("activity.sedentary.over") and v.get("bb_net") is not None
+          and v["bb_net"] <= -30,
+          ["sedentary_min", "bb_net"],
+          {"sedentary_min": sed, "bb_net": v.get("bb_net"), "stress_avg": sa},
+          WARN, None, "久坐日的疲劳是真实的，但不产生训练适应")
+    cross("cross.load_after_short_sleep",
+          trg.get("load.exercise.window_detected")
+          and trg.get("sleep.duration.very_short"),
+          ["exercise_window_n", "sleep_h"],
+          {"windows": win, "sleep_h": sh},
+          BAD, conf("sleep_h"),
+          "睡眠剥夺下做高强度：皮质醇放大、损伤风险上升")
     steps_judge = _th("steps_daily", "judge", rules)
     im_judge = _th("intensity_min", "judge", rules)
-    if (st is not None and steps_judge is not None and st >= steps_judge
-            and im is not None and im_judge is not None and im < im_judge
-            and not trg.get("load.exercise.window_detected")
-            and sh is not None and _th("sleep_h", "judge", rules)
-            and sh >= _th("sleep_h", "judge", rules)):
-        out.append(A("cross.idle_recovery_unused", date, "cross",
-                     "steps_daily,intensity_min,sleep_h", "activity.intensity_daily_goal",
-                     True, INFO, {"steps": st, "intensity_min": im, "sleep_h": sh},
-                     conf("sleep_h"), "恢复能力是给训练用的，攒着不花就是浪费"))
+    cross("cross.idle_recovery_unused",
+          (st is not None and steps_judge is not None and st >= steps_judge
+           and im is not None and im_judge is not None and im < im_judge
+           and not trg.get("load.exercise.window_detected")
+           and sh is not None and _th("sleep_h", "judge", rules)
+           and sh >= _th("sleep_h", "judge", rules)),
+          ["steps_daily", "intensity_min", "sleep_h"],
+          {"steps": st, "intensity_min": im, "sleep_h": sh},
+          INFO, conf("sleep_h"), "恢复能力是给训练用的，攒着不花就是浪费")
     return out
 
 
@@ -453,6 +471,16 @@ def rebuild(con, rules=None):
             prev_hrv = v["hrv_ms"]
 
     rows.extend(build_unit_scope(con, rules))
+
+    # 契约：每条断言的时间语义必须登记过（references/conclusions.json）。
+    # 没登记的 id 在窗口层无法被解释——是「新增了断言但没人定义它跨日怎么读」，
+    # 让它在这里报错，比让它悄悄长成一条算不出分母的行要好。
+    unregistered = sorted({r["id"] for r in rows} - set(conclusions.registry()))
+    if unregistered:
+        raise conclusions.ContractError(
+            "这些断言 id 没在 references/conclusions.json 登记：%s。"
+            "补 {kind, operator/note, inputs, words} 后再重建。"
+            % "、".join(unregistered))
 
     con.execute("DELETE FROM assertions")
     db.upsert_assertions(con, rows)

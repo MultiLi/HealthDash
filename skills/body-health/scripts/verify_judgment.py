@@ -42,6 +42,8 @@ import assertions as asrt                                    # noqa: E402
 # 2026-10-31 数据迁入 data/ 后报告在 data/reports；旧 <ws>/reports 已废弃
 REPORTS = os.environ.get("HEALTH_REPORTS_DIR") or _settings.REPORTS_DIR
 FORBIDDEN = ("v1", "v2", "v3", "修正版", "草稿作废", "变更对照", "较上版")
+#: 强度/频次词：只有当窗口结论 state=成立 时才允许用来描述一段时间
+STRENGTH_WORDS = ("持续", "长期", "常态", "一直", "连日", "反复", "越来越", "结构性")
 LEVEL_WORD = {"BAD": "红", "WARN": "黄", "GOOD": "绿", "NEUTRAL": "不可判读"}
 LEVEL_FROM_WORD = {"红": "BAD", "黄": "WARN", "绿": "GOOD", "不可判读": "NEUTRAL",
                    "🔴": "BAD", "🟡": "WARN", "🟢": "GOOD", "⚪": "NEUTRAL"}
@@ -209,6 +211,31 @@ def check(date, strict=False):
         uniq = sorted(set(misses), key=lambda x: -float(x))[:25]
         msg = "正文有 %d 个数字在 facts / 断言证据里找不到出处：%s" % (len(misses), "、".join(uniq))
         (problems if strict else warns).append(msg)
+
+    # 6. 跨日措辞要有窗口结论支撑（提示级）
+    # 「持续」「长期」「常态」不是对昨天一天的描述，而是对一段时间的描述。
+    # 日级断言说不出这句话——只有 conclusions 层能。报告里用了这类词，
+    # 就必须有一条 state=成立 的窗口结论兜底；否则那句话是 LLM 自己发明的。
+    crows = ((facts.get("conclusions") or {}).get("rows") or [])
+    used = [w for w in STRENGTH_WORDS if w in md]
+    if used:
+        if not crows:
+            warns.append("报告用了跨日措辞（%s），但 facts 没有 conclusions 块——"
+                         "无法核对，重算事实包" % "、".join(used[:3]))
+        else:
+            for line in md.splitlines():
+                if not any(w in line for w in STRENGTH_WORDS):
+                    continue
+                for r in crows:
+                    if r.get("state") == "成立":
+                        continue
+                    lab, word = r.get("label") or "", r.get("word") or ""
+                    if (lab and lab in line) or (word and word in line):
+                        warns.append("「%s」这一行用了跨日措辞，但 %s 在窗口上是「%s」"
+                                     "（%d/%d 天）——改成单日陈述或删掉措辞"
+                                     % (line.strip()[:28], lab or r["id"], r["state"],
+                                        r.get("hit"), r.get("decidable")))
+                        break
 
     return problems, warns
 

@@ -1,0 +1,134 @@
+{
+ "_comment": "结论注册表（2026-11-03 建）。**回答一个问题：哪条日级断言可以被窗口化、用什么算子、窗口上怎么说。** 判定逻辑不在这里（在 assertions.py），阈值数值不在这里（在 rules.json）；本表只声明「时间形态」与「措辞」。未登记的断言 id 视为契约破坏：assertions.py 重建时直接报错，不许悄悄多出一条没人定义过时间语义的结论。",
+ "version": 1,
+ "kinds": {
+  "judge": "有判定含义，可按窗口聚合（operator 必须给）",
+  "cross": "归因型：多个 L1 条件同时成立。窗口层只做共现计数，禁止陈述为因果",
+  "passthrough": "信源自己的判断，原样透传，窗口化后没有独立健康含义",
+  "status": "采集状态，窗口化就是 coverage（units 已有），不重复造",
+  "point": "点测量，一个窗口里只有一个值，窗口化＝取最新（units 点观测已有）"
+ },
+ "operators": {
+  "rate": "命中天数 ÷ 可判定天数。可判定＝该断言的全部 inputs 当天都有值（prev=true 时还要求前一日有值）",
+  "run": "段结构：命中日按日历相邻切成段，给段数与最长段。成立的判据见 min_run_ref"
+ },
+ "side_operators": {
+  "integral": "跨日累积超出量：Σ 越过判读线的部分（'above' 方向取缺额，'below' 方向取超额）。挂在结论上，不单独成 id",
+  "trend": "跨日斜率：units.slope，门槛＝mdc_change ÷ sqrt(n)（日级门槛搬到窗口级必须按 √n 收缩，否则真实趋势会被判成「在误差内」）"
+ },
+ "states": {
+  "成立": "发生率 ≥ rules.units.daily_ok_rate（默认 0.6）且可判定天数 ≥ min_n",
+  "参半": "发生率落在 (1-ok_rate, ok_rate) 之间——两边都不占多数，不给「常态」这种话",
+  "不成立": "发生率 ≤ 1-ok_rate 且样本够",
+  "不可判定": "可判定天数不足 min_n，或该窗口的算子不适用。此时仍给 hit/decidable，只是不给措辞"
+ },
+ "conclusions": {
+  "sleep.duration.short": {
+   "kind": "judge", "operator": "rate", "inputs": ["sleep_h"],
+   "integral": {"metric": "sleep_h", "label": "睡眠欠账"},
+   "words": {"成立": "持续性欠觉", "参半": "短睡时有时无", "不成立": "偶发短睡，不构成常态", "不可判定": "可判定天数不足"}
+  },
+  "sleep.duration.very_short": {
+   "kind": "judge", "operator": "rate", "inputs": ["sleep_h"],
+   "words": {"成立": "整夜严重不足反复出现", "参半": "间或整夜不足", "不成立": "没有整夜严重不足", "不可判定": "可判定天数不足"}
+  },
+  "sleep.rem.low": {
+   "kind": "judge", "operator": "rate", "inputs": ["sleep_rem_pct"],
+   "words": {"成立": "REM 长期偏短", "参半": "REM 时短时长", "不成立": "REM 多数在带内", "不可判定": "可判定天数不足"}
+  },
+  "sleep.deep.out_of_band": {
+   "kind": "judge", "operator": "rate", "inputs": ["sleep_deep_pct"],
+   "words": {"成立": "深睡占比长期出带", "参半": "深睡占比不稳", "不成立": "深睡占比多数在带内", "不可判定": "可判定天数不足"}
+  },
+  "sleep.bedtime.late": {
+   "kind": "judge", "operator": "rate", "inputs": ["sleep_bed_min"],
+   "words": {"成立": "入睡时间结构性后移", "参半": "入睡时间不稳", "不成立": "多数按点入睡", "不可判定": "可判定天数不足"}
+  },
+  "sleep.bedtime.very_late": {
+   "kind": "judge", "operator": "rate", "inputs": ["sleep_bed_min"],
+   "words": {"成立": "作息整体后移超 2 小时", "参半": "间或后移超 2 小时", "不成立": "没有大幅后移", "不可判定": "可判定天数不足"}
+  },
+  "sleep.debt.streak_ge_2": {
+   "kind": "judge", "operator": "run", "inputs": ["sleep_h"],
+   "min_run_ref": "cross.sleep_debt_nights",
+   "words": {"成立": "至少一段连续欠觉", "参半": "连续欠觉只到两晚", "不成立": "没有连续两晚以上的欠觉", "不可判定": "可判定天数不足"}
+  },
+  "activity.steps.severe": {
+   "kind": "judge", "operator": "rate", "inputs": ["steps_daily"],
+   "words": {"成立": "步数长期严重不足", "参半": "严重不足间歇出现", "不成立": "没有严重不足的日子", "不可判定": "可判定天数不足"}
+  },
+  "activity.steps.low": {
+   "kind": "judge", "operator": "rate", "inputs": ["steps_daily"],
+   "words": {"成立": "活动量结构性偏低", "参半": "步数时高时低", "不成立": "步数多数不低", "不可判定": "可判定天数不足"}
+  },
+  "activity.sedentary.over": {
+   "kind": "judge", "operator": "rate", "inputs": ["sedentary_min"],
+   "integral": {"metric": "sedentary_min", "label": "久坐超出量"},
+   "words": {"成立": "久坐是常态而非偶发", "参半": "久坐时超时不超", "不成立": "久坐多数不超标", "不可判定": "可判定天数不足"}
+  },
+  "activity.intensity.below_goal": {
+   "kind": "judge", "operator": "rate", "inputs": ["intensity_min"],
+   "words": {"成立": "中高强度长期缺位", "参半": "中高强度断续", "不成立": "多数日子达到强度目标", "不可判定": "可判定天数不足"}
+  },
+  "autonomic.hrv.below_band": {
+   "kind": "judge", "operator": "rate", "inputs": ["hrv_ms", "hrv_band_low"],
+   "trend": {"metric": "hrv_ms", "label": "HRV 斜率"},
+   "words": {"成立": "多数夜晚低于基线带", "参半": "时破时回", "不成立": "多数夜晚在带内", "不可判定": "可判定天数不足"}
+  },
+  "autonomic.hrv.change_beyond_mdc": {
+   "kind": "judge", "operator": "rate", "inputs": ["hrv_ms"], "prev": true,
+   "words": {"成立": "单日大幅波动频繁", "参半": "偶有大幅波动", "不成立": "波动多在噪声内", "不可判定": "可判定天数不足"}
+  },
+  "autonomic.rhr.elevated": {
+   "kind": "judge", "operator": "rate", "inputs": ["rhr_bpm", "rhr_avg7"],
+   "trend": {"metric": "rhr_bpm", "label": "静息心率斜率"},
+   "words": {"成立": "静息心率反复高于 7 日均", "参半": "间或抬高", "不成立": "多数日子平稳", "不可判定": "可判定天数不足"}
+  },
+  "load.z2.none": {
+   "kind": "judge", "operator": "rate", "inputs": ["z2_min"],
+   "words": {"成立": "多数日子零 Z2", "参半": "Z2 断续出现", "不成立": "多数日子有 Z2", "不可判定": "可判定天数不足"}
+  },
+  "load.z2.effective_session": {
+   "kind": "judge", "operator": "rate", "inputs": ["z2_min"],
+   "words": {"成立": "有效 Z2 课出现较多", "参半": "有效 Z2 课偶现", "不成立": "没有有效 Z2 课", "不可判定": "可判定天数不足"}
+  },
+  "load.exercise.window_detected": {
+   "kind": "judge", "operator": "rate", "inputs": ["exercise_window_n"],
+   "words": {"成立": "多数日子能检出运动窗", "参半": "运动窗偶现", "不成立": "几乎没有运动窗", "不可判定": "可判定天数不足"}
+  },
+  "stress_energy.bb.low": {
+   "kind": "judge", "operator": "rate", "inputs": ["bb_low"],
+   "words": {"成立": "身体电量低点频繁", "参半": "低点偶发", "不成立": "低点少见", "不可判定": "可判定天数不足"}
+  },
+  "stress_energy.bb.net_negative_streak": {
+   "kind": "judge", "operator": "run", "inputs": ["bb_net"],
+   "min_run_ref": "cross.bb_net_negative_days",
+   "words": {"成立": "至少一段连续净负", "参半": "净负只到两晚", "不成立": "没有连续两晚净负", "不可判定": "可判定天数不足"}
+  },
+  "stress_energy.avg.high": {
+   "kind": "judge", "operator": "rate", "inputs": ["stress_avg"],
+   "words": {"成立": "全天压力偏高是常态", "参半": "压力时高时低", "不成立": "压力多数不高", "不可判定": "可判定天数不足"}
+  },
+  "capacity.readiness.low": {
+   "kind": "judge", "operator": "rate", "inputs": ["readiness_score"],
+   "words": {"成立": "准备度多数偏低", "参半": "准备度时好时差", "不成立": "准备度多数正常", "不可判定": "可判定天数不足"}
+  },
+  "capacity.vo2.band_low": {
+   "kind": "point", "note": "一次测量撑不起发生率；窗口化＝取最新，看 units 的点观测"
+  },
+  "cross.sleep_debt_autonomic": {"kind": "cross"},
+  "cross.recovery_break_no_load": {"kind": "cross"},
+  "cross.idle_recovery_unused": {"kind": "cross"},
+  "cross.load_after_short_sleep": {"kind": "cross"},
+  "cross.sedentary_high_energy": {"kind": "cross"},
+  "data.day.partial": {"kind": "status"},
+  "data.day.no_data": {"kind": "status"},
+  "data.day.no_observations": {"kind": "status"},
+  "data.reference.missing": {"kind": "status"},
+  "data.unit.coverage_low": {"kind": "status"},
+  "device.readiness.grade": {"kind": "passthrough"},
+  "device.sleep_need.elevated": {"kind": "passthrough"},
+  "device.bedtime.offset_from_window": {"kind": "passthrough"},
+  "device.acwr.level": {"kind": "passthrough"}
+ }
+}

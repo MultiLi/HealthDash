@@ -46,13 +46,14 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 import db                                                    # noqa: E402
 import units                                                 # noqa: E402
+import conclusions as conc                                   # noqa: E402
 
 from settings import EVENTS_LOG                              # noqa: E402
 from settings import VIEWS                                   # noqa: E402
 
 SCALE_NAMES = ("day", "week", "month", "roll7", "roll28", "roll90")
 #: 查询定义允许的键。多一个都报错——静默忽略拼错的字段会让调用方以为查了。
-Q_KEYS = {"window", "metrics", "delta", "conditions", "logic"}
+Q_KEYS = {"window", "metrics", "delta", "conditions", "logic", "conclusions"}
 WIN_KEYS = {"start", "end", "scale", "key", "days"}
 #: 条件对象的允许键（按 kind 细分，见 _check_cond）
 COND_KEYS = {
@@ -134,9 +135,37 @@ def normalize(qdef, reg=None):
     logic = str(qdef.get("logic") or "and").lower()
     if logic not in ("and", "or"):
         raise QueryError("logic 只能是 and / or")
+    cids = qdef.get("conclusions") or []
+    if isinstance(cids, str):
+        cids = [x.strip() for x in cids.split(",") if x.strip()]
+    if not isinstance(cids, list):
+        raise QueryError("conclusions 必须是数组（断言 id 列表）")
+    if cids == ["all"]:
+        cids = conc.windowable()
+    for aid in cids:
+        _check_conclusion(aid)
     return {"window": win, "metrics": list(names),
             "delta": bool(qdef.get("delta", True)),
-            "conditions": conds, "logic": logic}
+            "conditions": conds, "logic": logic, "conclusions": list(cids)}
+
+
+def _check_conclusion(aid):
+    """结论 id 必须在注册表里，且 kind=judge。**不许把归因型结论当窗口结论查。**
+
+    `cross.*` 在日级是「同一时点两件事同时成立」；搬到窗口上只剩共现次数，
+    再往前一步就是「这 30 天 HRV 低是因为熬夜」——跨时间的伪因果。
+    这里直接拒绝，比事后在报告里删句子可靠。
+    """
+    try:
+        spec = conc.spec_of(aid)
+    except conc.ContractError as e:
+        raise QueryError(str(e))
+    if spec.get("kind") != "judge" or not spec.get("operator"):
+        raise QueryError(
+            "结论 %s 的 kind=%s，不能按窗口求值（只有 kind=judge 且声明了 operator 的可以）。"
+            "cross 类只看共现，data/device/point 类不窗口化——详见 "
+            "skills/body-health/references/conclusions.json 的 kinds 说明。"
+            % (aid, spec.get("kind")))
 
 
 def _cond_metrics(reg):
@@ -204,7 +233,7 @@ def _provenance(con):
             "span": meta.get("span"), "events_hash": ev}
 
 
-def _trace(con, dates, metrics, limit=30):
+def _trace(con, dates, metrics, limit=30, concl_ids=None):
     """这次查询的**断言溯源**：窗口内与所查指标相关的断言 id。
 
     agent 的回答必须能指回「哪条断言支持这个说法」（`verify_judgment` 的数值溯源
@@ -213,12 +242,20 @@ def _trace(con, dates, metrics, limit=30):
     if not con or not dates:
         return None
     lo, hi = dates[0], dates[-1]
-    marks = ",".join("?" * len(metrics))
+    wheres, args = [], []
+    if metrics:
+        wheres.append("subject IN (%s)" % ",".join("?" * len(metrics)))
+        args += list(metrics)
+    if concl_ids:
+        wheres.append("id IN (%s)" % ",".join("?" * len(concl_ids)))
+        args += list(concl_ids)
+    if not wheres:
+        return None
     sql = ("SELECT date, id, verdict, level, subject FROM assertions "
-           "WHERE scale='day' AND date>=? AND date<=? AND subject IN (%s) "
-           "ORDER BY date DESC, id" % marks)
+           "WHERE scale='day' AND date>=? AND date<=? AND (%s) "
+           "ORDER BY date DESC, id" % " OR ".join(wheres))
     try:
-        rows = list(con.execute(sql, [lo, hi] + list(metrics)))
+        rows = list(con.execute(sql, [lo, hi] + args))
     except Exception as e:                        # 库是派生层，读不到不该让查询失败
         return {"error": str(e)[:120]}
     return {"count": len(rows), "truncated": len(rows) > limit,
@@ -402,7 +439,11 @@ def run(qdef, con=None, rules=None, reg=None, ctx=None):
     reg = reg if reg is not None else db.load_metrics()
     q = normalize(qdef, reg)
     metrics = {m: reg[m] for m in q["metrics"]}
-    ctx = ctx or units.context(con, rules, metrics)
+    # 结论要用到自己的 inputs（可能不在 metrics 里），喂给 ctx 的指标集是二者并集
+    want = set(metrics)
+    for aid in q["conclusions"]:
+        want |= {m for m in conc.inputs_of(aid) if m in reg}
+    ctx = ctx or units.context(con, rules, {m: reg[m] for m in want})
     if ctx is None:
         raise QueryError("obs 表为空：先跑 index.py build")
     sp, prev_sp = _specs_for(q, ctx, rules)
@@ -443,6 +484,12 @@ def run(qdef, con=None, rules=None, reg=None, ctx=None):
         r["unit"] = mdef.get("unit")
         r["dir"] = mdef.get("dir")
     rows.sort(key=lambda r: (r["metric"]))
+    # 定性结论：与数值行同窗口、同条件。判定由 conclusions.py 算，这里只搬运。
+    # 条件用到的指标要传下去：筛选「睡眠<6.5h 的日子」再算「睡眠不足发生率」是循环。
+    cond_metrics = {c.get("metric") for c in q["conditions"] if c.get("metric")}
+    concl = conc.evaluate_window(con, sp, ids=q["conclusions"], rules=rules, ctx=ctx,
+                                 cond_metrics=cond_metrics) \
+        if q["conclusions"] else []
     return {
         "query": q,
         "ruler": sp.get("ruler") or sp["scale"],
@@ -456,8 +503,9 @@ def run(qdef, con=None, rules=None, reg=None, ctx=None):
         "selection": selection,
         "min_n": ({"required": min_n} if selection is not None and min_n else None),
         "provenance": _provenance(con),
-        "trace": _trace(con, sp["dates"], q["metrics"]),
+        "trace": _trace(con, sp["dates"], q["metrics"], concl_ids=q["conclusions"]),
         "rows": rows,
+        "conclusions": concl,
         "empty": [m for m in q["metrics"] if m not in {r["metric"] for r in rows}],
     }
 
@@ -593,6 +641,11 @@ def render(res):
     if res["empty"]:
         out.append("\n无数据的指标 %d 个：%s（na ≠ 0，是没有观测，不是零）"
                    % (len(res["empty"]), "、".join(res["empty"])))
+    if res.get("conclusions"):
+        out.append("")
+        out.append(conc.render(res["conclusions"]))
+        out.append("（窗口级结论是描述统计：比例 + 段结构 + 精度区间。"
+                   "「持续」「长期」这类词只能建立在 state=成立的结论上）")
     return "\n".join(out)
 
 
@@ -605,6 +658,9 @@ def main():
     ap.add_argument("--scale", default="", choices=SCALE_NAMES)
     ap.add_argument("--key", default="")
     ap.add_argument("--metrics", default="all", help="逗号分隔，或 all")
+    ap.add_argument("--conclusions", default="",
+                    help="逗号分隔的断言 id（按窗口聚合成定性结论）；all = 全部可窗口化的")
+    ap.add_argument("--list-conclusions", action="store_true", help="列出可查的结论 id")
     ap.add_argument("--no-delta", action="store_true")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--list-metrics", action="store_true")
@@ -649,6 +705,18 @@ def main():
               % len(pool))
         return 0
 
+    if a.list_conclusions:
+        lex = conc.lexicon()
+        print("%-34s %-8s %-16s %s" % ("id", "算子", "inputs", "中文名"))
+        for aid in conc.windowable():
+            s = conc.spec_of(aid)
+            print("%-34s %-8s %-16s %s" % (aid, s.get("operator"),
+                                           ",".join(s.get("inputs") or [])[:16],
+                                           lex.get(aid) or "（缺词表）"))
+        print("\n共 %d 条可窗口化结论（跨日归因型与采集状态型不在此列，见 "
+              "references/conclusions.json）" % len(conc.windowable()))
+        return 0
+
     try:
         if a.q:
             qdef = json.loads(a.q)
@@ -660,6 +728,10 @@ def main():
             qdef = {"window": {"start": a.start, "end": a.end}}
         if a.metrics and a.metrics != "all":
             qdef["metrics"] = a.metrics
+        if a.conclusions:
+            qdef["conclusions"] = ("all" if a.conclusions == "all"
+                                   else [x.strip() for x in a.conclusions.split(",")
+                                         if x.strip()])
         if a.no_delta:
             qdef["delta"] = False
         if a.save:
@@ -679,8 +751,12 @@ def main():
             "%s ~ %s" % (w["start"], w["end"]) if "start" in w else
             "%s %s" % (w["scale"], w["key"]))
         conds = "、".join(_cond_label(c) for c in q.get("conditions") or [])
-        print("理解：查 %s 的 %s%s" % (span, "、".join(q["metrics"]),
-                                     ("，只看 " + conds) if conds else ""))
+        print("理解：查 %s 的 %s%s%s" % (
+            span, "、".join(q["metrics"]),
+            ("，只看 " + conds) if conds else "",
+            ("，外加 %d 条定性结论" % len(q["conclusions"])) if q.get("conclusions") else ""))
+        if q.get("conclusions"):
+            print("结论：%s" % "、".join(q["conclusions"]))
         print("窗口 %s ~ %s · 尺子 %s · 分母 %d"
               % (res["window"]["first"], res["window"]["last"],
                  res["ruler"], res["window"]["expected"]))

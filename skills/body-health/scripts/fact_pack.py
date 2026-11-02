@@ -167,6 +167,47 @@ def queries_block(con, date, rules):
     return out
 
 
+def conclusions_block(con, date, rules, days=14):
+    """窗口结论快照（**锚定目标日**，回补历史日时窗口跟着目标日走）。
+
+    报告里「持续」「长期」「常态」这类跨日措辞，只能引自这里——它们不是
+    对昨天一天的描述，而是对一段时间的描述。日级断言给不出这个形状：
+    「久坐 22 天」和「久坐 22 天分布在 2 段里、最长 20 天」是两件事。
+    """
+    try:
+        import conclusions as c_mod
+        import units as u_mod
+        import db as _db
+        ctx = u_mod.context(con, rules, _db.load_metrics())
+        if ctx is None:
+            return {"error": "obs 表为空"}
+        end = min(date, ctx["last"])
+        start = (datetime.date.fromisoformat(end)
+                 - datetime.timedelta(days=days - 1)).isoformat()
+        spec = u_mod.window_spec(start, end, ctx, rules)
+        rows = c_mod.evaluate_window(con, spec, rules=rules, ctx=ctx)
+        keep = ("id", "label", "state", "word", "hit", "decidable", "value",
+                "ci", "episodes", "longest_run", "reason")
+        slim = []
+        for r in rows:
+            o = {k: r.get(k) for k in keep}
+            o["integral"] = (r["integral"] or {}).get("total")
+            t = r.get("trend") or {}
+            o["trend"] = ({"state": t.get("state"), "slope": t.get("slope"),
+                           "total": t.get("total"), "direction": t.get("direction")}
+                          if t else None)
+            slim.append(o)
+        return {"window": {"start": start, "end": end, "days": len(spec["dates"])},
+                "ruler": spec.get("ruler"), "rows": slim,
+                "_note": ("由 conclusions.py 产出：日级断言按窗口聚合。hit=命中天数，"
+                          "decidable=可判定天数（inputs 齐），value=hit/decidable，"
+                          "ci=Wilson 95%，episodes/longest_run=段结构。"
+                          "只引用 state=成立 的 word 写「持续/长期/常态」；"
+                          "state=参半 时两边都不占多数，不许写成常态。")}
+    except Exception as e:
+        return {"error": "%s: %s" % (type(e).__name__, e)}
+
+
 def build(date, days):
     rules = load_rules()
     bundle = get_adapter("garmin-cn").collect(date, days)
@@ -244,7 +285,7 @@ def build(date, days):
     # —— L3 断言快照（2026-10-25 接入）——
     # 判读的**判定来源**从这里读：哪条规则触发、证据是什么、过去 30 天是第几次。
     # 以前判读方直接读 computed 里的散数字自己推规则，那是「每晚重新执行一遍规则」的根源。
-    scales_snap, queries_snap = {}, {}
+    scales_snap, queries_snap, concl_snap = {}, {}, {}
     try:
         import db as _db
         import assertions as _asrt
@@ -252,12 +293,12 @@ def build(date, days):
         assertions_snap = _asrt.snapshot(_con, date)
         scales_snap = scales_block(_con, date)
         queries_snap = queries_block(_con, date, rules)
+        concl_snap = conclusions_block(_con, date, rules)
         _con.close()
     except Exception as e:                       # 物化层不可用不阻断事实包
         assertions_snap = {"date": date, "error": str(e),
                            "rollup": {"level": "NEUTRAL", "label": "不可判读"},
                            "l1": [], "cross": [], "device": [], "unit_scope": []}
-
     facts = {
         "date": date, "source": bundle["source"],
         "synced_at": bundle.get("synced_at") or "",
@@ -269,6 +310,7 @@ def build(date, days):
         "assertions": assertions_snap,
         "scales": scales_snap,
         "queries": queries_snap,
+        "conclusions": concl_snap,
         "trend": build_trend(all_days, rules),
         "target_day": day,
         "computed": {

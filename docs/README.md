@@ -95,6 +95,7 @@ docs/
 notes/                     领域知识与欠账。**整体不入库**（含真实身体数值）。
   judgment-discipline.md   ★ 判读纪律全本（补数/采集/负荷/恢复/口径）
   confidence_model.md      ★ 噪声门槛（mdc）的推导与实测值
+  windowed_conclusions.md  定性结论的窗口化：可行性、四个算子、门槛的尺度问题
   gait_cadence_baseline.md 步频基线
   leg_circumference_method_map.md  围度测量方法
   inbody_baseline_2026-10-18.md    体成分基线
@@ -104,6 +105,7 @@ skills/body-health/references/   口径数值与指标定义（代码读它，�
   rules.json               阈值与 confidence 噪声门槛（只放通用口径，不含个人档案）
   metrics.json             指标注册表（语义、聚合、达标方向）
   lexicon.json             呈现词表（断言 id 的中文名）
+  conclusions.json         结论注册表（哪条断言能窗口化、用什么算子、窗口上怎么说）
   exercise_science.md      运动学判据
   profile.example.json     个人档案模板（真实值在 data/profile.json，不入库）
 
