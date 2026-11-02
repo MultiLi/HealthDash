@@ -2,8 +2,8 @@
    单日页细分：折线 / 睡眠时间轴 / 堆叠条 / 逐时柱 / 范围条。
    指标卡序列：sparkline——x 轴粒度跟随全局尺度（日/周/月），
    同一个量在同一张卡上换粒度，而不是拆到不同页面。 */
-import { C } from "./constants.js?v=441b0678";
-import { esc } from "./utils.js?v=441b0678";
+import { C } from "./constants.js?v=ae331b07";
+import { esc } from "./utils.js?v=ae331b07";
 
 /* 折线图：pts [[label, v], ...]，band [lo,hi] 画参考区间 */
 export function lineChart(pts, o) {
@@ -207,4 +207,159 @@ export function hourBars(hourly) {
 export function rangeBar(lo, hi, color) {
   return '<div class="range-bar"><div class="range-fill" style="margin-left:' + lo + "%;width:" + Math.max(1.5, hi - lo) + "%;background:" + color + '"></div></div>' +
     '<div class="range-lab"><span>0</span><span>100</span></div>';
+}
+
+/* ============ 共享时间轴的多带对照（结构 × 行为）============
+ *
+ * 这张图存在的理由只有一个：**让两个采样频率完全不同的源落在同一根日期轴上。**
+ *
+ * 体成分是扫描事件（三次），Garmin 是逐日序列（几十天）。它们以前各画一份，
+ * 再用一张「同期均值」的表格去连线——那是把两个源**并置**，不是整合。
+ * 整合的形态是：同一条 x 轴，四带垂直对齐，扫描日打竖线。
+ *
+ * **不做双轴叠加。** 把体重和步数塞进同一个坐标系，画图的人可以调出任何想要的
+ * "相关性"；各自独立纵轴、只对齐日期，是唯一不撒谎的画法。
+ *
+ * 采样密度的差异必须看得见：扫描之外没有体重读数，折线就把那一段**跨过去**
+ * （不插值、不补点）。缺测日同样断开，不连——跨缺口连线会编出不存在的走势。
+ *
+ * 竖线用 `vector-effect` 保持线宽：SVG 用 preserveAspectRatio="none" 横向铺满，
+ * 不这么做的话线宽会跟着横向拉伸一起变粗。**点不画**——扫描竖线已经标出了实测位置，
+ * 而且圆点会被横向拉伸成椭圆。
+ */
+export function alignBands(block) {
+  if (!block || !block.dates || !block.dates.length) return "";
+  var rows = [block.structure].concat(block.behaviors || []).filter(Boolean);
+  if (!rows.length) return "";
+
+  var dates = block.dates;
+  var N = dates.length;
+  var idx = {};
+  dates.forEach(function (d, i) { idx[d] = i; });
+
+  var W = 1200, PAD = 4;
+  function X(i) { return PAD + (W - 2 * PAD) * (N === 1 ? 0.5 : i / (N - 1)); }
+
+  var scans = (block.scan_dates || []).map(function (d) {
+    return idx[d] == null ? null : X(idx[d]);
+  }).filter(function (v) { return v != null; });
+
+  var out = '<div class="abands">';
+  rows.forEach(function (b) {
+    var last = b.points && b.points.length ? b.points[b.points.length - 1][1] : null;
+    out += '<div class="ab-row" data-key="' + esc(b.key) + '">' +
+      '<div class="ab-k"><span>' + esc(b.label) + "</span>" +
+        (b.key === "weight_kg" && last != null
+          ? "<b>" + fmt(last, b.precision) + "</b><em>" + esc(b.unit) + "</em>" : "") +
+      "</div>" +
+      '<div class="ab-t">' + bandSvg(b, idx, X, W, scans) + "</div>" +
+      "</div>";
+  });
+  out += axisHtml(dates, scans, X, W) + "</div>";
+  return out;
+}
+
+function fmt(v, d) {
+  if (v == null || isNaN(v)) return "–";
+  var p = d == null ? 0 : d;
+  var s = Number(v).toFixed(p);
+  /* 千分位：步数是五位数字，不分组读不出量级 */
+  if (p === 0 && Math.abs(v) >= 1000) {
+    return s.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  }
+  return s;
+}
+
+function bandSvg(b, idx, X, W, scans) {
+  var H = 56, TOP = 6, BOT = 6;
+  var vals = (b.points || []).map(function (p) { return p[1]; })
+    .filter(function (v) { return v != null; });
+  if (!vals.length) return '<p class="ab-none">无实测</p>';
+
+  var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+  if (b.kind === "bar") {
+    /* 柱状图必须从 0 起：柱高是「量」，不是「相对于最小值的偏移」。
+       按 min 起画的话，16 步和 11379 步的柱子高度差会被压成不到两倍，
+       而真实差距是 700 倍——那是柱状图最常见的撒谎方式。 */
+    lo = 0;
+  }
+  if (hi === lo) hi = lo + 1;
+  var sp = hi - lo;
+  if (b.kind !== "bar") { lo -= sp * 0.12; }
+  hi += sp * 0.12; sp = hi - lo;
+  function Y(v) { return H - BOT - (H - TOP - BOT) * ((v - lo) / sp); }
+
+  var s = '<svg viewBox="0 0 ' + W + " " + H + '" class="ab-svg" preserveAspectRatio="none">';
+  /* 基准线：没有它，柱状图与折线图的零点看起来一样高 */
+  s += '<line x1="0" x2="' + W + '" y1="' + (H - 0.5) + '" y2="' + (H - 0.5) +
+    '" stroke="var(--border)" stroke-width="1" vector-effect="non-scaling-stroke"/>';
+
+  if (b.kind === "bar") {
+    var bw = Math.max((W - 8) / Math.max(b.points.length, 1) * 0.62, 1);
+    (b.points || []).forEach(function (p) {
+      var v = p[1];
+      if (v == null) return;
+      var i = idx[p[0]];
+      if (i == null) return;
+      var y = Y(v), h = H - BOT - y;
+      if (h < 1) h = 1;
+      s += '<rect x="' + (X(i) - bw / 2).toFixed(1) + '" y="' + y.toFixed(1) +
+        '" width="' + bw.toFixed(1) + '" height="' + h.toFixed(1) +
+        '" rx="1" fill="#10B981" opacity=".52"/>';
+    });
+  } else {
+    /* 断点：缺测日不连。`started` 在缺口后复位，下一段重新起笔。 */
+    var d = "", pen = false;
+    (b.points || []).forEach(function (p) {
+      var v = p[1];
+      if (v == null) { pen = false; return; }
+      var i = idx[p[0]];
+      if (i == null) { pen = false; return; }
+      d += (pen ? "L" : "M") + X(i).toFixed(1) + " " + Y(v).toFixed(1);
+      pen = true;
+    });
+    if (d) {
+      s += '<path d="' + d + '" fill="none" stroke="' + (b.key === "weight_kg" ? "#0E9F6E" : "#38BDF8") +
+        '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"' +
+        ' vector-effect="non-scaling-stroke"/>';
+    }
+  }
+
+  /* 扫描日竖线：贯穿所有带。它就是「实测发生在哪」的唯一标记。 */
+  scans.forEach(function (x) {
+    s += '<line x1="' + x.toFixed(1) + '" x2="' + x.toFixed(1) + '" y1="0" y2="' + H +
+      '" stroke="#10B981" stroke-width="1" stroke-dasharray="3 3" opacity=".38"' +
+      ' vector-effect="non-scaling-stroke"/>';
+  });
+  return s + "</svg>";
+}
+
+/* 轴标签：首尾 + 扫描日。**扫描日优先保留**——它是这张图的主语，
+   和末日挨得太近时，宁可让「11/02」让步给「10/31」。
+   这不是排版细节：扫描日记错位置，整张图就在说另一件事。 */
+function axisHtml(dates, scans, X, W) {
+  var N = dates.length;
+  var w2 = W - 8;
+  var lab = function (i) { return dates[i].slice(5).replace("-", "/"); };
+  /* 首末两端**永远保留**（它们定义"这段时间从哪天到哪天"），
+     扫描日作为可选项插进去——插不下就交给竖线和下面的报告行去说。
+     最小间距按**容器宽度**定：390px 屏上 9% 只有 28px，而「10/18」要 34px，
+     两个标签会叠成一团黑字，比没有标签更糟。 */
+  var vw = (typeof window !== "undefined" && window.innerWidth) || 1440;
+  var gap = vw < 680 ? 11 : 6;
+
+  var kept = [{ i: 0, p: 0 }, { i: N - 1, p: 100 }];
+  (scans || []).forEach(function (x) {
+    var i = Math.round((x - 4) / w2 * (N - 1));
+    var p = N === 1 ? 50 : i / (N - 1) * 100;
+    var room = kept.every(function (k) { return Math.abs(k.p - p) >= gap; });
+    if (room) kept.push({ i: i, p: p, scan: true });
+  });
+  kept.sort(function (a, b) { return a.p - b.p; });
+
+  return '<div class="ab-x"><div class="ab-x-l"></div><div class="ab-x-r">' +
+    kept.map(function (m) {
+      return '<span class="' + (m.scan ? "is-scan" : "") + '" style="left:' +
+        m.p.toFixed(1) + '%">' + esc(lab(m.i)) + "</span>";
+    }).join("") + "</div></div>";
 }

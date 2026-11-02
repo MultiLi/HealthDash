@@ -9,19 +9,19 @@
  *   ③ 指标网格（8 张同构卡：主值 + 环比 + 趋势线 + 达标统计；日尺度下可展开当日细分）
       趋势线的范围与粒度是两个独立参数（trend.js），与尺度无关——尺度只管主值口径。
  */
-import { store } from "./store.js?v=441b0678";
-import { metrics, CHECKS, bandOf, BAND, READY, readyOf } from "./constants.js?v=441b0678";
-import { esc, $ } from "./utils.js?v=441b0678";
+import { store } from "./store.js?v=ae331b07";
+import { metrics, CHECKS, bandOf, BAND, READY, readyOf } from "./constants.js?v=ae331b07";
+import { esc, $ } from "./utils.js?v=ae331b07";
 import { metricValue, judgeValue, unitRowsAll, rowsWith,
-         unitCell, cellJudge, okCount, VERDICT_TEXT } from "./aggregate.js?v=441b0678";
-import { unitOf, prevUnitOf } from "./scope.js?v=441b0678";
-import { trendPoints } from "./trend.js?v=441b0678";
-import { renderMonth, renderHeatstrip } from "./calendar.js?v=441b0678";
-import { sparkline } from "./charts.js?v=441b0678";
-import { DETAILS, readinessTrail, briefHtml } from "./detail.js?v=441b0678";
-import { ensureShard, dayOf, hasShard } from "./data.js?v=441b0678";
-import { monthLabel, fmtMD, weekdayCN } from "./dateutil.js?v=441b0678";
-import { bodyGroupHtml } from "./inbody.js?v=441b0678";
+         unitCell, cellJudge, okCount, VERDICT_TEXT } from "./aggregate.js?v=ae331b07";
+import { unitOf, prevUnitOf } from "./scope.js?v=ae331b07";
+import { trendPoints } from "./trend.js?v=ae331b07";
+import { renderMonth, renderHeatstrip } from "./calendar.js?v=ae331b07";
+import { sparkline } from "./charts.js?v=ae331b07";
+import { DETAILS, readinessTrail, briefHtml } from "./detail.js?v=ae331b07";
+import { ensureShard, dayOf, hasShard } from "./data.js?v=ae331b07";
+import { monthLabel, fmtMD, weekdayCN } from "./dateutil.js?v=ae331b07";
+import { bodyGroupHtml } from "./inbody.js?v=ae331b07";
 
 function ix() { return store.ix; }
 
@@ -49,19 +49,24 @@ function renderAxis(unit) {
     scale: store.scale, anchor: store.anchor, scopeDates: scopeDates
   };
   var html = renderMonth(store.month, ctx);
-  if (store.rows.length >= 60) {
+  /* 长周期热力条要**半年以上**才出现：它和日历说的是同一件事（一天一个色块），
+     只是覆盖全部数据而不是一个月。两个月的数据画出来只是把日历再铺一遍，
+     多一块、不增信息。阈值按「能不能看出季节性的量级」定，不按「有几天数据」。 */
+  if (store.rows.length >= 180) {
     html += '<div class="heat-wrap"><p class="heat-title">长周期热力 · 全部数据，一格一天，颜色为综合指数分档</p>' +
       renderHeatstrip(store.rows, ctx) + "</div>";
   }
   $("axis-cal").innerHTML = html;
 
+  /* 一行讲清「这一档在选什么」，不写教程。操作细节（点哪、比哪段）
+     属于用一次就会的事，占版面只会让人跳过整段。 */
   var hint = {
-    day: "日尺度：点日历任意一格即切换日期；每张卡显示该日的值与该日所在周的逐日序列。",
-    week: "周尺度：点任意一格即选中它所在的整周（高亮整行）；每张卡显示该周日均与近 12 周的走向。",
-    month: "月尺度：整个月就是观测范围；每张卡显示月日均与近 12 个月的走向。点日历某天可直接下钻到日尺度看那天。",
-    roll7: "近 7 天滚动窗：从锚点往前数 7 天，不受自然周切割——所以「本周还没结束」那种偏差在这里不存在。环比比的是前一个 7 天窗（非重叠）。",
-    roll28: "近 28 天滚动窗：比自然月稳（月长 28–31 天不一致），适合看月度级趋势。环比比前一个 28 天窗。",
-    roll90: "近 90 天滚动窗：低频指标（体重、VO2 Max、体成分）才看得清的尺度。覆盖不足时只报数字不给结论。"
+    day: "日尺度：点任意一格即切换当天。",
+    week: "周尺度：点任意一格选中它所在的整周。",
+    month: "月尺度：整个月是观测范围；点某天可下钻到日尺度。",
+    roll7: "近 7 天：从锚点往前数，不受自然周切割；环比比前一个 7 天窗。",
+    roll28: "近 28 天：从锚点往前数；环比比前一个 28 天窗。",
+    roll90: "近 90 天：低频指标（体重、VO2 Max）才看得清的尺度。"
   }[store.scale];
   $("axis-note").textContent = hint;
 }
@@ -308,24 +313,25 @@ function caret() {
   return '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 5.5L7 9.5L11 5.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 }
 
-/* 指标分组（2026-11-01）。
+/* 指标分组 · 按**信息维度**划，不按数据来源划（2026-11-02 重定）。
  *
- * 8 张卡平铺时，看的是「一个一个数」；但「反推身体状态」看的是**几个指标
- * 是否同步变化**——HRV 掉的那几天，睡眠是不是也掉了、静息心率是不是升了。
- * 那需要把相关的量放在一起，而不是让人在 8 张卡之间来回扫。
+ * 判据是「这个数在回答哪一类问题」，落成三条互不重叠的轴：
+ *   恢复 —— 身体在补：睡得够不够、自主神经张力、承压多大
+ *   活动 —— 身体在耗：走了多少、坐了多久、动了多猛、烧了多少
+ *   结构 —— 身体是什么：体重、体脂率、去脂体重（慢变量，以周/月计）
  *
- * 分组依据是「这个数回答什么问题」，不是医学分类学：
- *   恢复 —— 昨晚睡得怎么样、身体修没修复（睡眠 / HRV / 静息心率）
- *   行为 —— 白天动了多少、坐了多久（步数 / 久坐 / 中高强度）
- *   负荷 —— 付出了多少、承压多大（活动消耗 / 压力）
- * 三组各自内部才可比；跨组比较没有意义（步数和 HRV 谁「更好」不是个问题）。
+ * **为什么必须按维度、不能按来源**：按来源分，InBody 那三个量只能凑成一组
+ * 「体成分」，和 Garmin 的组并列——于是它必须自带一套判定、一套时间语义、
+ * 一套说明，最后必然长成页尾一块独立的附录。按维度分，体重和步数睡在同一个
+ * 网格里，谁测的就不重要了；「结构」这一组只是比上面两组慢而已。
  *
- * 未列入的指标自动落到「其他」，**不静默丢弃**——新增指标时页面不会悄悄少一张卡。
+ * 压力归「恢复」不归「活动」：它和 HRV、静息心率是同一件事（交感张力）的三个侧面，
+ * 放到「消耗」那边是把它读成了行为。活动消耗归「活动」不单列「负荷」：
+ * 它就是「今天动了多少」换算成能量，和步数中高强度同源，不该自成一轴。
  */
 var GROUPS = [
-  { k: "recover", t: "恢复", sub: "昨晚修复得怎么样", keys: ["sleep_h", "hrv", "rhr"] },
-  { k: "behave", t: "行为", sub: "白天动了多少、坐了多久", keys: ["steps", "sedentary_min", "intensity_min"] },
-  { k: "load", t: "负荷", sub: "消耗与承压", keys: ["active_kcal", "stress"] }
+  { k: "recover", t: "恢复", sub: "身体在补：睡够了没、张力如何、承压多大", keys: ["sleep_h", "hrv", "rhr", "stress"] },
+  { k: "activity", t: "活动", sub: "身体在耗：走了多少、坐了多久、烧了多少", keys: ["steps", "sedentary_min", "intensity_min", "active_kcal"] }
 ];
 
 function groupHtml(m, unit, prev) {
@@ -349,8 +355,9 @@ function renderGrid(unit) {
         return groupHtml(m, unit, prev);
       }).join("") + "</div></section>";
   });
-  /* 体成分（InBody）：低频、稀疏、不进 units 聚合，但卡片与上面三组同构。
-     放在「其他」之前——它是**已归组**的第四组，不是兜底。 */
+  /* 结构组：卡壳与上面两组同构，差别只有时间语义（扫描点，不吃 anchor/scale）。
+     它不是「InBody 专区」，是「结构」这个维度的三个量——所以组名取维度，
+     不取产品名；数据来自哪台机器是脚注里的事。 */
   html += bodyGroupHtml();
   var rest = all.filter(function (m) { return !used[m.key]; });
   if (rest.length) {
@@ -526,9 +533,13 @@ function renderDayMatrix() {
   }).join("");
 
   box.hidden = false;
-  box.innerHTML = '<p class="dm-title">逐日达标矩阵 · 近 ' + rows.length +
-    " 天（行=指标，列=天；看的是「这几项有没有一起变差」）</p>" +
-    '<div class="dm-grid">' + head + body + "</div>";
+  /* 折叠：矩阵回答的是「这两天是不是好几项一起变差」——这是**核查**，不是日常。
+     常驻展开时它和日历抢同一件事（哪些天不正常），而日历已经用颜色说过了。 */
+  box.innerHTML = '<details class="dm-det">' +
+    '<summary class="dm-sum">逐日达标矩阵 · 近 ' + rows.length + " 天" +
+      "<i>行=指标，列=天；看的是「这几项有没有一起变差」，不是哪天分数高</i></summary>" +
+    '<div class="dm-body"><div class="dm-grid">' + head + body + "</div></div>" +
+    "</details>";
 }
 
 /* ================= 装配 ================= */

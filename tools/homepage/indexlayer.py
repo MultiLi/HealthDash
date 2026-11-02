@@ -23,7 +23,7 @@ from homepage.paths import SCRIPTS
 from homepage.scoring import hrv_state
 from homepage.nudge import nudge_block
 from homepage.events import events_block
-from homepage.inbody import attach_window
+from homepage.inbody import attach_context
 
 import sys as _sys
 if SCRIPTS not in _sys.path:
@@ -314,7 +314,7 @@ def build_index(data, rules):
         # 体积小（一次扫描 ~1KB），没必要为它再开一个按需端点。
         # 「两次扫描之间」的行为面在这里挂——只有索引行是扁平口径，
         # 让 build 阶段重造一份扁平化就是第二套口径。
-        "inbody": attach_window(data.get("inbody"), rows),
+        "inbody": attach_context(data.get("inbody"), rows),
         "days": rows,
     }
 

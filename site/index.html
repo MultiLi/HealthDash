@@ -6,11 +6,11 @@
 <title>健康主页 · 身体数据</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/base.css?v=441b0678">
-<link rel="stylesheet" href="css/calendar.css?v=441b0678">
-<link rel="stylesheet" href="css/page.css?v=441b0678">
-<link rel="stylesheet" href="css/detail.css?v=441b0678">
-<link rel="stylesheet" href="css/inbody.css?v=441b0678">
+<link rel="stylesheet" href="css/base.css?v=ae331b07">
+<link rel="stylesheet" href="css/calendar.css?v=ae331b07">
+<link rel="stylesheet" href="css/page.css?v=ae331b07">
+<link rel="stylesheet" href="css/detail.css?v=ae331b07">
+<link rel="stylesheet" href="css/inbody.css?v=ae331b07">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%2310B981'/><path d='M16 26C16 26 5 19.5 5 12.2C5 8.2 8.1 5.5 11.4 5.5C13.3 5.5 15 6.4 16 8C17 6.4 18.7 5.5 20.6 5.5C23.9 5.5 27 8.2 27 12.2C27 19.5 16 26 16 26Z' fill='white'/></svg>">
 </head>
 <body>
@@ -80,28 +80,48 @@
           <div class="unit-scope" id="unit-scope"></div>
           <div class="unit-scores" id="unit-score"></div>
         </div>
-        <p class="unit-note">两项都是 0–100，但口径不同、<b>不合成一个数</b>：<b>综合指数</b>＝该单元的行为达标度（睡眠 / 步数 / HRV / 静息心率 / 久坐等权合成）；<b>Garmin 准备度</b>＝设备对恢复与负荷准备度的判断。两者背离时，背离本身就是信号。</p>
+        <p class="unit-note">两项口径不同，<b>不合成一个数</b>：综合指数是行为达标度，准备度是设备对恢复与负荷的判断。两者背离时，背离本身就是信号。</p>
         <p class="unit-trail" id="unit-ready-trail" hidden></p>
         <div class="unit-checks" id="unit-checks"></div>
       </div>
     </section>
 
-    <!-- ============ 指标网格：主值口径跟尺度走；趋势线的范围与粒度是独立参数 ============ -->
+    <!-- ============ 指标网格：按信息维度分组（恢复 / 活动 / 结构）============
+         分组依据是「这个数回答哪一类问题」，**不是数据来自哪台设备**。
+         体重和步数睡在同一个网格里，谁测的不重要；「结构」只是比另两组慢。 -->
     <section class="section sec-grid">
       <div class="container">
         <div class="section-head">
           <div>
             <h2>指标</h2>
-            <p class="section-sub">主值 / 达标 / 环比按上方选的<b>尺度</b>（当前单元）算；下面这条趋势线由<b>范围</b>与<b>粒度</b>两个独立参数决定，与尺度互不影响。绿=达标、琥珀=未达标、灰=无判定线，空心=这一段还没结束。<b>体成分</b>是低频截面（一次体测一个点），不吃尺度，只看最近一次与上一次的差。</p>
+            <p class="section-sub">主值 / 达标 / 环比按上方选的<b>尺度</b>算；趋势线的<b>范围</b>与<b>粒度</b>是另两个参数，与尺度无关。绿=达标、琥珀=未达标、灰=无判定线，空心=这段还没结束。</p>
           </div>
           <div class="trend-ctl" id="trend-ctl">
             <label>范围<select id="trend-span"></select></label>
             <label>粒度<select id="trend-grain"></select></label>
           </div>
         </div>
-        <!-- 分组渲染（恢复 / 行为 / 负荷）：外层只是纵向容器，
+        <!-- 分组渲染（恢复 / 活动 / 结构）：外层只是纵向容器，
              每组的卡片网格由内部 .metric-grid 负责，别在这里再加 grid 布局。 -->
         <div class="mx-groups" id="metric-grid"></div>
+      </div>
+    </section>
+
+    <!-- ============ 结构 × 活动：共享一根日期轴 ============
+         这个区块不是「体成分专区」，它回答的是「同一段时间里，几个不同采样频率
+         的量各自怎么走」。结构是扫描点（3 次），活动是逐日（几十天）——
+         以前它们各画一份、再用一张均值表去连线，那是并置；这里是同轴对齐。
+         **不做双轴叠加、不判因果**：对齐的只是日期。 -->
+    <section class="section sec-struct" id="structure-zone" hidden>
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <h2>结构 × 活动</h2>
+            <p class="section-sub">同一根日期轴：<b>结构</b>是扫描点、<b>活动</b>是逐日，各自独立纵轴。竖虚线是实测发生的那天。对齐的是日期，不是量纲——两条线谁也不解释谁。</p>
+          </div>
+        </div>
+        <div id="struct-plot"></div>
+        <div id="struct-report"></div>
       </div>
     </section>
 
@@ -134,24 +154,6 @@
         </details>
       </div>
     </section>
-
-    <!-- ============ 体成分（事件型·完整截面）============
-         不属于日/周/月尺度：一次体测一个截面，没有逐日序列。
-         **它不再是一个孤立的入口**——指标区里的「体成分」分组是摘要，
-         这里是完整截面：构成、区间、目标路径、节段分布、同期行为面。
-         两者同一份数据、同一套判定措辞。 -->
-    <section class="section sec-body" id="inbody-zone" hidden>
-      <div class="container">
-        <div class="section-head">
-          <div>
-            <h2>体成分<span class="ib-src">InBody</span></h2>
-            <p class="section-sub" id="ib-sub">事件型数据：一次体测一个截面，不参与日/周/月尺度。</p>
-          </div>
-          <div class="ib-stamp" id="ib-stamp"></div>
-        </div>
-        <div id="ib-grid"></div>
-      </div>
-    </section>
   </main>
 
   <footer class="site-footer">
@@ -168,6 +170,6 @@
     </div>
   </footer>
 </div>
-<script type="module" src="js/main.js?v=441b0678"></script>
+<script type="module" src="js/main.js?v=ae331b07"></script>
 </body>
 </html>

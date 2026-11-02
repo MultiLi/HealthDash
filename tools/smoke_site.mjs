@@ -74,7 +74,7 @@ const { metrics } = await import(mod("js/constants.js"));
 const { metricValue, rowsWith, unitRowsAll, unitCell, cellJudge } = await import(mod("js/aggregate.js"));
 /* 体成分的数据由 main.js 在 boot 时注入（setInBody）。冒烟关掉了 boot，
    所以必须显式注入——否则体成分分组的断言全是「卡片数 0 == 卡片数 0」。 */
-const { setInBody, renderInBody } = await import(mod("js/inbody.js"));
+const { setInBody, renderStructure } = await import(mod("js/inbody.js"));
 
 console.log("== 发布产物指纹 ==");
 ok(!!VER, "index.html 的资源引用已带内容指纹（CDN 免疫）", VER ? "v=" + VER : "缺失！");
@@ -446,6 +446,11 @@ if (!noDataDate) {
 /* 没有记录的「今天」——这才是唯一该说「进行中」的情形 */
 if (!withRow.has(ix.today)) {
   store.anchor = ix.today;
+  /* **必须显式设尺度**：上一段（无数据日）在跳过时不会执行它的 `store.scale = "day"`，
+     于是这里沿用着更早的 month——断言读到的会是「整月 · 30 天」，
+     看起来像「进行中」这句话坏了，其实只是测试的顺序依赖（2026-11-03 实测）。 */
+  store.scale = "day";
+  store.month = ix.today.slice(0, 7);
   renderPage();
   ok(html("unit-scope").includes("进行中"), "今天无数据时标「进行中 · 当日未结束」");
   ok(text("brief-sub").includes("没有采集记录"), "今天同样给空态，不转圈");
@@ -602,69 +607,113 @@ store.anchor = closedLast.slice(0, 7) + "-15";
 store.scale = "month";
 renderPage();
 
-console.log("\n== 指标分组 ==");
+console.log("\n== 指标分组：按信息维度，不按数据来源 ==");
+/* 这一节守的是一条**结构纪律**：分组名必须是「这一类问题」，
+   不能是「这个数据从哪来」。按来源分的后果很具体——InBody 那三个量只能凑成
+   一组「体成分」，和 Garmin 的组并列，于是它必须自带一套说明、一套时间语义，
+   最后必然长成页尾一块独立附录（2026-11-02 之前的形态）。 */
 const gridHtml = html("metric-grid");
-ok((gridHtml.match(/class="mx-group"/g) || []).length >= 3, "指标按恢复/行为/负荷分组",
-  String((gridHtml.match(/class="mx-group"/g) || []).length) + " 组");
-/* 体成分卡与日指标卡共用 .mx-card 卡壳，所以计数时要把它单独摘出来比 */
-const nBodyCards = count(gridHtml, /mx-card ib-mx/g);
-ok(count(gridHtml, /mx-card/g) - nBodyCards === metrics(ix).length,
-  "分组后日指标卡片总数不变（一张都没丢）",
-  (count(gridHtml, /mx-card/g) - nBodyCards) + "/" + metrics(ix).length);
-ok(/data-group="recover"/.test(gridHtml) && /data-group="behave"/.test(gridHtml),
-  "恢复组与行为组都在");
+const nGroups = (gridHtml.match(/class="mx-group"/g) || []).length;
+ok(nGroups === 3, "三组：恢复 / 活动 / 结构", nGroups + " 组");
+ok(/data-group="recover"/.test(gridHtml) && /data-group="activity"/.test(gridHtml),
+  "恢复组与活动组都在");
+ok(/data-group="structure"/.test(gridHtml), "结构组在指标区里（不是页尾独立区块）");
+ok(!/data-group="(body|inbody)"/.test(gridHtml), "没有以数据源命名的分组");
 
-console.log("\n== 体成分：低频卡片与日指标同构 ==");
-/* 这一节验的不是「有没有画出体成分」，而是**它是不是同一家人**：
+/* 结构卡与日指标卡共用 .mx-card 卡壳，计数时把它单独摘出来比 */
+const nStructCards = count(gridHtml, /mx-card ib-mx/g);
+ok(count(gridHtml, /mx-card/g) - nStructCards === metrics(ix).length,
+  "日指标卡片总数不变（一张都没丢）",
+  (count(gridHtml, /mx-card/g) - nStructCards) + "/" + metrics(ix).length);
+
+console.log("\n== 结构：低频卡片与日指标同构 ==");
+/* 验的不是「有没有画出体成分」，而是**它是不是同一家人**：
    同一套卡壳、同一套判定措辞、同一份后端判定；以及**它没有偷偷跟着尺度变**。 */
 const ibData = ix.inbody || {};
-ok(/data-group="body"/.test(gridHtml), "指标区里有「体成分」分组（不是页尾孤块）");
-ok(/不随上面的日期与尺度变化/.test(gridHtml), "组标题写明它不吃尺度");
-ok(nBodyCards === (ibData.cards || []).length && nBodyCards > 0,
-  "卡片数 = 后端下发的体成分指标数", nBodyCards + "/" + (ibData.cards || []).length);
-const bodyCards = gridHtml.split('class="mx-card ib-mx"').slice(1);
-ok(bodyCards.length > 0 && bodyCards.every(function (h) {
+const nA = (ibData.cards || []).length;
+ok(nStructCards === nA && nA > 0, "卡片数 = 后端下发的结构指标数",
+  nStructCards + "/" + nA);
+/* 只放会动的量：骨骼肌与去脂体重在扫描点上几乎共线，内脏脂肪三次都是同一级。
+   它们进「测量报告」逐项列出，不占卡片——一屏只放会动的量。 */
+ok(!/骨骼肌量|内脏脂肪等级/.test(gridHtml), "共线/恒定的量不占卡片（进报告）");
+const structCards = gridHtml.split('class="mx-card ib-mx"').slice(1);
+ok(structCards.length > 0 && structCards.every(function (h) {
   return /过门槛|在误差内|首次测量|跨时段不可比|闸门未覆盖/.test(h);
 }), "每张卡的变化文案都来自后端判定（过门槛/误差内/首次/跨条件/未过闸门）");
-ok(!/class="dl (good|bad)"/.test(bodyCards.join("")),
-  "体成分变化不给好/坏色（方向要判读层把去脂体重一起看才能说）");
+ok(!/class="dl (good|bad)"/.test(structCards.join("")),
+  "结构变化不给好/坏色（方向要判读层把去脂体重一起看才能说）");
 /* verdict 是后端 → 前端的契约：后端加了新状态而前端没文案，页面就会显示 undefined。
    这条断言把契约钉在测试里，而不是钉在记忆里。 */
 const VERDICTS = ["changed", "within-noise", "no-baseline", "not-comparable", "pending-check"];
 ok((ibData.cards || []).every(function (c) { return VERDICTS.indexOf(c.verdict) >= 0; }),
   "卡片 verdict 都在前端有文案的状态集内",
   (ibData.cards || []).map(function (c) { return c.verdict; }).join("/"));
-/* 换尺度只改「当前单元」，体成分卡必须纹丝不动 */
-const bodyByScale = {};
+/* 换尺度只改「当前单元」，结构卡必须纹丝不动 */
+const structByScale = {};
 ["day", "week", "month", "roll90"].forEach(function (sc) {
   store.scale = sc;
   renderPage();
   const h = html("metric-grid");
-  bodyByScale[sc] = h.slice(h.indexOf('data-group="body"'));
+  structByScale[sc] = h.slice(h.indexOf('data-group="structure"'));
 });
-ok(new Set(Object.keys(bodyByScale).map(function (k) { return bodyByScale[k]; })).size === 1,
-  "换尺度体成分卡完全一致（它不属于任何尺度）");
+ok(new Set(Object.keys(structByScale).map(function (k) { return structByScale[k]; })).size === 1,
+  "换尺度结构卡完全一致（它不属于任何尺度）");
 store.scale = "month";
 renderPage();
 
-/* 页尾完整截面：同一份数据的另一种读法 */
-renderInBody();
-const ibHtml = html("ib-grid");
-ok(!document.getElementById("inbody-zone").hidden, "完整截面区可见");
-ok(/次扫描/.test(ibHtml), "扫描时间线写出次数与每次读数", String(ibData.history && ibData.history.length));
-if (ibData.window && (ibData.window.metrics || []).length) {
-  ok(/同期行为面/.test(ibHtml) && /前 \d+ 天/.test(ibHtml),
-    "同期行为面带本窗与前窗（两个源放进同一个时间窗）", ibData.window.from + "~" + ibData.window.to);
-  ok(/不判方向|只供对照/.test(ibHtml), "对照带明说不判方向");
+console.log("\n== 结构 × 活动：共享一根日期轴 ==");
+/* 这个区块存在的理由只有一条：让两个采样频率不同的源落在**同一条 x 轴上**。
+   以前是「两块各画一份 + 一张同期均值表」——那是并置，不是整合。
+   所以断言的重点是「带是不是同轴的」「竖线是不是标在扫描日」，不是「有没有表」。 */
+renderStructure();
+ok(!hidden("structure-zone"), "对照区可见");
+const plot = html("struct-plot");
+const bands = ibData.bands;
+if (bands && bands.dates && bands.dates.length) {
+  const nRows = 1 + (bands.behaviors || []).length;
+  ok(/class="abands"/.test(plot), "画成共享时间轴的多带图");
+  ok(count(plot, /class="ab-row"/g) === nRows,
+    "带数 = 结构 1 + 活动 " + (nRows - 1), count(plot, /class="ab-row"/g) + "/" + nRows);
+  /* 每条带都画一遍所有扫描竖线——它是「实测发生在哪天」的唯一标记 */
+  const nScan = (bands.scan_dates || []).length;
+  ok(count(plot, /stroke-dasharray="3 3"/g) === nRows * nScan,
+    "扫描日在每条带上都有竖线", count(plot, /stroke-dasharray="3 3"/g) + "/" + nRows * nScan);
+  /* 结构点只能落在扫描日：多一个点就是插值，等于编出没有的读数 */
+  const sPts = (bands.structure.points || []).map(function (p) { return p[0]; });
+  ok(sPts.every(function (d) { return bands.scan_dates.indexOf(d) >= 0; }),
+    "结构带的每个点都是实测扫描日（没有插值点）", sPts.join(","));
+  /* x 轴要标出扫描日，否则读者不知道竖线是哪天 */
+  ok((bands.scan_dates || []).every(function (d) {
+    return plot.indexOf(d.slice(5).replace("-", "/")) >= 0;
+  }), "日期轴标出了扫描日");
+  ok(/独立纵轴/.test(plot) && /不插值/.test(plot),
+    "说明写明各带独立纵轴、扫描之间不插值（不是双轴叠加）");
+  if (ibData.window && (ibData.window.metrics || []).length) {
+    ok(/ab-sum/.test(plot) && /日均/.test(plot), "图下给出本窗日均（形状之外还要有量级）");
+  }
 } else {
-  console.log("  – 跳过：只有一次扫描，没有可对照的窗口");
+  console.log("  – 跳过：扫描次数或行为跨度不足，生成不出对齐带");
 }
+
+console.log("\n== 测量报告：只属于那一次测量的东西 ==");
+/* 节段分布、目标路径、参考区间、测量条件**共享不了日期轴**，所以它们不进主视图，
+   折在一条 summary 里。要求是：不展开也知道「哪次、多少、比上次怎么样」。 */
+const rep = html("struct-report");
+ok(/<details/.test(rep) && /class="sr-sum"/.test(rep), "报告默认折叠（不占页面高度）");
+ok(/class="sr-wt"/.test(rep) && /kg/.test(rep), "折叠行就给出体重，不必展开");
+ok(/class="sr-delta"/.test(rep), "折叠行带闸门判定");
+ok(/class="sr-date"/.test(rep), "折叠行带测量时间");
+ok(/体重构成/.test(rep), "展开后有构成（去脂 + 脂肪）");
+ok(/目标路径/.test(rep), "展开后有目标路径");
+ok(/相对参考区间/.test(rep), "展开后有参考区间");
+ok(/内脏脂肪/.test(rep), "不进卡片的指标在报告里逐项列出（不静默丢弃）");
+ok(/节段分布/.test(rep), "展开后有节段分布");
 if (ibData.morning_weight) {
-  ok(/晨起空腹体重/.test(ibHtml) && /不可相减/.test(ibHtml),
+  ok(/晨起空腹体重/.test(rep) && /不可相减/.test(rep),
     "晨起空腹与体测仪并列，并写明不可相减",
     ibData.morning_weight.kg + " / " + ibData.morning_weight.date);
 } else {
-  ok(/没有晨起空腹体重的记录/.test(ibHtml), "没有晨起体重时如实说明，不装作有");
+  ok(/没有晨起空腹体重的记录/.test(rep), "没有晨起体重时如实说明，不装作有");
 }
 
 console.log("\n== 逐日达标矩阵 ==");

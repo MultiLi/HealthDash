@@ -33,7 +33,7 @@ sys.path.insert(0, os.path.join(ROOT, "tools"))
 from homepage.paths import load_rules                    # noqa: E402
 import homepage.indexlayer as indexlayer                 # noqa: E402
 from homepage.indexlayer import shard_days               # noqa: E402
-from homepage.inbody import window_for                   # noqa: E402
+from homepage.inbody import window_for, bands_for        # noqa: E402
 from homepage.timeutil import weekday_cn                 # noqa: E402
 
 # 关键防线（2026-11-01 CI 事故）：units_block 会 db.connect()，而 sqlite 在裸
@@ -251,13 +251,20 @@ def synth_units(days_rows):
 
 
 def synth_inbody(days_rows):
-    """合成体成分块（模拟 homepage.inbody.build + attach_window 的下发形态）。
+    """合成体成分块（模拟 homepage.inbody.build + attach_context 的下发形态）。
 
     形态必须与线上一致：cards[] 带 verdict（前端只翻文案、不判门槛）、
-    window 由**真实** window_for 从索引行算出（口径与线上同一份代码）。
-    数值全部虚构，两次扫描的差刚好一过门槛一在误差内，用来验两套措辞。
+    window 与 bands 由**真实** window_for / bands_for 从索引行算出
+    （口径与线上同一份代码）。数值全部虚构，两次扫描的差刚好一过门槛一在误差内，
+    用来验两套措辞。
+
+    扫描日期**相对今天**取，不能写死：fixture 的日序列是「今天往前 N 天」，
+    写死某个月份之后，跨月跑 CI 就会让扫描落在数据范围之外，bands 直接变 None——
+    那时冒烟报的是「对齐带没画出来」，而实际原因只是测试的日期过期了。
     """
-    prev_dt, last_dt = "2026-10-10T09:12:00", "2026-10-24T11:05:00"
+    _t = datetime.date.today()
+    last_dt = (_t - datetime.timedelta(days=2)).isoformat() + "T11:05:00"
+    prev_dt = (_t - datetime.timedelta(days=16)).isoformat() + "T09:12:00"
     latest = {
         "datetime": last_dt, "raw_datetime": "20261024110500",
         "weight_kg": 88.6, "bmi": 26.6, "percent_body_fat": 25.0,
@@ -299,12 +306,6 @@ def synth_inbody(days_rows):
              [{"d": prev_dt[:10], "v": 24.0}, {"d": last_dt[:10], "v": 25.0}]),
         card("ffm_kg", "去脂体重", "kg", 1, 66.5, 68.4, 1.5, ref["lean_mass_kg"],
              [{"d": prev_dt[:10], "v": 68.4}, {"d": last_dt[:10], "v": 66.5}]),
-        card("skeletal_muscle_kg", "骨骼肌量", "kg", 1, 37.9, 39.0, 1.5,
-             ref["skeletal_muscle_kg"],
-             [{"d": prev_dt[:10], "v": 39.0}, {"d": last_dt[:10], "v": 37.9}]),
-        card("visceral_fat_level", "内脏脂肪等级", "级", 0, 9.0, 9.0, 2,
-             ref["visceral_fat_level"],
-             [{"d": prev_dt[:10], "v": 9.0}, {"d": last_dt[:10], "v": 9.0}]),
     ]
     return {
         "available": True, "scan_count": 2, "updated": last_dt,
@@ -318,6 +319,8 @@ def synth_inbody(days_rows):
                    "conditions": "合成用例：家用机型 + 非晨起空腹，绝对值只定区间。",
                    "notes": ["与上一条比对：体重 -1.4kg 过门槛（合成用例）"]},
         "window": window_for(days_rows, prev_dt, last_dt),
+        "bands": bands_for(days_rows, [{"datetime": prev_dt, "weight_kg": 90.0},
+                                      {"datetime": last_dt, "weight_kg": 88.6}]),
         "history": [{"datetime": prev_dt, "weight_kg": 90.0,
                      "percent_body_fat": 24.0, "skeletal_muscle_mass_kg": 39.0},
                     {"datetime": last_dt, "weight_kg": 88.6,

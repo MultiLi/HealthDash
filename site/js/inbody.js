@@ -1,20 +1,23 @@
-/* 体成分（InBody）· 事件型数据源的**两处**渲染。
+/* 结构（体重 / 体脂率 / 去脂体重）· 慢变量维度。
  *
- * 它现在出现在两个地方，共用同一份数据与同一套措辞：
- *   ① `bodyGroupHtml()` —— 指标区里的「体成分」分组。卡片外观、粒度声明、
- *      判定措辞与 Garmin 的恢复/行为/负荷三组同构，不必翻到页尾才知道体重多少。
- *   ② `renderInBody()` —— 页尾的完整截面：构成、区间、目标路径、节段分布，
- *      以及这两次扫描同期的 Garmin 行为面。
+ * **它不是一个板块，是三个维度之一。** 页面按「身体在补（恢复）／身体在耗（活动）／
+ * 身体是什么（结构）」划分，InBody 只是「结构」这一个维度的测量工具。所以这里
+ * 没有「体成分专区」——只有：
  *
- * 两处都不吃 anchor/scale：一次体测一个截面，间隔以周/月计。塞进日/周/月尺度
- * 会暗示「每天都有值」，并让「月日均」这种不存在的口径凭空产生
- * （references/metrics.json 已把它声明为不进 units 聚合的点观测）。
+ *   ① `bodyGroupHtml()` —— 指标区第三组「结构」，卡壳与前两组完全同构。
+ *      差别只有时间语义：扫描点，不吃 anchor/scale。
+ *   ② `renderStructure()` —— 「结构 × 活动」对照：四带共享一根日期轴。
+ *      这不是「给体成分配一段 Garmin 数据」（那是数据源视角，产物就是一张
+ *      两张均值对着看的表），而是**两条轴在时间上的并置**：同一段时间里，
+ *      结构怎么变、活动怎么变。
+ *   ③ 折叠的「测量报告」—— 节段分布、目标路径、参考区间、测量条件。
+ *      这些**共享不了日期轴**（它们属于那一次测量），所以不进主视图。
  *
  * 判定的唯一来源是后端 `status.json`（check_inbody 过了 rules.confidence 的门槛），
  * 本文件**不算门槛、不比大小**——只把 verdict 翻成人话。
  */
-import { esc, $ } from "./utils.js?v=441b0678";
-import { sparkline } from "./charts.js?v=441b0678";
+import { esc, $ } from "./utils.js?v=ae331b07";
+import { sparkline, alignBands } from "./charts.js?v=ae331b07";
 
 function n(v, d) {
   if (v == null || isNaN(v)) return "–";
@@ -60,7 +63,7 @@ function refNote(c) {
   return "区间 " + r[0] + "–" + r[1] + " " + u + " 内";
 }
 
-/* ============ ① 指标区里的体成分分组 ============ */
+/* ============ ① 指标区的「结构」组 ============ */
 
 /* 扫描点要按**真实间隔**排：10/18 → 10/21 是 3 天，10/21 → 10/31 是 10 天。
    等距排会把 3 天和 10 天画成一样宽，看上去像「匀速下降」——那是图表在编故事。
@@ -102,22 +105,61 @@ function cardHtml(c) {
     "</div>" +
     '<div class="mx-meta"><span class="dl flat">' + esc(deltaText(c)) + "</span></div>" +
     '<div class="mx-chart">' + svg + "</div>" +
-    '<div class="mx-foot"><span class="mx-stat">' + esc(refNote(c) || "无设备参考区间") + "</span>" +
-      '<a class="mx-more" href="#inbody-zone">完整截面</a></div>' +
+    '<div class="mx-foot"><span class="mx-stat">' + esc(refNote(c) || "无设备参考区间") + "</span></div>" +
     "</article>";
 }
 
 export function bodyGroupHtml() {
   var d = _data;
   if (!d || !d.available || !d.cards || !d.cards.length) return "";
-  return '<section class="mx-group" data-group="body">' +
-    '<div class="mx-gh"><h3>体成分</h3><span>' +
-      "低频截面 · " + d.scan_count + " 次扫描，不随上面的日期与尺度变化" +
-    "</span></div>" +
+  var span = d.scan_count > 1
+    ? "低频 · " + d.scan_count + " 次扫描，不随上方的日期与尺度变化"
+    : "低频 · 1 次扫描，现在是截面不是趋势";
+  return '<section class="mx-group" data-group="structure">' +
+    '<div class="mx-gh"><h3>结构</h3><span>' + esc(span) + "</span></div>" +
     '<div class="metric-grid">' + d.cards.map(cardHtml).join("") + "</div></section>";
 }
 
-/* ============ ② 页尾的完整截面 ============ */
+/* ============ ② 结构 × 活动：共享时间轴 ============ */
+
+function plotNote(d) {
+  var w = d.window;
+  if (!w || !w.metrics || !w.metrics.length) return "";
+  /* 只报**本窗**的均值，不报「与前窗比」：前窗在那张图上就是左边那一段，
+     眼睛能直接看；再写一遍就是为对比而对比。 */
+  /* 每个数都带指标名：只写「6.7h」得回去数第四位才知道那是睡眠。
+     单位紧贴数字（中文单位不加空格），指标名用浅色小字。 */
+  var parts = w.metrics.slice(0, 4).map(function (m) {
+    var v = m.key === "steps"
+      ? Math.round(m.now).toLocaleString("en-US")
+      : n(m.now, m.precision);
+    return '<span><i>' + esc(m.label) + "</i><b>" + v + "</b>" + esc(m.unit) + "</span>";
+  });
+  return '<p class="ab-sum"><em>上次扫描后 ' + w.days + " 天的日均</em>" +
+    parts.join("") + "</p>";
+}
+
+export function renderStructure() {
+  var zone = $("structure-zone");
+  if (!zone) return;
+  var d = _data;
+  if (!d || !d.available) { zone.hidden = true; return; }
+  zone.hidden = false;
+
+  var b = d.bands;
+  var plot = $("struct-plot");
+  if (plot) {
+    plot.innerHTML = b
+      ? alignBands(b) + plotNote(d) +
+        '<p class="ab-caveat">' + esc(b.note) + "</p>"
+      : '<p class="ib-empty">扫描次数不足或 Garmin 数据跨度不够，画不出对齐对照。' +
+        "两条轴要并排，至少需要两次扫描与它们之间的行为记录。</p>";
+  }
+  renderReport(d);
+}
+
+/* ============ ③ 这次测量的报告（折叠） ============ */
+
 function splitCard(d) {
   var L = d.latest || {};
   var lean = L.fat_free_mass_kg, fat = L.body_fat_mass_kg, wt = L.weight_kg;
@@ -125,7 +167,6 @@ function splitCard(d) {
   var fp = (fat && wt) ? fat / wt * 100 : 0;
   var html = '<article class="ib-card"><div class="ib-card-head"><h3>体重构成</h3>' +
     "<span>去脂体重 + 体脂量</span></div>" +
-    '<div class="ib-split-top"><b>' + n(wt) + "</b><em>kg</em></div>" +
     '<div class="ib-bar">' +
       '<i class="ib-lean" style="width:' + lp + '%">去脂 ' + n(lean) + "</i>" +
       '<i class="ib-fat" style="width:' + fp + '%">脂肪 ' + n(fat) + "</i>" +
@@ -158,6 +199,16 @@ function splitCard(d) {
    域 = 区间与实测值的并集再各留 25% 余量，保证极端值也能落在条内。 */
 function rangeRow(label, value, unit, ref, opts) {
   opts = opts || {};
+  /* 等级型（内脏脂肪 1–9）：ref 是个数字上限，不是区间。画一根空轨道会让人
+     以为「区间数据缺失」，其实它本来就没有区间——只说越没越线。 */
+  if (typeof ref === "number") {
+    var over = value != null && value > ref;
+    return '<div class="ib-row ib-row-plain"><span class="ib-k">' + esc(label) + "</span>" +
+      '<span class="ib-v' + (over ? " out" : "") + '">' + n(value, opts.d) +
+      "<em>" + esc(unit || "") + "</em></span>" +
+      '<span class="ib-note-inline' + (over ? " warn" : "") + '">' +
+      (over ? "高于 " + ref + " 级上限" : "在 " + ref + " 级以内") + "</span></div>";
+  }
   if (value == null) {
     return '<div class="ib-row"><span class="ib-k">' + esc(label) +
       '</span><span class="ib-v">–</span><span class="ib-track"></span></div>';
@@ -198,7 +249,10 @@ function metricsCard(d) {
     rangeRow("体重", L.weight_kg, " kg", R.weight_kg, { d: 1 }),
     rangeRow("体脂率", L.percent_body_fat, " %", R.percent_body_fat, { d: 1 }),
     rangeRow("骨骼肌", L.skeletal_muscle_mass_kg, " kg", R.skeletal_muscle_kg, { d: 1 }),
-    rangeRow("体脂量", L.body_fat_mass_kg, " kg", R.body_fat_kg, { d: 1 })
+    rangeRow("体脂量", L.body_fat_mass_kg, " kg", R.body_fat_kg, { d: 1 }),
+    /* 这两项不进卡片（三次都在同一平面），但报告里必须逐项列出——
+       等级型指标的价值在「有没有越线」，不在「画一条线」。 */
+    rangeRow("内脏脂肪", L.visceral_fat_level, " 级", R.visceral_fat_level, { d: 0 })
   ].join("");
   return '<article class="ib-card"><div class="ib-card-head"><h3>相对参考区间</h3>' +
     "<span>区间由设备内置判定表下发</span></div>" +
@@ -258,36 +312,6 @@ function segCard(d) {
     "，不能用它判断「哪条腿更该减脂肪」——局部减脂不存在。</p></article>";
 }
 
-/* 同期行为面：体成分变化那段时间，Garmin 侧是什么样。
-   这是「两个源放进同一个时间窗」唯一的地方，也是它们分开时读不出来的东西。
-   两列并置但**不判方向**：跨源没有可过的因果门槛，箭头与百分比在这里都是编的。 */
-function windowCard(d) {
-  var w = d.window;
-  if (!w || !w.metrics || !w.metrics.length) return "";
-  var rows = w.metrics.map(function (m) {
-    var now = n(m.now, m.precision);
-    var prev = m.prev == null ? "–" : n(m.prev, m.precision);
-    /* 步数是整数计数：均值带一位小数会被读成「步数有小数精度」 */
-    if (m.key === "steps") {
-      now = Math.round(m.now).toLocaleString("en-US");
-      if (m.prev != null) prev = Math.round(m.prev).toLocaleString("en-US");
-    }
-    return "<tr><td>" + esc(m.label) + "</td>" +
-      '<td class="num">' + now + "<em>" + esc(m.unit) + "</em></td>" +
-      '<td class="num prev">' + prev + "</td>" +
-      '<td class="num n">' + m.now_n + "/" + w.days + "</td></tr>";
-  }).join("");
-  return '<article class="ib-card ib-window"><div class="ib-card-head"><h3>同期行为面</h3>' +
-    "<span>" + esc(w.from) + " ~ " + esc(w.to) + " · 上次扫描之后到本次扫描（" + w.days + " 天）</span></div>" +
-    '<table class="ib-tbl ib-wtbl"><colgroup><col style="width:30%"><col style="width:26%">' +
-    '<col style="width:26%"><col style="width:18%"></colgroup>' +
-    '<thead><tr><th>指标</th><th style="text-align:right">本窗</th>' +
-    '<th style="text-align:right">前 ' + w.days + ' 天</th>' +
-    '<th style="text-align:right">有效天</th></tr></thead>' +
-    "<tbody>" + rows + "</tbody></table>" +
-    '<p class="ib-caveats">' + esc(w.note || "") + "</p></article>";
-}
-
 function chips(d) {
   var L = d.latest || {}, R = d.reference || {};
   var out = [];
@@ -296,8 +320,6 @@ function chips(d) {
       "<b>" + v + "</b>" + esc(unit || "") + "</span>");
   }
   if (L.bmi != null) chip("BMI", n(L.bmi), "", R.bmi && L.bmi > R.bmi[1]);
-  if (L.visceral_fat_level != null)
-    chip("内脏脂肪等级", n(L.visceral_fat_level, 0), "", L.visceral_fat_level > 9);
   if (L.whr != null) chip("腰臀比", n(L.whr, 2), "", R.whr && L.whr > R.whr[1]);
   if (L.ffmi != null) chip("FFMI", n(L.ffmi), "", false);
   if (L.bmr_kcal != null) chip("基础代谢", n(L.bmr_kcal, 0), " kcal", false);
@@ -319,46 +341,39 @@ function timeline(d) {
     '<p class="ib-caveats">' + tail + "</p>";
 }
 
-export function renderInBody() {
-  var zone = $("inbody-zone");
-  if (!zone) return;
-  var d = _data;
-  if (!d || !d.available) {
-    zone.hidden = false;
-    $("ib-sub").textContent = "事件型数据：一次体测一个截面，不参与日/周/月尺度。";
-    $("ib-stamp").innerHTML = "";
-    $("ib-grid").innerHTML = '<p class="ib-empty">' +
-      "InBody 尚未采集到记录。在体测仪上测一次并同步进 App 后，这里会出现第一份截面。" +
-      "</p>";
-    return;
-  }
-
+function renderReport(d) {
+  var box = $("struct-report");
+  if (!box) return;
   var L = d.latest || {};
-  zone.hidden = false;
-  $("ib-sub").textContent =
-    "低频截面：不吃日/周/月尺度——上面「指标」区里的体成分卡是它的摘要，这里是完整截面。";
-
+  var st = d.status || {};
   var ageTxt = d.age_days == null ? "未知"
     : (d.age_days === 0 ? "今天测得" : "距今 " + d.age_days + " 天");
-  $("ib-stamp").innerHTML =
-    "<b>" + esc((L.datetime || "").replace("T", " ").slice(5, 16)) + "</b>" +
-    "InBody " + esc(d.equipment || "") + " · 机身 " + esc(d.serial || "—") +
-    '<span class="ib-age' + (d.stale ? " stale" : "") + '">' + esc(ageTxt) + "</span>";
 
-  var st = d.status || {};
+  /* 摘要行要能独立成句：不展开也知道「哪次、多少、比上次怎么样」。 */
+  var head = '<span class="sr-date">' + esc((L.datetime || "").replace("T", " ").slice(5, 16)) + "</span>" +
+    '<b class="sr-wt">' + n(L.weight_kg) + " kg</b>" +
+    '<span class="sr-pbf">体脂 ' + n(L.percent_body_fat) + "%</span>" +
+    (d.cards && d.cards[0] ? '<span class="sr-delta">' + esc(deltaText(d.cards[0])) + "</span>" : "") +
+    '<span class="sr-age' + (d.stale ? " stale" : "") + '">' + esc(ageTxt) + "</span>";
+
   var verdict = (st.notes && st.notes.length)
     ? '<p class="ib-verdict"><b>闸门判定</b>　' + esc(st.notes[0]) + "</p>" : "";
 
-  $("ib-grid").innerHTML =
-    '<div class="ib-grid">' + splitCard(d) + metricsCard(d) + "</div>" +
-    '<div class="ib-grid">' + targetCard(d) + segCard(d) + "</div>" +
-    windowCard(d) +
-    chips(d) +
-    timeline(d) +
-    verdict +
-    '<p class="ib-caveats">' + (d.caveats || []).map(function (c) {
-      return "<span>" + esc(c) + "</span>";
-    }).join("") + "</p>";
+  box.innerHTML =
+    '<details class="sr-wrap" id="sr-wrap">' +
+      '<summary class="sr-sum"><span class="sr-ico">测量报告</span>' + head +
+        '<span class="sr-more"></span></summary>' +
+      '<div class="sr-body">' +
+        '<div class="ib-grid">' + splitCard(d) + metricsCard(d) + "</div>" +
+        '<div class="ib-grid">' + targetCard(d) + segCard(d) + "</div>" +
+        chips(d) + timeline(d) + verdict +
+        '<p class="ib-caveats">' + (d.caveats || []).map(function (c) {
+          return "<span>" + esc(c) + "</span>";
+        }).join("") + "</p>" +
+        '<p class="ib-src">InBody ' + esc(d.equipment || "") + " · 机身 " +
+          esc(d.serial || "—") + " · 与 Garmin 各自独立采集</p>" +
+      "</div>" +
+    "</details>";
 }
 
 /* main.js 在 init 后注入数据（避免模块间循环依赖） */
