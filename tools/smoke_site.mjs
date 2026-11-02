@@ -626,6 +626,94 @@ ok(count(gridHtml, /mx-card/g) - nStructCards === metrics(ix).length,
   "日指标卡片总数不变（一张都没丢）",
   (count(gridHtml, /mx-card/g) - nStructCards) + "/" + metrics(ix).length);
 
+console.log("\n== 这一段的形状（窗口结论） ==");
+/* 这一节守两件事：
+   ① 判定与措辞来自后端，前端只挑与排序；② **说不了就不说，且要说清为什么**——
+   样本不足、历史滚动窗、日尺度，三种「没有形状」各自有话说，不能都画成空白。 */
+const cbs = ix.conclusions || {};
+const cScales = Object.keys(cbs).filter((k) => k.charAt(0) !== "_");
+/* 结论块要读 data/db（断言表），CI 的合成 fixture 里没有库 —— 那里跳过，
+   但**不能静默跳过**：本机跑的时候它必须在，否则这一节等于没写。 */
+const hasCbs = !cbs._error && cScales.length > 0 && cbs._min_n > 0;
+if (!hasCbs) {
+  console.log("  – 跳过：这份 index 没有窗口结论块（fixture 无 data/db，CI 里没有）");
+} else {
+ok(cScales.length >= 3, "index.json 下发窗口结论", cScales.join("/"));
+ok(cbs._min_n > 0, "最小样本门由后端下发（前端不写死 5）", String(cbs._min_n));
+const rollScales = cScales.filter((s) => s.indexOf("roll") === 0);
+const rollKeys = rollScales.reduce((n, s) => n + Object.keys(cbs[s]).length, 0);
+ok(rollKeys === rollScales.length, "滚动窗只算最新一个 key（首屏载荷纪律）",
+  rollKeys + " / " + rollScales.length);
+
+const richMonth = Object.keys(cbs.month || {})
+  .filter((k) => (cbs.month[k].rows || []).length).pop();
+ok(!!richMonth, "至少一个月单元有结论", richMonth || "无");
+if (richMonth) {
+  store.scale = "month";
+  store.anchor = richMonth + "-15";
+  renderPage();
+  ok(!hidden("unit-shape"), "月尺度：总览末尾出现「这一段的形状」");
+  const sh = html("unit-shape");
+  const rowsM = cbs.month[richMonth].rows || [];
+  const onRows = rowsM.filter((r) => r.s === "成立");
+  const chipN = count(sh, /class="ush-c"/g);
+  ok(chipN > 0 && chipN <= onRows.length, "胶囊只放「成立」的结论",
+    chipN + " 个 / 成立 " + onRows.length);
+  ok(!/class="dl /.test(sh), "胶囊不上红黄绿：这里说的是形态，不是好坏");
+  const one = onRows[0];
+  ok(sh.includes(one.h + "/" + one.n + " 天"), "胶囊里的命中/可判与后端一致",
+    one.h + "/" + one.n);
+  /* 表格在 DOM 里（<details> 里），但必须**没有 open**——默认展开会把 21 行
+     全铺在总览区，那才是把总览变成附录。 */
+  ok(/class="ush-all"/.test(sh) && !/class="ush-all"[^>]*\sopen/.test(sh),
+    "明细默认折叠（不铺开 21 行）");
+  ok(sh.indexOf("全部 " + rowsM.length + " 条结论") >= 0, "折叠行说明总条数",
+    rowsM.length + " 条");
+  /* 段数是这一层唯一的增量信息：只给比率，「结构性」和「偶发」就分不出来 */
+  const withSeg = onRows.filter((r) => r.op !== "run" && r.l >= 2)[0];
+  if (withSeg) {
+    ok(sh.includes("最长连 " + withSeg.l + " 天"), "胶囊带最长连段（结构信号）",
+      "最长连 " + withSeg.l + " 天");
+  }
+}
+
+/* 日尺度：那一天的判断在判读区，这里不复述 */
+store.scale = "day";
+store.anchor = closedLast;
+renderPage();
+ok(hidden("unit-shape"), "日尺度不渲染（判断归判读区）");
+
+/* 样本不足的单元：说「够不上 N 天」，不给形状——空着会被读成「这一段没问题」 */
+const thinMonth = Object.keys(cbs.month || {})
+  .find((k) => !(cbs.month[k].rows || []).length);
+if (thinMonth) {
+  store.scale = "month";
+  store.anchor = thinMonth + "-15";
+  renderPage();
+  const th = html("unit-shape");
+  ok(!hidden("unit-shape") && th.indexOf("最小样本") >= 0,
+    "样本不足：明说够不上门槛，不给形状", thinMonth);
+}
+
+/* 历史滚动窗：只算了最新那一个，必须说出来 */
+const rollScale = rollScales[0];
+const onlyKey = rollScale ? Object.keys(cbs[rollScale])[0] : null;
+const otherDay = (ix.days[0] || {}).date;
+if (rollScale && onlyKey && otherDay && otherDay !== onlyKey) {
+  store.scale = rollScale;
+  store.anchor = otherDay;
+  renderPage();
+  const rh = html("unit-shape");
+  ok(!hidden("unit-shape") && rh.indexOf("只算最新窗口") >= 0,
+    "历史滚动窗：明说结论只算最新窗口，而不是空着", otherDay);
+}
+
+/* 复原给下一节用的状态 */
+store.scale = "month";
+store.anchor = closedLast.slice(0, 8) + "15";
+renderPage();
+}
+
 console.log("\n== 结构：低频卡片与日指标同构 ==");
 /* 验的不是「有没有画出体成分」，而是**它是不是同一家人**：
    同一套卡壳、同一套判定措辞、同一份后端判定；以及**它没有偷偷跟着尺度变**。 */

@@ -9,19 +9,19 @@
  *   ③ 指标网格（8 张同构卡：主值 + 环比 + 趋势线 + 达标统计；日尺度下可展开当日细分）
       趋势线的范围与粒度是两个独立参数（trend.js），与尺度无关——尺度只管主值口径。
  */
-import { store } from "./store.js?v=ae331b07";
-import { metrics, CHECKS, bandOf, BAND, READY, readyOf } from "./constants.js?v=ae331b07";
-import { esc, $ } from "./utils.js?v=ae331b07";
+import { store } from "./store.js?v=913e3caa";
+import { metrics, CHECKS, bandOf, BAND, READY, readyOf } from "./constants.js?v=913e3caa";
+import { esc, $ } from "./utils.js?v=913e3caa";
 import { metricValue, judgeValue, unitRowsAll, rowsWith,
-         unitCell, cellJudge, okCount, VERDICT_TEXT } from "./aggregate.js?v=ae331b07";
-import { unitOf, prevUnitOf } from "./scope.js?v=ae331b07";
-import { trendPoints } from "./trend.js?v=ae331b07";
-import { renderMonth, renderHeatstrip } from "./calendar.js?v=ae331b07";
-import { sparkline } from "./charts.js?v=ae331b07";
-import { DETAILS, readinessTrail, briefHtml } from "./detail.js?v=ae331b07";
-import { ensureShard, dayOf, hasShard } from "./data.js?v=ae331b07";
-import { monthLabel, fmtMD, weekdayCN } from "./dateutil.js?v=ae331b07";
-import { bodyGroupHtml } from "./inbody.js?v=ae331b07";
+         unitCell, cellJudge, okCount, VERDICT_TEXT } from "./aggregate.js?v=913e3caa";
+import { unitOf, prevUnitOf } from "./scope.js?v=913e3caa";
+import { trendPoints } from "./trend.js?v=913e3caa";
+import { renderMonth, renderHeatstrip } from "./calendar.js?v=913e3caa";
+import { sparkline } from "./charts.js?v=913e3caa";
+import { DETAILS, readinessTrail, briefHtml } from "./detail.js?v=913e3caa";
+import { ensureShard, dayOf, hasShard } from "./data.js?v=913e3caa";
+import { monthLabel, fmtMD, weekdayCN } from "./dateutil.js?v=913e3caa";
+import { bodyGroupHtml } from "./inbody.js?v=913e3caa";
 
 function ix() { return store.ix; }
 
@@ -166,6 +166,147 @@ function renderOverview(unit) {
       '<span class="uc-v">' + num + '<i>/' + den + '</i></span>' +
       '<span class="uc-bar"><i style="width:' + pct + '%"></i></span></div>';
   }).join("");
+
+  /* ②b：这一段的形状。挂在总览末尾——它说的是「当前这个单元」的性质，
+     和上面的综合指数、四项达标是同一层的问题，不是新板块。 */
+  renderShape(unit);
+}
+
+/* ================= ②b 这一段的形状（窗口结论）=================
+ * 卡片回答「这个单元的值是多少」，判读区回答「这一天怎么样」，中间缺一句
+ * 「这一段是什么形状」：同样 26 天久坐超标，落在 4 段里是结构性作息、
+ * 散在 26 段里是偶发——卡片、日历、判读流水都分不出这一层。
+ *
+ * 判定与措辞全部来自 index.json.conclusions（后端 conclusions.py 算的）。
+ * 前端只做三件事：挑「成立」的摆出来、排序、拼表。**不比较、不改措辞、不上色**：
+ * 红黄绿会把 30 天压成一个档位，那是日级总评的粗糙翻版，而这里要说的是形态。
+ *
+ * 日尺度不渲染——那一天的判断已经在判读区，再算一遍只是换个措辞复述。
+ */
+var GR_ORDER = { "恢复": 0, "活动": 1, "其他": 2 };
+
+function shapeRate(r) { return r.n ? r.h / r.n : 0; }
+
+function shapeSort(a, b) {
+  var sa = a.s === "成立" ? 0 : 1, sb = b.s === "成立" ? 0 : 1;
+  if (sa !== sb) return sa - sb;
+  var ga = GR_ORDER[a.gr] == null ? 9 : GR_ORDER[a.gr];
+  var gb = GR_ORDER[b.gr] == null ? 9 : GR_ORDER[b.gr];
+  if (ga !== gb) return ga - gb;
+  if (shapeRate(a) !== shapeRate(b)) return shapeRate(b) - shapeRate(a);
+  return a.id < b.id ? -1 : 1;
+}
+
+function shapeChip(r) {
+  /* run 型（「连续 N 晚」类）的命中天数是副产品，**判据是段结构与最长段**：
+     写「11/22 天」会被读成「一半的日子都这样」，而它真正说的是「有一段连了 5 天」。 */
+  var bits = r.op === "run"
+    ? ["分 " + r.e + " 段", "最长连 " + (r.l || 0) + " 天"]
+    : [r.h + "/" + r.n + " 天"];
+  /* 段数是「结构性 vs 偶发」的唯一证据：40 天落在 2 段里＝作息如此，
+     落在 9 段里＝时常如此。只给比率，这个区别就被平均掉了。 */
+  if (r.op !== "run" && r.e >= 2) bits.push(r.e + " 段");
+  if (r.op !== "run" && r.l >= 2) bits.push("最长连 " + r.l + " 天");
+  var t = r.w + "（" + (r.op === "run" ? "共 " + r.e + " 段，最长连着 " + (r.l || 0) + " 天"
+                                        : r.h + "/" + r.n + " 天可判定");
+  if (r.op !== "run" && r.e > 1) t += "，分 " + r.e + " 段";
+  if (r.op !== "run" && r.l >= 2) t += "，最长连着 " + r.l + " 天";
+  t += "）";
+  return '<span class="ush-c" title="' + esc(t) + '"><i>' + esc(r.gr) + "</i>" +
+    esc(r.w) + "<em>" + esc(bits.join(" · ")) + "</em></span>";
+}
+
+/* 累计量按单位换成人话：分钟换成小时，其余原样。 */
+function shapeExtra(r) {
+  if (r.t) return esc(r.t);
+  if (r.iv == null) return "";
+  if (r.iu === "min") return (r.iv / 60).toFixed(1) + " h";
+  return r.iv + (r.iu ? " " + r.iu : "");
+}
+
+function shapeTable(rows) {
+  var head = "<tr><th>维度</th><th>结论</th><th>状态</th><th>命中/可判</th>" +
+    "<th>段</th><th>最长</th><th>累计 / 趋势</th></tr>";
+  var body = rows.map(function (r) {
+    return '<tr class="' + (r.s === "成立" ? "on" : "off") + '">' +
+      "<td>" + esc(r.gr) + "</td><td>" + esc(r.w || "—") + "</td><td>" + esc(r.s) + "</td>" +
+      '<td class="num">' + r.h + "/" + r.n + '</td><td class="num">' + r.e + "</td>" +
+      '<td class="num">' + (r.l || 0) + "</td><td>" + shapeExtra(r) + "</td></tr>";
+  }).join("");
+  return '<table class="ush-tb"><thead>' + head + "</thead><tbody>" + body + "</tbody></table>";
+}
+
+export function renderShape(unit) {
+  var box = $("unit-shape");
+  if (!box) return;
+  box.hidden = true;
+  box.innerHTML = "";
+  /* 日尺度：这一天的判断在判读区，不在这里复述 */
+  if (store.scale === "day") return;
+
+  var cbs = ix().conclusions || {};
+  var all = cbs[unit.scale] || {};
+  var blk = all[unit.key];
+  var head = function (w) {
+    return '<div class="ush-h"><span class="ush-t">这一段的形状</span>' +
+      (w ? '<span class="ush-w">' + esc(w.s) + " ~ " + esc(w.e) + " · " + w.n + " 天</span>" : "") +
+      "</div>";
+  };
+  var put = function (html) { box.hidden = false; box.innerHTML = html; };
+
+  if (!blk) {
+    var keys = Object.keys(all);
+    /* 滚动窗只算最新窗口（载荷原因，见 homepage/conclusions_layer.py）。
+       这里必须说出来：空着不解释，读起来就是「这一段没问题」。 */
+    if (keys.length === 1 && String(unit.scale).indexOf("roll") === 0) {
+      put(head(null) + '<p class="ush-note">滚动窗的结论只算最新窗口（' + esc(keys[0]) +
+        "），翻到历史日期时不重算——那一段看日历颜色与判读流水。</p>");
+    } else if (keys.length && !cbs._error) {
+      put(head(null) + '<p class="ush-note">这个单元还没有结论（重建索引后可见）。</p>');
+    }
+    return;
+  }
+
+  var w = blk.w || {};
+  var rows = (blk.rows || []).slice().sort(shapeSort);
+  var on = rows.filter(function (r) { return r.s === "成立"; });
+
+  if (!rows.length) {
+    put(head(w) + '<p class="ush-note">这一段只有 ' + (w.n || 0) +
+      " 天，够不上 " + (cbs._min_n || 5) + " 天的最小样本——暂时不谈形状。" +
+      "切到更长的窗口能看。</p>");
+    return;
+  }
+
+  /* 每个维度先用 rate 型顶：它自带「命中/可判 + 段数 + 最长段」，信息完整。
+     run 型（「连续 N 晚」）是同一批命中日的另一种切法，和 rate 并排会被读成
+     两件事——只有当这个维度没有 rate 型成立时，才拿它顶上。 */
+  var byGr = {}, chips = [];
+  on.forEach(function (r) { (byGr[r.gr] = byGr[r.gr] || []).push(r); });
+  Object.keys(byGr).forEach(function (g) {
+    var rated = byGr[g].filter(function (r) { return r.op === "rate"; });
+    chips = chips.concat(rated.length ? rated : byGr[g]);
+  });
+  chips.sort(function (a, b) {
+    var ga = GR_ORDER[a.gr] == null ? 9 : GR_ORDER[a.gr];
+    var gb = GR_ORDER[b.gr] == null ? 9 : GR_ORDER[b.gr];
+    return ga !== gb ? ga - gb : shapeRate(b) - shapeRate(a);
+  });
+
+  var html = head(w);
+  if (chips.length) {
+    html += '<div class="ush-cs">' + chips.map(shapeChip).join("") + "</div>";
+  } else {
+    /* 一条「成立」都没有时**不能硬挑一条**当代表：那会把「时破时回」写成「常态」。
+       直说这一段没有占多数的形态，下面给明细。 */
+    html += '<p class="ush-note">这一段没有占多数的形态（各项都在参半或偶发），明细见下。</p>';
+  }
+  var rest = rows.length - on.length;
+  html += '<details class="ush-all"><summary>全部 ' + rows.length + " 条结论" +
+    (rest ? "（含 " + rest + " 条参半 / 不成立）" : "") +
+    (blk.na ? "，另有 " + blk.na + " 项样本不足未给结论" : "") +
+    "</summary>" + shapeTable(rows) + "</details>";
+  put(html);
 }
 
 /* 准备度的日内重算轨迹：只存在于日分片，故日尺度下按需拉取。

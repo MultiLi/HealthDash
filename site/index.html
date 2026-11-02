@@ -6,11 +6,11 @@
 <title>健康主页 · 身体数据</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/base.css?v=ae331b07">
-<link rel="stylesheet" href="css/calendar.css?v=ae331b07">
-<link rel="stylesheet" href="css/page.css?v=ae331b07">
-<link rel="stylesheet" href="css/detail.css?v=ae331b07">
-<link rel="stylesheet" href="css/inbody.css?v=ae331b07">
+<link rel="stylesheet" href="css/base.css?v=913e3caa">
+<link rel="stylesheet" href="css/calendar.css?v=913e3caa">
+<link rel="stylesheet" href="css/page.css?v=913e3caa">
+<link rel="stylesheet" href="css/detail.css?v=913e3caa">
+<link rel="stylesheet" href="css/inbody.css?v=913e3caa">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='9' fill='%2310B981'/><path d='M16 26C16 26 5 19.5 5 12.2C5 8.2 8.1 5.5 11.4 5.5C13.3 5.5 15 6.4 16 8C17 6.4 18.7 5.5 20.6 5.5C23.9 5.5 27 8.2 27 12.2C27 19.5 16 26 16 26Z' fill='white'/></svg>">
 </head>
 <body>
@@ -83,6 +83,9 @@
         <p class="unit-note">两项口径不同，<b>不合成一个数</b>：综合指数是行为达标度，准备度是设备对恢复与负荷的判断。两者背离时，背离本身就是信号。</p>
         <p class="unit-trail" id="unit-ready-trail" hidden></p>
         <div class="unit-checks" id="unit-checks"></div>
+        <!-- 这一段的形状：窗口结论（后端 conclusions.py 算好）。
+             不给红黄绿——它说的是形态（结构性 / 偶发），不是好坏。 -->
+        <div class="unit-shape" id="unit-shape" hidden></div>
       </div>
     </section>
 
@@ -170,6 +173,6 @@
     </div>
   </footer>
 </div>
-<script type="module" src="js/main.js?v=ae331b07"></script>
+<script type="module" src="js/main.js?v=913e3caa"></script>
 </body>
 </html>
