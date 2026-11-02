@@ -41,6 +41,9 @@ from homepage.timeutil import weekday_cn                 # noqa: E402
 # 存在」判定可跑，空库让它在 CI 里假性运行并失败。fixture 的 units 本来就是
 # 合成的，直接把真实读库口短路掉，杜绝这个副作用。
 indexlayer.units_block = lambda rules, day_rows=None: {"_fixture": "synthetic"}
+# 窗口结论块同样要读断言表。先短路，避免 sqlite 在裸 checkout 里凭空造一个空库
+# （2026-11-01 那个事故的同一个入口）；真正的合成块在 build_index 之后替换。
+indexlayer.conclusions_block = lambda rules=None, roll_scale="latest": {"_fixture": "synthetic"}
 
 SPAN_START = "2026-09-01"   # smoke 有写死 2026-09 系列锚点，跨度必须覆盖 9 月
 HRV_BAND = {"low": 45, "high": 75}
@@ -250,6 +253,75 @@ def synth_units(days_rows):
     return out
 
 
+def synth_conclusions(days_rows):
+    """合成窗口结论块（模拟 homepage.conclusions_layer.block 的下发形态）。
+
+    真值要读 assertions 表（CI 无库），这里只造**渲染契约**：字段名、量纲、
+    四种空态的分支。剧本覆盖到前端每一条 if：
+      · 月末那个月只有 2 天 → 「够不上最小样本」
+      · 更早的月全是参半     → 「没有占多数的形态」
+      · 正常月有成立项       → 胶囊 + 折叠表
+      · 滚动窗只有一个 key   → 历史锚点提示（smoke 靠它验第 13 项）
+    """
+    def win(s, e, n, ruler):
+        return {"s": s, "e": e, "n": n, "r": ruler}
+
+    def r(i, gr, op, st, w, h, n, e, l, **kw):
+        o = {"id": i, "gr": gr, "op": op, "s": st, "w": w, "h": h, "n": n, "e": e, "l": l}
+        o.update(kw)
+        return o
+
+    # 有成立项的一组：覆盖 rate / run、总量、趋势三种附加字段
+    rich = [
+        r("sleep.duration.short", "恢复", "rate", "成立", "持续性短睡", 17, 22, 5, 6,
+          iv=9.4, iu="h"),
+        r("sleep.bedtime.late", "恢复", "rate", "成立", "入睡偏晚", 15, 22, 4, 7),
+        r("sleep.debt.streak_ge_2", "恢复", "run", "成立", "至少一段连续短睡", 9, 22, 4, 4),
+        r("autonomic.hrv.below_band", "恢复", "rate", "参半", "HRV 时破时回", 8, 20, 6, 2,
+          t="下行 -6.0"),
+        r("activity.sedentary.over", "活动", "rate", "成立", "久坐是常态", 20, 22, 2, 12,
+          iv=96.0, iu="min"),
+        r("activity.steps.low", "活动", "rate", "不成立", "步数多数不低", 4, 22, 3, 2),
+    ]
+    # 全参半的一组：验「没有占多数的形态」那条分支
+    half = [
+        r("sleep.duration.short", "恢复", "rate", "参半", "短睡时有时无", 11, 24, 6, 3),
+        r("activity.sedentary.over", "活动", "rate", "参半", "久坐时超时不超", 12, 24, 6, 3),
+    ]
+
+    def wk(ds):
+        iso = datetime.date.fromisoformat(ds).isocalendar()
+        return "%d-W%02d" % (iso[0], iso[1])
+
+    by_week = {}
+    for row in days_rows:
+        by_week.setdefault(wk(row["date"]), []).append(row["date"])
+    weeks = sorted(by_week)
+    out = {"_min_n": 5, "week": {}, "month": {}, "roll7": {}, "roll28": {}, "roll90": {}}
+    for i, w in enumerate(weeks):
+        ds = sorted(by_week[w])
+        out["week"][w] = {"w": win(ds[0], ds[-1], len(ds), "week"),
+                          "na": 0, "rows": rich if i % 2 else half}
+
+    months = sorted({row["date"][:7] for row in days_rows})
+    for i, m in enumerate(months):
+        if i == len(months) - 1:
+            # 当月才过了两天：样本不足的空态
+            out["month"][m] = {"w": win(m + "-01", m + "-02", 2, "week"),
+                               "na": 21, "rows": []}
+        elif i == 0:
+            out["month"][m] = {"w": win(m + "-01", m + "-30", 30, "month"),
+                               "na": 0, "rows": half}
+        else:
+            out["month"][m] = {"w": win(m + "-01", m + "-31", 31, "month"),
+                               "na": 1, "rows": rich}
+
+    last = days_rows[-1]["date"]
+    for sc in ("roll7", "roll28", "roll90"):
+        out[sc][last] = {"w": win(last, last, int(sc[4:]), sc), "na": 0, "rows": rich}
+    return out
+
+
 def synth_inbody(days_rows):
     """合成体成分块（模拟 homepage.inbody.build + attach_context 的下发形态）。
 
@@ -349,6 +421,9 @@ def main():
     # CI 无库 / 无主观日志：这三个块由本脚本合成（见模块注释的分工说明）。
     # units 已在上面把读库口短路成 _fixture 标记，这里整体替换为合成判定。
     idx["units"] = synth_units(idx["days"])
+    # 窗口结论同理：判定要读 assertions 表，CI 没有；这里给同形态的合成块，
+    # 让「这一段的形状」在 CI 里真跑，而不是长期 SKIP。
+    idx["conclusions"] = synth_conclusions(idx["days"])
     # 体成分：CI 无 data/inbody，合成一份同形态的块，让前端两处渲染都被真跑到。
     idx["inbody"] = synth_inbody(idx["days"])
     idx["events"] = {

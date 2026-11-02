@@ -632,6 +632,12 @@ console.log("\n== 这一段的形状（窗口结论） ==");
    样本不足、历史滚动窗、日尺度，三种「没有形状」各自有话说，不能都画成空白。 */
 const cbs = ix.conclusions || {};
 const cScales = Object.keys(cbs).filter((k) => k.charAt(0) !== "_");
+/* 结论块要读 data/db（断言表），CI 的合成 fixture 里没有库 —— 那里跳过，
+   但**不能静默跳过**：本机跑的时候它必须在，否则这一节等于没写。 */
+const hasCbs = !cbs._error && cScales.length > 0 && cbs._min_n > 0;
+if (!hasCbs) {
+  console.log("  – 跳过：这份 index 没有窗口结论块（fixture 无 data/db，CI 里没有）");
+} else {
 ok(cScales.length >= 3, "index.json 下发窗口结论", cScales.join("/"));
 ok(cbs._min_n > 0, "最小样本门由后端下发（前端不写死 5）", String(cbs._min_n));
 const rollScales = cScales.filter((s) => s.indexOf("roll") === 0);
@@ -706,6 +712,7 @@ if (rollScale && onlyKey && otherDay && otherDay !== onlyKey) {
 store.scale = "month";
 store.anchor = closedLast.slice(0, 8) + "15";
 renderPage();
+}
 
 console.log("\n== 结构：低频卡片与日指标同构 ==");
 /* 验的不是「有没有画出体成分」，而是**它是不是同一家人**：
