@@ -53,7 +53,7 @@ python3 /Users/tian.li/Documents/Health/skills/body-health/scripts/slot.py resol
 【6 · 收尾必须带链接】
 消息最后一行固定写，原样抄、不要改写也不要加前后缀：
 
-线上主页：https://health-daily-86790.app.workbuddy.host
+线上主页：https://health-daily-86790.app.workbuddy.host/?sharecode=NXJATQGYKL
 
 · 构建输出与 deploy.py 的输出末尾都会打「线上主页: …」。若与你写的不一致，**以输出为准**并说明地址变了——唯一来源是 tools/deploy.json。
 · 本轮什么都没出（targets 为空）**也要给链接**：这说明今天没有新报告，但主页仍可看历史。

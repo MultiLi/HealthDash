@@ -134,6 +134,15 @@ def site_origin():
         return ""
 
 
+def site_share_code():
+    """平台分享码。缺了 `?sharecode=` 网关回 403「链接不完整」——2026-11-13 事故根因。"""
+    try:
+        with open(_DEPLOY_JSON, encoding="utf-8") as fh:
+            return str((json.load(fh) or {}).get("shareCode") or "")
+    except (OSError, ValueError):
+        return ""
+
+
 def local_asset_version():
     """本地 index.html 引用的资源版本——浏览器真正会去请求的那个键。"""
     m = _ASSET_REF.search(_read(os.path.join(SITE, "index.html")))
@@ -147,8 +156,10 @@ def live_asset_version(timeout=8):
         return ""
     # 明确绕过系统代理：这域名是自己家的，走代理反而常被拦（且代理进程时常不在）
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    code = site_share_code()
+    qs = ("?sharecode=" + code) if code else "?"
     req = urllib.request.Request(
-        origin.rstrip("/") + "/?_=" + str(int(__import__("time").time())),
+        origin.rstrip("/") + "/" + qs + ("&" if code else "") + "_=" + str(int(__import__("time").time())),
         headers={"Cache-Control": "no-cache", "User-Agent": "healthd-deploy/1"},
     )
     try:

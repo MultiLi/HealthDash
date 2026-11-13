@@ -29,7 +29,7 @@
 【收尾必须带链接 —— 这条和采集同等重要】
 消息最后一行固定写，原样抄、不要改写也不要加前后缀：
 
-线上主页：https://health-daily-86790.app.workbuddy.host
+线上主页：https://health-daily-86790.app.workbuddy.host/?sharecode=NXJATQGYKL
 
 · collect.py 与 deploy.py 的输出末尾都会打「线上主页: …」。若与你写的不一致，**以输出为准**并说明地址变了——唯一来源是 tools/deploy.json。
 · **采集失败也要给链接。** 主页照样能打开，只是数据没更新，这本身就是我要知道的信息；只在成功时给链接等于把失败藏起来。
