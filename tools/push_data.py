@@ -24,6 +24,7 @@ import json
 import os
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -60,6 +61,41 @@ def resolve_base(cli_base):
         if cfg.get("origin"):
             return str(cfg["origin"]).rstrip("/")
     die("没有服务地址：请传 --base、设 HOMEPAGE_ORIGIN，或写 tools/deploy.json 的 origin")
+
+
+def resolve_share_code(cli_base=""):
+    """平台分享码。新版发布链接要求 `?sharecode=`，缺了网关直接回 403「链接不完整」。
+
+    2026-11-13 实证：整站（含 /、/api/health）连续两天 403，采集与热更新全废，
+    根因只是链接少了这个参数——不是代码、不是鉴权、不是网络。
+
+    来源优先级：$HOMEPAGE_SHARECODE > tools/deploy.json 的 shareCode
+    > 从 --base / origin / homeUrl 自带的 query 里捞。
+    """
+    env = (os.environ.get("HOMEPAGE_SHARECODE") or "").strip()
+    if env:
+        return env
+    cfg = {}
+    if os.path.isfile(DEPLOY_CFG):
+        try:
+            cfg = read_json(DEPLOY_CFG) or {}
+        except ValueError:
+            cfg = {}
+    if cfg.get("shareCode"):
+        return str(cfg["shareCode"]).strip()
+    for raw in (cli_base, cfg.get("origin"), cfg.get("homeUrl")):
+        if not raw:
+            continue
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(str(raw)).query)
+        if qs.get("sharecode"):
+            return qs["sharecode"][0]
+    return ""
+
+
+def strip_query(url):
+    """地址只保留 scheme://host/path，query 交给 sharecode 单独拼。"""
+    p = urllib.parse.urlsplit(url)
+    return urllib.parse.urlunsplit((p.scheme, p.netloc, p.path, "", "")).rstrip("/")
 
 
 def resolve_token():
@@ -128,7 +164,15 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="只打印摘要，不发请求")
     args = ap.parse_args()
 
-    base = resolve_base(args.base)
+    base = strip_query(resolve_base(args.base))
+    # 本地自测（127.0.0.1/localhost）不带分享码：那是网关侧的要求，本地 server 不认
+    host = urllib.parse.urlsplit(base).hostname or ""
+    share = "" if host in ("127.0.0.1", "localhost") else resolve_share_code(args.base)
+    qs = ("?sharecode=" + share) if share else ""
+
+    def url(path):
+        return base + path + qs
+
     files = collect()
     local_digest = {rel: canonic(obj) for rel, obj in files.items()}
 
@@ -145,10 +189,11 @@ def main():
 
     token = resolve_token()
 
-    code, health = http("GET", base + "/api/health")
+    code, health = http("GET", url("/api/health"))
     if code != 200 or not health.get("ok"):
         die("GET /api/health 返回 %s %s\n  线上可能还是旧（纯静态）版本："
             "需要先把这个版本发布一次，之后数据才走热更新。"
+            "（403「链接不完整」= 缺 sharecode，见 tools/deploy.json）"
             % (code, health.get("error") or ""))
     print("\n线上：服务 %s · 推送 %s(%s) · 数据源 %s · generated_at %s · %s 天 · 分片 %s"
           % (health.get("service"), "开" if health.get("push_enabled") else "关",
@@ -158,7 +203,7 @@ def main():
     if not health.get("push_enabled"):
         die("线上推送端点未启用（服务端没找到令牌文件）。检查 site/.push_token 是否随发布上传。")
 
-    code, remote = http("GET", base + "/api/data/index")
+    code, remote = http("GET", url("/api/data/index"))
     if code != 200:
         die("GET /api/data/index 返回 %s %s" % (code, remote.get("error") or ""))
     same_index = canonic(remote) == local_digest["index.json"]
@@ -170,13 +215,13 @@ def main():
         for rel in sorted(files):
             if rel == "index.json":
                 continue
-            code, obj = http("GET", base + "/api/data/" + rel[:-5])
+            code, obj = http("GET", url("/api/data/" + rel[:-5]))
             if code != 200 or canonic(obj) != local_digest[rel]:
                 stale.append(rel)
         print("分片：%s" % ("全部一致" if not stale else "不一致 → " + ", ".join(stale)))
         sys.exit(0 if (same_index and not stale) else 1)
 
-    code, res = http("POST", base + "/api/push", token=token, payload={"files": files})
+    code, res = http("POST", url("/api/push"), token=token, payload={"files": files})
     if code != 200 or not res.get("ok"):
         # **线上还是旧服务端时，views/ 是它不认识的条目**——整包会被拒，连 index 都推不上去，
         # 于是「加了一个新数据类型」直接变成「今天的数据没更新」。
@@ -187,7 +232,7 @@ def main():
             print("! 推送被拒（%s）。线上服务端可能还不认识 views/，"
                   "本次只推 index 与分片；视图需重新发布后才会热更新。"
                   % (res.get("error") or code), file=sys.stderr)
-            code, res = http("POST", base + "/api/push", token=token,
+            code, res = http("POST", url("/api/push"), token=token,
                              payload={"files": fallback})
             if code == 200 and res.get("ok"):
                 files = fallback
@@ -197,14 +242,14 @@ def main():
           % (len(res.get("written") or {}), res.get("bytes") or 0, res.get("prev_snapshot")))
 
     # 回读核验：不信返回值，只信再取一次拿到的东西
-    code, back = http("GET", base + "/api/data/index")
+    code, back = http("GET", url("/api/data/index"))
     if code != 200 or canonic(back) != local_digest["index.json"]:
         die("回读核验不通过：线上 index.json 与本地不一致（端点是否被缓存？）")
     bad = []
     for rel in sorted(files):
         if rel == "index.json":
             continue
-        code, obj = http("GET", base + "/api/data/" + rel[:-5])
+        code, obj = http("GET", url("/api/data/" + rel[:-5]))
         if code != 200 or canonic(obj) != local_digest[rel]:
             bad.append(rel)
     if bad:

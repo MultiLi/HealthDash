@@ -49,7 +49,9 @@ def homepage_url():
     """
     try:
         with open(os.path.join(_WORKSPACE, "tools", "deploy.json"), encoding="utf-8") as fh:
-            return (json.load(fh) or {}).get("origin") or None
+            cfg = json.load(fh) or {}
+            # 优先 homeUrl：平台发布链接带 ?sharecode=，缺了它整站 403
+            return cfg.get("homeUrl") or cfg.get("origin") or None
     except (OSError, ValueError):
         return None
 

@@ -31,18 +31,21 @@
 两个班次的最后一行固定是：
 
 ```
-线上主页：https://health-daily-86790.app.workbuddy.host
+线上主页：https://health-daily-86790.app.workbuddy.host/?sharecode=NXJATQGYKL
 ```
 
 理由很实际：**不给链接就没人知道从哪点开**。消息里写出「总评 + 是否截断」而没有入口，
 等于让人自己去翻收藏夹。
 
-- **地址的唯一来源是 `tools/deploy.json` 的 `origin`**。`collect.py` 与
-  `build_homepage_data.py` 都会在输出末尾打一行「线上主页: …」，
-  prompt 里要求「与输出不一致时以输出为准」，所以脚本换了域名不会被旧文案绑住。
+- **`?sharecode=` 不能省**：平台发布链接靠它鉴权，少了参数网关直接回 403「链接不完整」，
+  整站（含 `/api/health`）全废。所有取数、推送、核验都要求带上，见 `tools/deploy.json` 的 `shareCode`。
+- **地址的唯一来源是 `tools/deploy.json` 的 `homeUrl`**（`origin` 是不带分享码的裸域，
+  只给程序拼 path 用）。`collect.py` 与 `build_homepage_data.py` 都会在输出末尾打一行
+  「线上主页: …」，prompt 里要求「与输出不一致时以输出为准」，所以脚本换了地址不会被旧文案绑住。
 - **失败也要给链接。** 采集失败、`targets` 为空、报告没出——主页照样能打开，
   只是数据没更新。只在成功时给链接，等于把失败藏起来。
-- ⚠️ **换域名时要改两处**：`tools/deploy.json`，以及两个 automation prompt 里那行字面量。
+- ⚠️ **换域名或重新发布时要改三处**：`tools/deploy.json`（`origin` / `shareCode` / `homeUrl`），
+  以及两个 automation prompt 里那行字面量。分享码每次重新发布都可能变。
   prompt 存在宿主配置里，脚本读不到、无法自动校验——这是全项目**唯一一处
   无法用「单一来源」消除的重复**，属于已知取舍（宿主不给 prompt 提供变量注入）。
   改完跑一次 `build_homepage_data.py`，比对输出与 prompt 是否一致。
@@ -121,7 +124,8 @@ appId=wbapp_3G1QX7kZjmy7RNbU9gBdT5
   `updateExistingApp` 这类参数了，发布工具按 `appId` 复用。
 - `server.py` 必须读 `PORT` 环境变量并 bind `0.0.0.0`（已满足，见 `server.py:455`）。
 
-地址唯一来源 `tools/deploy.json`（线上 `https://health-daily-86790.app.workbuddy.host/`）。
+地址唯一来源 `tools/deploy.json`（线上 `https://health-daily-86790.app.workbuddy.host/?sharecode=NXJATQGYKL`）。
+重新发布会换新分享码，记得三处同步（见 §「文案约定」）。
 
 ### 3.4 为什么数据不用重新上线
 
